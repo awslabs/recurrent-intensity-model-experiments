@@ -14,7 +14,7 @@ from ..util import _LitValidated, empty_cache_on_exit
 
 class RNN:
     def __init__(self, item_df,
-        num_hidden=128, nlayers=2, max_epochs=5, gpus=1,
+        num_hidden=128, nlayers=2, max_epochs=5, gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, truncated_bptt_steps=32):
 
         self._padded_item_list = [None] + item_df.index.tolist()

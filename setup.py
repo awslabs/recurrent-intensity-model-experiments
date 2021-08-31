@@ -11,7 +11,8 @@ setup(
         "rim_experiments": ["word_language_model/*.py"],
     },
 
-    install_requires=[ # check out environment.yml for full list
+    # use `conda env update --file environment.yml` to install full dependencies
+    install_requires=[
         "torch>=1.7.1", # torch==1.7.1+cu101
         "pytorch-lightning>=1.3.8",
         "numba>=0.52.0",

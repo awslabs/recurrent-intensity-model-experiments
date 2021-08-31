@@ -1,4 +1,4 @@
-name: torch-etc
+name: base
 channels:
   - conda-forge
 dependencies:
