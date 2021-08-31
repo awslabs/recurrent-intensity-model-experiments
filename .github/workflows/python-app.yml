@@ -43,7 +43,8 @@ jobs:
     - name: check package
       run: |
         prefix=`pip show recurrent-intensity-model-experiments | grep Location | awk '{print $2}'`
-        ls $prefix/rim_experiments
+        ls -l $prefix/rim_experiments
+        ls -l $prefix/rim_experiments/word_language_model
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
