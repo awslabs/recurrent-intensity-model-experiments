@@ -26,9 +26,10 @@ jobs:
         echo $CONDA/bin >> $GITHUB_PATH
     - name: Install dependencies
       run: |
-        conda env create -f environment.yml
-        conda activate rime37
+        conda env update --file environment.yml --name base
+        # conda activate rime37
         conda list
+        python --version
         pip --version
     - name: Install tick
       run: |
