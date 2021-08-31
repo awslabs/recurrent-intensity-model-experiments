@@ -1,5 +1,7 @@
 ## Recurrent Intensity Model Experiments
 
+![example workflow](https://github.com/awslabs/recurrent-intensity-model-experiments/actions/workflows/python-app.yml/badge.svg)
+
 Repository to reproduce the experiments in the paper:
 
 Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendation and Online Matching. ICML 2021 Time-Series Workshop.
@@ -9,10 +11,9 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
 
 ## Getting Started
 
-1. Clone with submodules `git clone --recursive <this repository>`
-2. Install via `pip install -e .`
-3. Add data to [data](data) folder. See detailed instructions therein.
-4. Run experiment as
+1. Download and install via `pip install -e .` Additional conda dependencies may be found at [environment.yml](environment.yml)
+2. Add data to [data](data) folder. See detailed instructions therein.
+3. Run experiment as
     ```
     from rim_experiments import main, plot_results
     self = main("prepare_ml_1m_data")

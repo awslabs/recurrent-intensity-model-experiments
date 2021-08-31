@@ -1,3 +1,6 @@
+# Copy from https://github.com/pytorch/examples/tree/master/word_language_model
+# BSD 3-Clause License (see THIRD-PARTY)
+
 import math
 import torch
 import torch.nn as nn
