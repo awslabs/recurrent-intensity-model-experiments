@@ -32,10 +32,17 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install flake8 pytest
-        pip install tick -vvv
+    # - name: Install tick
+    #   run: |
+    #     pip install tick -v
+    - name: Install everything else
+      run: |
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip freeze
         pip install .
+    - name: check package
+        prefix=`pip show recurrent-intensity-model-experiments | grep Location | awk '{print $2}'`
+        ls $prefix/rim_experiments
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
