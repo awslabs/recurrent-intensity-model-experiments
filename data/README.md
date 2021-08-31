@@ -12,8 +12,8 @@ Additional details are shown in `rim_experiments.dataset.*`.
 name    |   raw     |  train  | warm / clean test
 --------|----------:|--------:|--------:
 users   |     6,040 |   6,040 |  3,020
-items   |     3,706 |   3,706 |  3,669
-events  | 1,000,209 | 762,016 | 37,597
+items   |     3,706 |   3,706 |  3,556
+events  | 1,000,209 | 376,736 | 24,360
 
 * [Netflix](https://www.kaggle.com/netflix-inc/netflix-prize-data). We create an intermediate cache at `./Netflix/nf.parquet`.
 ```

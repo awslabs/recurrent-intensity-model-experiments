@@ -3,8 +3,8 @@ from ..util import extract_user_item, sample_groupA, split_by_user
 from .base import Dataset
 
 
-def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat", seed=0, second_half_only=False):
-    event_df = _load_sort_ml_1m_data(data_path)
+def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat", seed=0, second_half_only=True):
+    event_df = _load_sort_ml_1m_data(data_path, seed)
     if second_half_only:
         event_df = event_df[
             event_df.groupby("USER_ID")["TIMESTAMP"].rank(method="first", pct=True) >= 0.5]
@@ -22,7 +22,7 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat", seed=0, second_half_o
     return D, V
 
 
-def _load_sort_ml_1m_data(data_path):
+def _load_sort_ml_1m_data(data_path, seed):
     return pd.read_csv(
         data_path, sep="::", names=["USER_ID", "ITEM_ID", "_", "TIMESTAMP"]
-    ).drop("_", axis=1).sort_values("TIMESTAMP", kind="mergesort")
+    ).sample(frac=1, random_state=seed).sort_values("TIMESTAMP", kind="mergesort")
