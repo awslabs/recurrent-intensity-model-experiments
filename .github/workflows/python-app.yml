@@ -28,6 +28,7 @@ jobs:
       run: |
         conda env update --file environment.yml --name base
         conda list
+        pip --version
     # - name: Install tick
     #   run: |
     #     pip install tick -v

@@ -8,5 +8,6 @@ dependencies:
   - pandas>=1.1.5
   - swig>=4.0.0
   - pytorch>=1.7.1
+  - lightfm>=1.16
   - flake8
   - pytest
