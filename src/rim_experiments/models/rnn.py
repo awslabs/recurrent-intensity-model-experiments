@@ -5,11 +5,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 
-import pkg_resources, runpy
-path_to_model_py = pkg_resources.resource_filename(
-    'rim_experiments', 'word_language_model/model.py'
-)
-RNNModel = runpy.run_path(path_to_model_py)['RNNModel']
+from .word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
