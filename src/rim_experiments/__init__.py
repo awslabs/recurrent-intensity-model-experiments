@@ -15,8 +15,8 @@ class Experiment:
         ub_mult=[], # [3, 10, 30, 100], # sweep for constraints to generate curve
         lb_mult=[], # [0.5, 0.2, 0.1, 0],
         models_to_run=[
-            "Rand", "Pop", "EMA", #"Hawkes", "HP",
-            "RNN", "RNN-Pop", "RNN-EMA", #"RNN-Hawkes", "RNN-HP",
+            "Rand", "Pop", "EMA", "Hawkes", "HP",
+            "RNN", "RNN-Pop", "RNN-EMA", "RNN-Hawkes", "RNN-HP",
             "BPR-Item", "BPR-User"
             ],
         device="cpu",

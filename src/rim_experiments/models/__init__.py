@@ -2,8 +2,8 @@ import pandas as pd, numpy as np
 import functools, collections
 
 from .rnn import RNN
-# from .hawkes import Hawkes
-# from .hawkes_poisson import HawkesPoisson
+from .hawkes import Hawkes
+from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
 
 

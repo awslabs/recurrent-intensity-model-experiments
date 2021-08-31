@@ -29,20 +29,14 @@ jobs:
         conda env update --file environment.yml --name base
         conda list
         pip --version
-    # - name: Install tick
-    #   run: |
-    #     pip install tick -v
+    - name: Install tick
+      run: |
+        pip install tick -v
     - name: Install everything else
       run: |
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip freeze
         pip install .
-    # - name: check package
-    #   run: |
-    #     prefix=`pip show recurrent-intensity-model-experiments | grep Location | awk '{print $2}'`
-    #     ls -l $prefix/rim_experiments
-    #     ls -l $prefix/rim_experiments/word_language_model
-    #     ls -l $prefix/rim_experiments/word_language_model/
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
