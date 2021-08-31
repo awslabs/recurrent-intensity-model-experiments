@@ -28,10 +28,6 @@ jobs:
       run: |
         conda env update --file environment.yml --name base
         conda list
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 pytest
     # - name: Install tick
     #   run: |
     #     pip install tick -v
@@ -39,12 +35,13 @@ jobs:
       run: |
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip freeze
-        pip install -e .
+        pip install .
     - name: check package
       run: |
         prefix=`pip show recurrent-intensity-model-experiments | grep Location | awk '{print $2}'`
         ls -l $prefix/rim_experiments
         ls -l $prefix/rim_experiments/word_language_model
+        ls -l $prefix/rim_experiments/word_language_model/
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
