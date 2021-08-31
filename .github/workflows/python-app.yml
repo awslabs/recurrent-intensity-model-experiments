@@ -27,6 +27,7 @@ jobs:
     - name: Install dependencies
       run: |
         conda env update --file environment.yml --name base
+        conda list
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
