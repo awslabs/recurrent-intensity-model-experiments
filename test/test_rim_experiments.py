@@ -1,4 +1,4 @@
-import pytest
+import pytest, torch
 import pandas as pd, numpy as np, scipy as sp
 
 
@@ -14,7 +14,7 @@ def test_synthetic_experiment(split_fn_name):
     fig = plot_results(self)
 
 
-@pytest.mark.manual
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="skip in auto-tests")
 @pytest.mark.parametrize("name", [
     "prepare_ml_1m_data",
     "prepare_netflix_data",

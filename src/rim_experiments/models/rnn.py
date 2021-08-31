@@ -5,11 +5,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 
-import pkg_resources, runpy
-path_to_model_py = pkg_resources.resource_filename(
-    'rim_experiments', 'word_language_model/model.py'
-)
-RNNModel = runpy.run_path(path_to_model_py)['RNNModel']
+from .word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -18,7 +14,7 @@ from ..util import _LitValidated, empty_cache_on_exit
 
 class RNN:
     def __init__(self, item_df,
-        num_hidden=128, nlayers=2, max_epochs=5, gpus=1,
+        num_hidden=128, nlayers=2, max_epochs=5, gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, truncated_bptt_steps=32):
 
         self._padded_item_list = [None] + item_df.index.tolist()
@@ -31,7 +27,8 @@ class RNN:
             num_hidden, num_hidden, nlayers, 0, True,
         ), truncated_bptt_steps)
 
-        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus, auto_select_gpus=True,
+        self.trainer = Trainer(max_epochs=max_epochs,
+            gpus=gpus, auto_select_gpus=(gpus>0),
             callbacks=[EarlyStopping(monitor='val_loss')])
         print("trainer log at:", self.trainer.logger.log_dir)
 
