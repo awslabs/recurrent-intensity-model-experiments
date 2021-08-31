@@ -10,5 +10,6 @@ dependencies:
   - pytorch>=1.7.1
   - lightfm>=1.16
   - numba>=0.52.0
+  - matplotlib>=3.3.4
   - flake8
   - pytest
