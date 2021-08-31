@@ -19,7 +19,7 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
     self = main("prepare_ml_1m_data", lb_mult=[0.5, 0.2, 0.1, 0])
     fig = plot_results(self)
     ```
-    ![greedy-ml-1m](figures/greedy-ml-1m.png)
+    ![greedy-ml-1m](figure/greedy-ml-1m.png)
 4. To extend to other datasets, see example in [prepare_synthetic_data](src/rim_experiments/dataset/__init__.py)
 5. The provided examples are tested in [test](test).
 
