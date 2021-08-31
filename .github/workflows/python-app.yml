@@ -39,8 +39,9 @@ jobs:
       run: |
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip freeze
-        pip install .
+        pip install -e .
     - name: check package
+      run: |
         prefix=`pip show recurrent-intensity-model-experiments | grep Location | awk '{print $2}'`
         ls $prefix/rim_experiments
     - name: Lint with flake8
