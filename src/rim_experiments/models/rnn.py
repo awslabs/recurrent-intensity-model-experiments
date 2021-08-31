@@ -27,7 +27,8 @@ class RNN:
             num_hidden, num_hidden, nlayers, 0, True,
         ), truncated_bptt_steps)
 
-        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus, auto_select_gpus=True,
+        self.trainer = Trainer(max_epochs=max_epochs,
+            gpus=gpus, auto_select_gpus=(gpus>0),
             callbacks=[EarlyStopping(monitor='val_loss')])
         print("trainer log at:", self.trainer.logger.log_dir)
 
