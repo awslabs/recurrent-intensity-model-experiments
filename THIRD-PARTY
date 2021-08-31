@@ -1,6 +1,6 @@
 Recurrent Intensity Model Experiments includes the following third-party software/licensing:
 
-** pytorch word_language_model example - https://github.com/pytorch/examples/word_language_model
+** https://github.com/pytorch/examples/word_language_model
 
 BSD 3-Clause License
 
