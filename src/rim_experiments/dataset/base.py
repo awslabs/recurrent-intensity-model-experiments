@@ -4,10 +4,12 @@ from ..util import create_matrix, cached_property, perplexity, warn_nan_output
 
 
 def _check_inputs(event_df, user_df, item_df):
-    assert not user_df.index.has_duplicates, "assume one test window per user"
-    assert not item_df.index.has_duplicates, "assume one test per item"
-    assert event_df['USER_ID'].isin(user_df.index).all(), "user_df must include all users"
-    assert event_df['ITEM_ID'].isin(item_df.index).all(), "item_df must include all items"
+    assert not user_df.index.has_duplicates, "assume one test window per user for simplicity"
+    assert not item_df.index.has_duplicates, "assume one entry per item"
+    assert event_df['USER_ID'].isin(user_df.index).all(), \
+                                "user_df must include all users in event_df"
+    assert event_df['ITEM_ID'].isin(item_df.index).all(), \
+                                "item_df must include all items in event_df"
     if (event_df.groupby("USER_ID")["TIMESTAMP"].diff() < 0).any():
         warnings.warn("please sort events in time or [user, time] for temporal models.")
     duplication_rate = event_df.duplicated(["USER_ID", "ITEM_ID"]).mean()
