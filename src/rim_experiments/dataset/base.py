@@ -61,10 +61,10 @@ def _augment_item_hist(item_df, event_df):
 
 class Dataset:
     """
-    A dataset class contains 3 related tables with inferred columns with underscored names
-        event_df: [USER_ID, ITEM_ID, TIMESTAMP] with [_holdout]
-        user_df: [USER_ID, TEST_START_TIME] with [_hist_items, _timestamps, _in_test]
-        item_df: [ITEM_ID] with [_hist_len, _in_test]
+    A dataset class contains 3 related tables and we will infer columns with underscored names
+        event_df: [USER_ID, ITEM_ID, TIMESTAMP]; will infer [_holdout]
+        user_df: [USER_ID, TEST_START_TIME]; will infer [_hist_items, _timestamps, _in_test]
+        item_df: [ITEM_ID]; will infer [_hist_len, _in_test]
     """
     def __init__(self, event_df, user_df, item_df, horizon,
         min_user_len=1, min_item_len=1, drop_duplicates=True, print_stats=False):
