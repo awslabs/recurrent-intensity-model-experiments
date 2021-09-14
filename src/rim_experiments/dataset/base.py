@@ -133,7 +133,7 @@ class Dataset:
     def item_in_test(self):
         return self.item_df[self.item_df['_in_test']]
 
-    @property
+    @cached_property
     def target_df(self):
         return create_matrix(
             self.event_df[self.event_df['_holdout']==1],

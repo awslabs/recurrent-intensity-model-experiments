@@ -3,10 +3,7 @@ from rim_experiments.models import *
 from rim_experiments.metrics import *
 from rim_experiments.dataset import Dataset
 from rim_experiments import dataset
-from rim_experiments.util import _argsort
-
-
-cached_property = lambda foo: property(functools.lru_cache(1)(foo))
+from rim_experiments.util import _argsort, cached_property
 
 
 @dataclasses.dataclass
