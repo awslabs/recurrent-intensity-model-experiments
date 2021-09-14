@@ -11,7 +11,7 @@ def test_synthetic_experiment(split_fn_name):
     from rim_experiments import main, plot_results
     self = main("prepare_synthetic_data", split_fn_name,
         lb_mult=[0.5, 0.2, 0.1, 0])
-    fig = plot_results(self)
+    fig = plot_results(self.results)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="skip in auto-tests")

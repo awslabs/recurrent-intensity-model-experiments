@@ -1,4 +1,4 @@
-import functools, collections, torch
+import functools, collections, torch, dataclasses
 from rim_experiments.models import *
 from rim_experiments.metrics import *
 from rim_experiments.dataset import Dataset
@@ -7,6 +7,37 @@ from rim_experiments.util import _argsort
 
 
 cached_property = lambda foo: property(functools.lru_cache(1)(foo))
+
+
+@dataclasses.dataclass
+class ExperimentResult:
+    _k1: int
+    _c1: int
+    _kmax: int
+    _cmax: int
+
+    item_rec: dict = dataclasses.field(default_factory=dict)
+    user_rec: dict = dataclasses.field(default_factory=dict)
+    mtch1: dict = dataclasses.field(default_factory=dict)
+    ub_: dict = dataclasses.field(default_factory=dict)
+    lb_: dict = dataclasses.field(default_factory=dict)
+
+    def print_results(self):
+        print('\nitem_rec')
+        print(pd.DataFrame(self.item_rec).T)
+        print('\nuser_rec')
+        print(pd.DataFrame(self.user_rec).T)
+        if len(self.mtch1):
+            print('\nmtch1')
+            print(pd.DataFrame(self.mtch1).T)
+
+    def get_mtch_(self, k=None, c=None, name="ub_"):
+        y = {
+            name: pd.DataFrame(x)[k].sort_index(axis=1) if k is not None
+                else pd.DataFrame(x).swaplevel(axis=1)[c].sort_index(axis=1)
+            for name, x in getattr(self, name).items() if len(x)
+        }
+        return pd.concat(y, axis=1) if len(y) else None
 
 
 class Experiment:
@@ -19,6 +50,7 @@ class Experiment:
             "RNN", "RNN-Pop", "RNN-EMA", "RNN-Hawkes", "RNN-HP",
             "BPR-Item", "BPR-User"
             ],
+        model_hyps={},
         device="cpu",
         ):
         self.D = D
@@ -28,18 +60,20 @@ class Experiment:
         self.ub_mult = np.array(ub_mult)
         self.lb_mult = np.array(lb_mult)
         self.models_to_run = models_to_run
+        self.model_hyps = model_hyps
         self.device = device
 
-        self.item_rec = {}
-        self.user_rec = {}
-        self.mtch1 = {}
-        self.ub_ = {}
-        self.lb_ = {}
+        self.results = ExperimentResult(
+            _k1 = self.D.default_item_rec_top_k,
+            _c1 = self.D.default_user_rec_top_c,
+            _kmax = len(self.D.item_in_test),
+            _cmax = len(self.D.user_in_test),
+        )
 
-        self._k1 = self.D.default_item_rec_top_k
-        self._c1 = self.D.default_user_rec_top_c
-        self._kmax = len(self.D.item_in_test)
-        self._cmax = len(self.D.user_in_test)
+        # pass-through references
+        self.__dict__.update(self.results.__dict__)
+        self.print_results = self.results.print_results
+        self.get_mtch_ = self.results.get_mtch_
 
 
     def metrics_update(self, name, S):
@@ -134,36 +168,12 @@ class Experiment:
             lambda: LightFM_BPR(user_rec=True).fit(self.D).transform(self.D))
 
 
-    def print_results(self):
-        print('\nitem_rec')
-        print(pd.DataFrame(self.item_rec).T)
-        print('\nuser_rec')
-        print(pd.DataFrame(self.user_rec).T)
-        if len(self.mtch1):
-            print('\nmtch1')
-            print(pd.DataFrame(self.mtch1).T)
-
-    def get_mtch_(self, k=None, c=None, name="ub_"):
-        y = {
-            name: pd.DataFrame(x)[k].sort_index(axis=1) if k is not None
-                else pd.DataFrame(x).swaplevel(axis=1)[c].sort_index(axis=1)
-            for name, x in getattr(self, name).items() if len(x)
-        }
-        return pd.concat(y, axis=1) if len(y) else None
-
     @cached_property
     def _rnn(self):
-        fitted = RNN(self.D.item_df).fit(self.D)
+        fitted = RNN(self.D.item_df, **self.model_hyps.get("RNN", {})).fit(self.D)
         for name, param in fitted.model.named_parameters():
             print(name, param.data.shape)
-        transformed = {
-            self.D: fitted.transform(self.D),
-            self.V: fitted.transform(self.V),
-        }
-        class dummy:
-            def transform(self, D):
-                return transformed[D]
-        return dummy()
+        return fitted
 
     @cached_property
     def _hawkes(self):
@@ -179,11 +189,12 @@ def main(name, *args, **kw):
     D, V = prepare_fn(*args)
     self = Experiment(D, V, **kw)
     self.run()
-    self.print_results()
+    self.results.print_results()
     return self
 
 
 def plot_results(self, plot_lb=True, plot_ub=True, logy=True):
+    """ self is an instance of Experiment or ExperimentResult """
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(1, 2, figsize=(7, 2.5))
