@@ -1,4 +1,4 @@
-import functools, collections, torch, dataclasses
+import functools, collections, torch, dataclasses, ast
 from rim_experiments.models import *
 from rim_experiments.metrics import *
 from rim_experiments.dataset import Dataset
@@ -15,6 +15,8 @@ class ExperimentResult:
     _c1: int
     _kmax: int
     _cmax: int
+    item_ppl: float
+    user_ppl: float
 
     item_rec: dict = dataclasses.field(default_factory=dict)
     user_rec: dict = dataclasses.field(default_factory=dict)
@@ -32,11 +34,13 @@ class ExperimentResult:
             print(pd.DataFrame(self.mtch1).T)
 
     def get_mtch_(self, k=None, c=None, name="ub_"):
-        y = {
-            name: pd.DataFrame(x)[k].sort_index(axis=1) if k is not None
-                else pd.DataFrame(x).swaplevel(axis=1)[c].sort_index(axis=1)
-            for name, x in getattr(self, name).items() if len(x)
-        }
+        y = {}
+        for method, x in getattr(self, name).items():
+            x = {ast.literal_eval(str(k)): v for k,v in x.items()}
+            if k is not None:
+                y[method] = pd.DataFrame(x)[k].sort_index(axis=1)
+            else:
+                y[method] = pd.DataFrame(x).swaplevel(axis=1)[c].sort_index(axis=1)
         return pd.concat(y, axis=1) if len(y) else None
 
 
@@ -68,6 +72,8 @@ class Experiment:
             _c1 = self.D.default_user_rec_top_c,
             _kmax = len(self.D.item_in_test),
             _cmax = len(self.D.user_in_test),
+            item_ppl = self.D.get_stats()['event_df']['item_ppl'],
+            user_ppl = self.D.get_stats()['event_df']['user_ppl'],
         )
 
         # pass-through references
@@ -113,7 +119,7 @@ class Experiment:
 
         out = {}
         for k, c, constraint_type in confs:
-            out[(k, c)] = evaluate_mtch(
+            out[str((k, c))] = evaluate_mtch(
                 target_csr, score_mat, k, c, argsort_ij, constraint_type
             )
 
