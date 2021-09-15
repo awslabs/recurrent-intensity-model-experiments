@@ -88,10 +88,6 @@ class Dataset:
         self.item_df['_in_test'] = (
             self.item_df['_hist_len']>=min_item_len
         ).astype(bool)
-        self.target_df = create_matrix(
-            self.event_df[self.event_df['_holdout']==1],
-            self.user_in_test.index, self.item_in_test.index, "df"
-        )
 
         print("inferring default parameters")
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
@@ -136,6 +132,13 @@ class Dataset:
     @property
     def item_in_test(self):
         return self.item_df[self.item_df['_in_test']]
+
+    @cached_property
+    def target_df(self):
+        return create_matrix(
+            self.event_df[self.event_df['_holdout']==1],
+            self.user_in_test.index, self.item_in_test.index, "df"
+        )
 
     @warn_nan_output
     def transform(self, S):

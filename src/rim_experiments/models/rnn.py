@@ -32,7 +32,7 @@ class RNN:
             callbacks=[EarlyStopping(monitor='val_loss')])
         print("trainer log at:", self.trainer.logger.log_dir)
 
-    @functools.lru_cache(1)
+    @functools.lru_cache(2)
     @empty_cache_on_exit
     @torch.no_grad()
     def transform(self, D):
