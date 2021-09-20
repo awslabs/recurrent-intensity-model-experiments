@@ -1,4 +1,5 @@
-import functools, collections, torch, dataclasses, ast
+import functools, collections, torch, dataclasses
+from typing import Dict, List
 from rim_experiments.models import *
 from rim_experiments.metrics import *
 from rim_experiments.dataset import Dataset
@@ -15,11 +16,11 @@ class ExperimentResult:
     item_ppl: float
     user_ppl: float
 
-    item_rec: dict = dataclasses.field(default_factory=dict)
-    user_rec: dict = dataclasses.field(default_factory=dict)
-    mtch1: dict = dataclasses.field(default_factory=dict)
-    ub_: dict = dataclasses.field(default_factory=dict)
-    lb_: dict = dataclasses.field(default_factory=dict)
+    item_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
+    user_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
+    mtch1:    Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
+    ub_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
+    lb_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
 
     def print_results(self):
         print('\nitem_rec')
@@ -33,11 +34,11 @@ class ExperimentResult:
     def get_mtch_(self, k=None, c=None, name="ub_"):
         y = {}
         for method, x in getattr(self, name).items():
-            x = {ast.literal_eval(str(k)): v for k,v in x.items()}
+            x = pd.DataFrame(x)
             if k is not None:
-                y[method] = pd.DataFrame(x)[k].sort_index(axis=1)
+                y[method] = x.set_index('k').loc[k].set_index('c').sort_index().T
             else:
-                y[method] = pd.DataFrame(x).swaplevel(axis=1)[c].sort_index(axis=1)
+                y[method] = x.set_index('c').loc[c].set_index('k').sort_index().T
         return pd.concat(y, axis=1) if len(y) else None
 
 
@@ -114,11 +115,13 @@ class Experiment:
             + [(self._k1, c, constraint_type) for c in (self._c1 * mult)]
         )
 
-        out = {}
+        out = []
         for k, c, constraint_type in confs:
-            out[str((k, c))] = evaluate_mtch(
+            res = evaluate_mtch(
                 target_csr, score_mat, k, c, argsort_ij, constraint_type
             )
+            res.update({'k': k, 'c': c})
+            out.append(res)
 
         return out
 
