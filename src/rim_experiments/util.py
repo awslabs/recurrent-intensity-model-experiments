@@ -75,10 +75,16 @@ def perplexity(x):
 cached_property = lambda foo: property(functools.lru_cache()(foo))
 
 
-def _assign_topk(S, k, tie_breaker=1e-10):
-    if tie_breaker>0:
-        S = S + np.random.rand(*S.shape) * tie_breaker
-    indices = np.argpartition(-S, k, axis=-1)[..., :k]
+def _assign_topk(S, k, tie_breaker=1e-10, batch_size=10000):
+    def fn(s):
+        if tie_breaker:
+            s = s + np.random.rand(*s.shape) * tie_breaker
+        return np.argpartition(-s, k, axis=1)[:, :k]
+
+    indices = np.vstack([
+        fn(S[i:min(i+batch_size, S.shape[0])])
+        for i in range(0, S.shape[0], batch_size)
+    ])
     return sp.sparse.csr_matrix((
         np.ones(indices.size),
         np.ravel(indices),
@@ -104,6 +110,23 @@ def extract_user_item(event_df):
     return (user_df, item_df)
 
 
+def groupby_collect(series):
+    last_i = None
+    for i in series.index.values:
+        if last_i is not None and last_i>i:
+            series = series.sort_index(kind='mergesort')
+            break
+        last_i = i
+
+    splits = np.where(
+        np.array(series.index.values[1:]) != np.array(series.index.values[:-1])
+        )[0] + 1
+
+    return pd.Series(
+        [x.tolist() for x in np.split(series.values, splits)],
+        index=series.index.values[np.hstack([[0], splits])])
+
+
 def create_matrix(event_df, user_index, item_index, return_type):
     user2ind = {k:i for i,k in enumerate(user_index)}
     item2ind = {k:i for i,k in enumerate(item_index)}
@@ -120,6 +143,14 @@ def create_matrix(event_df, user_index, item_index, return_type):
         return csr
     elif return_type == 'df':
         return pd.DataFrame.sparse.from_spmatrix(csr, user_index, item_index)
+
+
+def df_to_coo(df):
+    try:
+        return df.sparse.to_coo()
+    except KeyError:
+        warnings.warn("pandas bug: https://github.com/pandas-dev/pandas/issues/25270")
+        return df.values
 
 
 def split_by_time(user_df, test_start, valid_start):

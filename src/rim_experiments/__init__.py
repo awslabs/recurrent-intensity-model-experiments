@@ -4,7 +4,7 @@ from rim_experiments.models import *
 from rim_experiments.metrics import *
 from rim_experiments.dataset import Dataset
 from rim_experiments import dataset
-from rim_experiments.util import _argsort, cached_property
+from rim_experiments.util import _argsort, cached_property, df_to_coo
 
 
 @dataclasses.dataclass
@@ -18,7 +18,6 @@ class ExperimentResult:
 
     item_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
     user_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
-    mtch1:    Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
     ub_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
     lb_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
 
@@ -27,9 +26,6 @@ class ExperimentResult:
         print(pd.DataFrame(self.item_rec).T)
         print('\nuser_rec')
         print(pd.DataFrame(self.user_rec).T)
-        if len(self.mtch1):
-            print('\nmtch1')
-            print(pd.DataFrame(self.mtch1).T)
 
     def get_mtch_(self, k=None, c=None, name="ub_"):
         y = {}
@@ -44,7 +40,6 @@ class ExperimentResult:
 
 class Experiment:
     def __init__(self, D, V,
-        eval_mtch1=True,
         ub_mult=[], # [3, 10, 30, 100], # sweep for constraints to generate curve
         lb_mult=[], # [0.5, 0.2, 0.1, 0],
         models_to_run=[
@@ -58,7 +53,6 @@ class Experiment:
         self.D = D
         self.V = V
 
-        self.eval_mtch1 = eval_mtch1
         self.ub_mult = np.array(ub_mult)
         self.lb_mult = np.array(lb_mult)
         self.models_to_run = models_to_run
@@ -81,39 +75,31 @@ class Experiment:
 
 
     def metrics_update(self, name, S):
-        target_csr = self.D.target_df.values
+        target_csr = df_to_coo(self.D.target_df)
         score_mat = self.D.transform(S).values
 
         self.item_rec[name] = evaluate_item_rec(target_csr, score_mat, self._k1)
         self.user_rec[name] = evaluate_user_rec(target_csr, score_mat, self._c1)
 
-        if self.eval_mtch1 or len(self.ub_mult) or len(self.lb_mult):
-            argsort_ij = _argsort(score_mat, device=self.device)
-            self.mtch1[name] = evaluate_mtch(
-                target_csr, score_mat, self._k1, self._c1, argsort_ij)
-        else:
-            argsort_ij = None
-
         print(pd.DataFrame({k:v for k,v in {
             'item_rec': self.item_rec[name],
             'user_rec': self.user_rec[name],
-            'mtch1': self.mtch1.get(name, None),
         }.items() if v is not None}).T)
 
         if len(self.ub_mult):
-            self.ub_[name] = self._mtch_update(
-                target_csr, score_mat, "ub", self.ub_mult, argsort_ij)
+            self.ub_[name] = self._mtch_update(target_csr, score_mat, "ub", self.ub_mult)
 
         if len(self.lb_mult):
-            self.lb_[name] = self._mtch_update(
-                target_csr, score_mat, "lb", self.lb_mult, argsort_ij)
+            self.lb_[name] = self._mtch_update(target_csr, score_mat, "lb", self.lb_mult)
 
 
-    def _mtch_update(self, target_csr, score_mat, constraint_type, mult, argsort_ij):
+    def _mtch_update(self, target_csr, score_mat, constraint_type, mult):
         confs = ([(self._k1, self._c1, "ub")] # equality constraint
             + [(k, self._c1, constraint_type) for k in (self._k1 * mult)]
             + [(self._k1, c, constraint_type) for c in (self._c1 * mult)]
         )
+
+        argsort_ij = _argsort(score_mat, device=self.device)
 
         out = []
         for k, c, constraint_type in confs:

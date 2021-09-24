@@ -1,6 +1,7 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, warnings
-from ..util import create_matrix, cached_property, perplexity, warn_nan_output
+from rim_experiments.util import create_matrix, cached_property, perplexity, \
+                                 timed, warn_nan_output, groupby_collect, df_to_coo
 
 
 def _check_inputs(event_df, user_df, item_df):
@@ -10,11 +11,16 @@ def _check_inputs(event_df, user_df, item_df):
                                 "user_df must include all users in event_df"
     assert event_df['ITEM_ID'].isin(item_df.index).all(), \
                                 "item_df must include all items in event_df"
-    if (event_df.groupby("USER_ID")["TIMESTAMP"].diff() < 0).any():
-        warnings.warn("please sort events in time or [user, time] for temporal models.")
-    duplication_rate = event_df.duplicated(["USER_ID", "ITEM_ID"]).mean()
-    if duplication_rate>0:
-        warnings.warn(f"duplicated user-item at {duplication_rate:%}", DeprecationWarning)
+
+    with timed("checking whether the events are sorted via necessary conditions"):
+        user_time = event_df[['USER_ID','TIMESTAMP']].values
+        if not (user_time[1:] >= user_time[:-1]).any(axis=1).all():
+            warnings.warn("please sort events in [user, time] for best efficiency.")
+
+    with timed("checking for repeated user-item events"):
+        nunique = len(set(event_df.set_index(['USER_ID', 'ITEM_ID']).index))
+        if nunique < len(event_df):
+            warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
 
 
 def _holdout_and_trim_events(event_df, user_df, horizon):
@@ -33,11 +39,13 @@ def _holdout_and_trim_events(event_df, user_df, horizon):
 
 def _augment_user_hist(user_df, event_df):
     """ augment history length before test start time """
+    @timed("groupby, collect, reindex")
     def fn(col_name):
-        hist = event_df[event_df['_holdout']==0] \
-                .groupby('USER_ID')[col_name].apply(list) \
-                .reindex(user_df.index)
-        return hist.apply(lambda x: x if isinstance(x, collections.abc.Iterable) else [])
+        hist = groupby_collect(
+            event_df[event_df['_holdout']==0].set_index('USER_ID')[col_name]
+            )
+        return hist.reindex(user_df.index).apply(
+            lambda x: x if isinstance(x, collections.abc.Iterable) else [])
 
     user_df = user_df.join(
         fn("ITEM_ID").to_frame("_hist_items"), on='USER_ID'
@@ -69,10 +77,9 @@ class Dataset:
         item_df: [ITEM_ID]; will infer [_hist_len, _in_test]
     """
     def __init__(self, event_df, user_df, item_df, horizon,
-        min_user_len=1, min_item_len=1, drop_duplicates=True, print_stats=False):
+        min_user_len=1, min_item_len=1, print_stats=False):
 
         _check_inputs(event_df, user_df, item_df)
-        self._raw_inputs = locals().copy()
 
         print("augmenting and trimming data")
         self.event_df = _holdout_and_trim_events(event_df, user_df, horizon)
@@ -107,17 +114,17 @@ class Dataset:
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': self.user_in_test['_hist_span'].mean(),
                 'horizon': self.horizon,
-                'avg target items': self.target_df.sum(axis=1).mean(),
+                'avg target items': df_to_coo(self.target_df).sum(axis=1).mean(),
             },
             'item_df': {
                 '# warm items': sum(self.item_df['_in_test']),
                 '# cold items': sum(~self.item_df['_in_test']),
                 'avg hist len': self.item_in_test['_hist_len'].mean(),
-                'avg target users': self.target_df.sum(axis=0).mean(),
+                'avg target users': df_to_coo(self.target_df).sum(axis=0).mean(),
             },
             'event_df': {
                 '# train events': sum(self.event_df['_holdout']==0),
-                '# test events': self.target_df.values.sum(),
+                '# test events': df_to_coo(self.target_df).sum(),
                 'default_user_rec_top_c': self.default_user_rec_top_c,
                 'default_item_rec_top_k': self.default_item_rec_top_k,
                 "user_ppl": perplexity(self.user_in_test['_hist_len']),
