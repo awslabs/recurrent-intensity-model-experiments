@@ -111,6 +111,10 @@ def extract_user_item(event_df):
 
 
 def groupby_collect(series):
+    """
+    >>> groupby_collect(pd.Series([1,2,3,4,5], index=[1,1,2,3,3])).to_dict()
+    {1: [1, 2], 2: [3], 3: [4, 5]}
+    """
     last_i = None
     for i in series.index.values:
         if last_i is not None and last_i>i:
