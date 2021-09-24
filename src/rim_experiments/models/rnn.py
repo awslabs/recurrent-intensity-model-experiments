@@ -18,6 +18,7 @@ class RNN:
         truncated_input_steps=256, truncated_bptt_steps=32):
 
         self._padded_item_list = [None] + item_df.index.tolist()
+        self._truncated_input_steps = truncated_input_steps
         self._collate_fn = functools.partial(_collate_fn,
             tokenize={k:i for i,k in enumerate(self._padded_item_list)},
             truncated_input_steps=truncated_input_steps)
@@ -39,7 +40,8 @@ class RNN:
         dataset = D.user_in_test['_hist_items'].values
         collate_fn = functools.partial(self._collate_fn, training=False)
         m, n_events, sample_y = _get_dataset_stats(dataset, collate_fn)
-        print(f"transforming {m} users with {n_events} (truncated) events")
+        print(f"transforming {m} users with {n_events} events, "
+              f"truncated@{self._truncated_input_steps} per user")
         print(f"sample_y={sample_y}")
 
         batches = self.trainer.predict(
@@ -59,7 +61,8 @@ class RNN:
         dataset = D.user_df[D.user_df['_hist_len']>0]['_hist_items'].values
         collate_fn = functools.partial(self._collate_fn, training=True)
         m, n_events, sample_y = _get_dataset_stats(dataset, collate_fn)
-        print(f"fitting {m} users with {n_events} (truncated) events")
+        print(f"fitting {m} users with {n_events} events, "
+              f"truncated@{self._truncated_input_steps} per user")
         print(f"sample_y={sample_y}")
 
         train_set, valid_set = random_split(dataset, [m*4//5, (m - m*4//5)])
