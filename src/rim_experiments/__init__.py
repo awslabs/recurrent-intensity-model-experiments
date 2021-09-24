@@ -112,52 +112,48 @@ class Experiment:
         return out
 
 
-    def _check_run_model(self, name, S_fn):
-        if name in self.models_to_run:
-            print("running", name)
-            self.metrics_update(name, S_fn())
+    def transform(self, model, D):
+        if model == "Rand":
+            return Rand().transform(D)
+
+        if model == "Pop":
+            return Pop().transform(D)
+
+        if model == "EMA":
+            return EMA(D.horizon).transform(D) * Pop(0, 1).transform(D)
+
+        if model == "Hawkes":
+            return self._hawkes.transform(D) * Pop(0, 1).transform(D)
+
+        if model == "HP":
+            return self._hawkes_poisson.transform(D) * Pop(0, 1).transform(D)
+
+        if model == "RNN":
+            return self._rnn.transform(D)
+
+        if model == "RNN-Pop":
+            return self._rnn.transform(D) * Pop(1, 0).transform(D)
+
+        if model == "RNN-EMA":
+            return self._rnn.transform(D) * EMA(D.horizon).transform(D)
+
+        if model == "RNN-Hawkes":
+            return self._rnn.transform(D) * self._hawkes.transform(D)
+
+        if model == "RNN-HP":
+            return self._rnn.transform(D) * self._hawkes_poisson.transform(D)
+
+        if model == "BPR-Item":
+            return LightFM_BPR(item_rec=True).fit(D).transform(D)
+
+        if model == "BPR-User":
+            return LightFM_BPR(user_rec=True).fit(D).transform(D)
 
 
     def run(self):
-        self._check_run_model("Rand",
-            lambda: Rand().transform(self.D))
-
-        self._check_run_model("Pop",
-            lambda: Pop().transform(self.D))
-
-        self._check_run_model("EMA",
-            lambda: Pop(user_rec=False, item_rec=True).transform(self.D) *
-                EMA(self.D.horizon).transform(self.D))
-
-        self._check_run_model("Hawkes",
-            lambda: Pop(user_rec=False, item_rec=True).transform(self.D) *
-                self._hawkes.transform(self.D))
-
-        self._check_run_model("HP",
-            lambda: Pop(user_rec=False, item_rec=True).transform(self.D) *
-                self._hawkes_poisson.transform(self.D))
-
-        self._check_run_model("RNN",
-            lambda: self._rnn.transform(self.D))
-
-        self._check_run_model("RNN-Pop",
-            lambda: self._rnn.transform(self.D) *
-                Pop(user_rec=True, item_rec=False).transform(self.D))
-
-        self._check_run_model("RNN-EMA",
-            lambda: self._rnn.transform(self.D) * EMA(self.D.horizon).transform(self.D))
-
-        self._check_run_model("RNN-Hawkes",
-            lambda: self._rnn.transform(self.D) * self._hawkes.transform(self.D))
-
-        self._check_run_model("RNN-HP",
-            lambda: self._rnn.transform(self.D) * self._hawkes_poisson.transform(self.D))
-
-        self._check_run_model("BPR-Item",
-            lambda: LightFM_BPR(item_rec=True).fit(self.D).transform(self.D))
-
-        self._check_run_model("BPR-User",
-            lambda: LightFM_BPR(user_rec=True).fit(self.D).transform(self.D))
+        for model in self.models_to_run:
+            print("running", model)
+            self.metrics_update(model, self.transform(model, self.D))
 
 
     @cached_property
