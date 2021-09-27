@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule
 from pytorch_lightning import Trainer, loggers
 from pytorch_lightning.tuner.auto_gpu_select import pick_multiple_gpus
-from rim_experiments.util import empty_cache_on_exit, _SparseArrayWrapper
+from rim_experiments.util import empty_cache_on_exit, _SparseArrayWrapper, _LitValidated
 
 def get_batch_size(shape):
     """ round to similar batch sizes """
@@ -18,7 +18,7 @@ def get_batch_size(shape):
     return int(np.ceil(n_users / n_batches))
 
 
-class _LitCVX(LightningModule):
+class _LitCVX(_LitValidated):
     """ topk on v-modified scores thanks to dual decomposition """
     def __init__(self, n_users, n_items, alpha, beta, ub, v=None, lr=1):
 
@@ -56,23 +56,18 @@ class _LitCVX(LightningModule):
         pi = self.forward(batch)
         r = pi.mean(axis=0) - self.beta
         loss = ((self.v.detach() + r - self._v)**2).mean() / 2
-
         self.log("train_loss", loss)
         return loss
-
-
-    def training_epoch_end(self, outputs):
-        self.train_loss = torch.stack([o['loss'] for o in outputs]).mean()
 
 
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, factor=0.25, verbose=True)
+            optimizer, patience=3, factor=0.25, verbose=True)
         return {
             "optimizer": optimizer,
             "lr_scheduler": lr_scheduler,
-            "monitor": "train_loss",
+            "monitor": "val_loss",
         }
 
 
@@ -100,7 +95,7 @@ class CVX:
             auto_select_gpus=True, log_every_n_steps=1)
         print("trainer log at:", self.trainer.logger.log_dir)
 
-        self.trainer.tune(self.model)
+        self.trainer.tune(self.model) # this may auto-select gpus; not sure.
 
 
     def _standardize_input(self, score_mat):
@@ -128,8 +123,10 @@ class CVX:
 
         self.trainer.fit(self.model,
             DataLoader(score_mat, self.batch_size, True),
+            DataLoader(score_mat, self.batch_size), # valid on train set in offline cases
             )
         delattr(self.model, 'train_dataloader')
+        delattr(self.model, 'val_dataloader')
 
-        print("train_loss", self.model.train_loss)
+        print("val_loss", self.model.val_loss)
         return self
