@@ -202,3 +202,52 @@ class _LitValidated(LightningModule):
 
     def validation_epoch_end(self, outputs):
         self.val_loss = torch.stack(outputs).mean()
+
+
+# class ScoreNDArray:
+#     @property
+#     def values(self):
+#         raise NotImplementedError
+
+#     def __mul__(self, other: ScoreNDArray):
+#         """ For other types of 2-d arrays, please multiply by parts using sliced values """
+#         raise NotImplementedError
+
+#     def __getitem__(self, row_inds):
+#         raise NotImplementedError
+
+#     def reindex(self, index, axis=0):
+#         raise NotImplementedError
+
+#     @property
+#     def T(self):
+#         raise NotImplementedError
+
+
+class _SparseArrayWrapper:
+    """ hack around pytorch limitations
+    >>> n=10; p=20; k=5
+    ... topk = torch.rand(n,p, device='cuda').topk(k)
+    ... indptr = torch.arange(n+1)*k
+    ... self = _SparseArrayWrapper(indptr, topk.indices, topk.values, (n,p))
+    ... assert (self._torch.to_dense().topk(k).indices == topk.indices).all()
+    """
+    def __init__(self, indptr, indices, values, shape):
+        self._scipy = sp.sparse.csr_matrix(
+            (
+                values.ravel().cpu().numpy(),
+                indices.ravel().cpu().numpy(),
+                indptr.ravel().cpu().numpy(),
+            ), shape)
+        coo = self._scipy.tocoo()
+        coo_indices = np.array([coo.row, coo.col])
+
+        self._torch = torch.sparse_coo_tensor(
+            coo_indices, coo.data, shape, dtype=values.dtype, device=values.device
+        )
+
+    def mean(self, axis):
+        return self._torch.to_dense().mean(axis=axis)
+
+    def scipy(self):
+        return self._scipy.copy()
