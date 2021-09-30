@@ -150,5 +150,12 @@ class Dataset:
     @warn_nan_output
     def transform(self, S):
         """ reindex the score matrix to match with test users and items """
-        return S.reindex(self.user_in_test.index) \
-            .reindex(self.item_in_test.index, axis=1)
+        if len(S.index) != len(self.user_in_test) or \
+            (S.index.values != self.user_in_test.index.values).any():
+            S = S.reindex(self.user_in_test.index)
+
+        if len(S.columns) != len(self.item_in_test) or \
+            (S.columns.values != self.item_in_test.index.values).any():
+            S = S.reindex(self.item_in_test.index, axis=1)
+
+        return S

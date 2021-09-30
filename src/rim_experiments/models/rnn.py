@@ -123,4 +123,5 @@ class _LitRNNModel(_LitValidated):
             hiddens = hiddens.detach()
         out, hiddens = self.model(x, hiddens)
         loss = self.loss(out, y.view(-1))
+        self.log("train_loss", loss)
         return {'loss': loss, 'hiddens': hiddens}
