@@ -1,6 +1,7 @@
 import numpy as np, pandas as pd, scipy as sp
 from ..util import perplexity, _assign_topk
 from .matching import assign_mtch
+from .cvx import CVX
 
 
 def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
@@ -38,8 +39,15 @@ def evaluate_user_rec(target_csr, score_mat, C):
     return evaluate_assigned(target_csr, assigned_csr, score_mat, axis=0)
 
 
-def evaluate_mtch(target_csr, score_mat, *args, **kw):
-    assigned_csr = assign_mtch(target_csr, score_mat, *args, **kw)
+def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None, **kw):
+    if cvx:
+        if valid_mat is None:
+            valid_mat = score_mat
+        self = CVX(valid_mat, topk, C, **kw)
+        assigned_csr = self.fit(valid_mat).transform(score_mat)
+    else:
+        assigned_csr = assign_mtch(score_mat, topk, C, **kw)
     out = evaluate_assigned(target_csr, assigned_csr, score_mat)
-    print('evaluate_mtch prec={prec:.1e} item_ppl={item_ppl:.1e}'.format(**out))
+    print('evaluate_mtch prec@{topk}={prec:.1e} item_ppl@{C}={item_ppl:.1e}'.format(
+        **out, **locals()))
     return out

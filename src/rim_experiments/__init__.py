@@ -1,4 +1,4 @@
-import functools, collections, torch, dataclasses
+import functools, collections, torch, dataclasses, warnings
 from typing import Dict, List
 from rim_experiments.models import *
 from rim_experiments.metrics import *
@@ -32,9 +32,9 @@ class ExperimentResult:
         for method, x in getattr(self, name).items():
             x = pd.DataFrame(x)
             if k is not None:
-                y[method] = x.set_index('k').loc[k].set_index('c').sort_index().T
+                y[method] = x.set_index(['k', 'c']).loc[k].sort_index().T
             else:
-                y[method] = x.set_index('c').loc[c].set_index('k').sort_index().T
+                y[method] = x.set_index(['c', 'k']).loc[c].sort_index().T
         return pd.concat(y, axis=1) if len(y) else None
 
 
@@ -49,6 +49,7 @@ class Experiment:
             ],
         model_hyps={},
         device="cpu",
+        **mtch_kw
         ):
         self.D = D
         self.V = V
@@ -58,6 +59,7 @@ class Experiment:
         self.models_to_run = models_to_run
         self.model_hyps = model_hyps
         self.device = device
+        self.mtch_kw = mtch_kw
 
         self.results = ExperimentResult(
             _k1 = self.D.default_item_rec_top_k,
@@ -94,17 +96,26 @@ class Experiment:
 
 
     def _mtch_update(self, target_csr, score_mat, constraint_type, mult):
+        """ assign user/item matches and return evaluation results.
+        """
         confs = ([(self._k1, self._c1, "ub")] # equality constraint
-            + [(k, self._c1, constraint_type) for k in (self._k1 * mult)]
-            + [(self._k1, c, constraint_type) for c in (self._c1 * mult)]
-        )
+            + [(self._k1, c, constraint_type) for c in (self._c1 * mult)])
 
-        argsort_ij = _argsort(score_mat, device=self.device)
+        mtch_kw = self.mtch_kw.copy()
+
+        cvx = mtch_kw.get("cvx", False)
+        if cvx:
+            if constraint_type=="lb":
+                warnings.warn("Ignoring lower-bound k, which is infeasible by item_rec.")
+        else:
+            confs += [(k, self._c1, constraint_type) for k in (self._k1 * mult)]
+            mtch_kw['argsort_ij'] = _argsort(score_mat, device=self.device)
 
         out = []
         for k, c, constraint_type in confs:
             res = evaluate_mtch(
-                target_csr, score_mat, k, c, argsort_ij, constraint_type
+                target_csr, score_mat, k, c, constraint_type=constraint_type,
+                **mtch_kw
             )
             res.update({'k': k, 'c': c})
             out.append(res)

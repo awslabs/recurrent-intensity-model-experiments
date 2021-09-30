@@ -1,132 +1,147 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, torch, gc
 from torch.utils.data import DataLoader
-from pytorch_lightning import LightningModule
-from pytorch_lightning import Trainer, loggers
+from pytorch_lightning import LightningModule, Trainer, loggers
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.tuner.auto_gpu_select import pick_multiple_gpus
-from rim_experiments.util import empty_cache_on_exit, _SparseArrayWrapper, _LitValidated
-
-def get_batch_size(shape):
-    """ round to similar batch sizes """
-    n_users, n_items = shape
-    if torch.cuda.device_count():
-        total_memory = torch.cuda.get_device_properties(0).total_memory
-    else:
-        total_memory = 16e9
-    max_batch_size = total_memory / 8 / 10 / n_items
-    n_batches = int(n_users / max_batch_size) + 1
-    return int(np.ceil(n_users / n_batches))
-
-
-class _LitCVX(_LitValidated):
-    """ topk on v-modified scores thanks to dual decomposition """
-    def __init__(self, n_users, n_items, alpha, beta, ub, v=None, lr=1):
-
-        super().__init__()
-        self.topk = np.round(alpha * n_items).astype(int)
-        self.beta = beta
-        self.ub = ub
-
-        if v is None:
-            v = (-1)**ub * torch.rand(n_items)
-        self._v = torch.nn.Parameter(v)
-        self.lr = lr
-
-
-    @property
-    def v(self):
-        if self.ub:
-            return self._v.clip(0, None) # obj - pos(v) to meet upper-constraints
-        else:
-            return self._v.clip(None, 0)
-
-
-    @torch.no_grad()
-    def forward(self, batch):
-        dual_score = batch - self.v.detach().to(batch.device)[None, :]
-        topk = torch.topk(dual_score, k=self.topk)
-        indptr = torch.arange(len(batch) + 1).to(batch.device) * self.topk
-
-        pi = _SparseArrayWrapper(
-            indptr, topk.indices, torch.ones_like(topk.values), batch.shape)
-        return pi
-
-
-    def training_step(self, batch, batch_idx):
-        pi = self.forward(batch)
-        r = pi.mean(axis=0) - self.beta
-        loss = ((self.v.detach() + r - self._v)**2).mean() / 2
-        self.log("train_loss", loss)
-        return loss
-
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=3, factor=0.25, verbose=True)
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": lr_scheduler,
-            "monitor": "val_loss",
-        }
+from rim_experiments.util import empty_cache_on_exit, _LitValidated, get_batch_size
 
 
 class CVX:
-    def __init__(self, score_mat, topk, C,
-        constraint_type='ub', max_epochs=100, gpus=1, prefix='CVX', **kw):
+    def __init__(self, score_mat, topk, C, constraint_type='ub',
+        max_epochs=100, min_epsilon=1e-10, gpus=1, prefix='CVX'):
 
         n_users, n_items = score_mat.shape
         alpha = topk / n_items
         beta = C / n_users
 
         self.score_max = score_mat.max()
-        self.batch_size = get_batch_size(score_mat.shape)
-        self.item_rec_feasible = (constraint_type=='ub' or alpha>beta)
+        if constraint_type == 'lb':
+            assert alpha >= beta, "requires item_rec feasible in online cases"
 
-        if not self.item_rec_feasible: # transpose
-            n_users, n_items = n_items, n_users
-            alpha, beta = beta, alpha
-
-        self.model = _LitCVX(n_users, n_items, alpha, beta, constraint_type=='ub', **kw)
+        self.model = _LitCVX(
+            n_users, n_items, alpha, beta, constraint_type=='ub',
+            max_epochs, min_epsilon)
 
         tb_logger = loggers.TensorBoardLogger(
             "logs/", name=f"{prefix}-{topk}-{C}-{constraint_type}")
+
         self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
             auto_select_gpus=True, log_every_n_steps=1)
         print("trainer log at:", self.trainer.logger.log_dir)
 
-        self.trainer.tune(self.model) # this may auto-select gpus; not sure.
-
-
-    def _standardize_input(self, score_mat):
-        if not self.item_rec_feasible:
-            score_mat = score_mat.T
-        return score_mat / self.score_max
-
-
     @empty_cache_on_exit
     def transform(self, score_mat):
-        score_mat = self._standardize_input(score_mat)
+        cost_mat = -score_mat / self.score_max
 
-        pred_batches = self.trainer.predict(self.model,
-            DataLoader(score_mat, self.batch_size)
-        )
+        pi = np.vstack(
+            self.trainer.predict(self.model,
+                DataLoader(cost_mat, self.model.batch_size))
+            )
         delattr(self.model, "predict_dataloader")
-
-        pi = [pi.scipy() for pi in pred_batches]
-        return sp.sparse.vstack(pi)
+        return pi
 
 
     @empty_cache_on_exit
     def fit(self, score_mat):
-        score_mat = self._standardize_input(score_mat)
+        cost_mat = -score_mat / self.score_max
 
+        self.trainer.tune(self.model) # auto_select_gpus
         self.trainer.fit(self.model,
-            DataLoader(score_mat, self.batch_size, True),
-            DataLoader(score_mat, self.batch_size), # valid on train set in offline cases
+            DataLoader(cost_mat, self.model.batch_size, True),
             )
-        delattr(self.model, 'train_dataloader')
-        delattr(self.model, 'val_dataloader')
+        print("train_loss", self.model.train_loss)
 
-        print("val_loss", self.model.val_loss)
+        delattr(self.model, "train_dataloader")
+        delattr(self.trainer, "train_dataloader")
         return self
+
+
+class _LitCVX(LightningModule):
+    def __init__(self, n_users, n_items, alpha, beta, user_rec_ub,
+        max_epochs=100, min_epsilon=1e-10, v=None, epsilon=1):
+
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.user_rec_ub = user_rec_ub
+
+        self.batch_size = get_batch_size((n_users, n_items))
+        self.lr = n_items / (n_users / self.batch_size)
+
+        self.epsilon = epsilon
+        self.epsilon_gamma = min_epsilon ** (1/max_epochs)
+
+        if v is None:
+            v = (-1)**user_rec_ub * torch.rand(n_items)
+        self.v = torch.nn.Parameter(v)
+
+    def configure_optimizers(self):
+        return torch.optim.SGD(self.parameters(), lr=self.lr)
+
+    def on_epoch_start(self):
+        self.epsilon *= self.epsilon_gamma
+        self.log("epsilon", self.epsilon, prog_bar=True)
+
+    @torch.no_grad()
+    def forward(self, batch):
+        v = self.v.detach().to(batch.device)
+        u, _ = _solve(v[None, :] - batch, self.alpha, self.epsilon)
+        u = u.clip(None, 0)
+        z = (-batch + u[:, None] + v[None, :]) / self.epsilon
+        # print(get_grad(z, self.alpha))
+        return torch.sigmoid(z).cpu().numpy()
+
+    def training_step(self, batch, batch_idx):
+        u, _ = _solve(self.v[None, :] - batch, self.alpha, self.epsilon)
+        u = u.clip(None, 0)
+        v, _ = _solve(u[None, :] - batch.T, self.beta, self.epsilon)
+        v = v.clip(None, 0) if self.user_rec_ub else v.clip(0, None) # lb
+        loss = ((self.v - v)**2).mean() / 2
+        self.log("train_loss", loss)
+        return loss
+
+    def training_epoch_end(self, outputs):
+        self.train_loss = torch.stack([o['loss'] for o in outputs]).mean()
+
+
+def get_fmin(z, u, epsilon, alpha):
+    return epsilon*torch.logaddexp(torch.zeros_like(z), z).mean(axis=1) - u*alpha
+
+def get_grad(z, alpha):
+    return torch.sigmoid(z).mean(axis=1) - alpha
+
+def get_hess(z, epsilon):
+    return (torch.sigmoid(z) * torch.sigmoid(-z)).mean(axis=1) / epsilon
+
+@torch.no_grad()
+def _solve(add, alpha, epsilon, n_iters=10, n_bt=4, tol=1e-5):
+    """ minimize epsilon*log(1+exp((u+add) / epsilon)).mean() - u*alpha
+    whose gradient is sigmoid((u+add)/epsilon).mean() = alpha
+    """
+    topk = int(alpha*add.shape[1]) + 1
+    u = -torch.topk(add, topk, sorted=False).values.amin(1)
+
+    for i in range(n_iters):
+        u0 = u
+        z = (u[:, None] + add)/epsilon
+        fmin = get_fmin(z, u, epsilon, alpha)
+        grad = get_grad(z, alpha)
+        if grad.abs().mean().tolist() < tol:
+            break
+        hess = get_hess(z, epsilon)
+        eta = torch.ones_like(u)
+
+        for bt in range(n_bt):
+            u = u0 - eta * grad / hess.clip(1e-3, None)
+            z = (u[:, None] + add)/epsilon
+            fnew = get_fmin(z, u, epsilon, alpha)
+            success = (fnew - fmin <= 0.5 * grad * (u - u0) + 1e-6)
+
+            if success.all():
+                break
+            else:
+                eta = torch.where(success, eta, eta*0.5)
+
+    assert not torch.isnan(u).any(), "nan in solve"
+    return u, grad.abs().mean().tolist()

@@ -26,10 +26,10 @@ def _assign_sorted(shape, k, c, argsort_ij, blocked={(-1, -1)}):
     return (csr, assigned)
 
 
-def assign_mtch(target_csr, score_mat, topk, C,
+def assign_mtch(score_mat, topk, C,
     argsort_ij=None, constraint_type='ub'):
 
-    n_users, n_items = target_csr.shape
+    n_users, n_items = score_mat.shape
 
     if argsort_ij is None:
         argsort_ij = _argsort(score_mat)
