@@ -8,7 +8,8 @@ from rim_experiments.util import empty_cache_on_exit, _LitValidated, get_batch_s
 
 class CVX:
     def __init__(self, score_mat, topk, C, constraint_type='ub', device='cpu',
-        max_epochs=100, min_epsilon=1e-10, gpus=1, prefix='CVX'):
+        max_epochs=100, min_epsilon=1e-10,
+        gpus=int(torch.cuda.is_available()), prefix='CVX'):
 
         n_users, n_items = score_mat.shape
         alpha = topk / n_items
