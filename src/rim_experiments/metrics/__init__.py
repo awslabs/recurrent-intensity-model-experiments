@@ -7,7 +7,7 @@ from .cvx import CVX
 def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
     """ compare targets and recommendation assignments on user-item matrix
     """
-    hit = getattr(target_csr, "multiply", assigned_csr.__mul__)(assigned_csr)
+    hit = sp.sparse.csr_matrix(assigned_csr).multiply(target_csr)
 
     out = {
         'prec':     hit.sum() / assigned_csr.sum(),

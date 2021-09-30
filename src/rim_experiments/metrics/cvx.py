@@ -3,12 +3,11 @@ import functools, torch, gc
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.tuner.auto_gpu_select import pick_multiple_gpus
 from rim_experiments.util import empty_cache_on_exit, _LitValidated, get_batch_size
 
 
 class CVX:
-    def __init__(self, score_mat, topk, C, constraint_type='ub',
+    def __init__(self, score_mat, topk, C, constraint_type='ub', device='cpu',
         max_epochs=100, min_epsilon=1e-10, gpus=1, prefix='CVX'):
 
         n_users, n_items = score_mat.shape
@@ -16,44 +15,47 @@ class CVX:
         beta = C / n_users
 
         self.score_max = score_mat.max()
-        if constraint_type == 'lb':
-            assert alpha >= beta, "requires item_rec feasible in online cases"
+        assert (constraint_type=='ub' or alpha>beta), "must be item_rec feasible"
 
-        self.model = _LitCVX(
+        self._model_args = (
             n_users, n_items, alpha, beta, constraint_type=='ub',
             max_epochs, min_epsilon)
 
         tb_logger = loggers.TensorBoardLogger(
             "logs/", name=f"{prefix}-{topk}-{C}-{constraint_type}")
 
-        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
-            auto_select_gpus=True, log_every_n_steps=1)
-        print("trainer log at:", self.trainer.logger.log_dir)
+        self._trainer_kw = dict(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
+            log_every_n_steps=1)
+        self.device = device
 
     @empty_cache_on_exit
     def transform(self, score_mat):
         cost_mat = -score_mat / self.score_max
+        cost_mat = torch.as_tensor(cost_mat).to(self.device)
 
-        pi = np.vstack(
-            self.trainer.predict(self.model,
-                DataLoader(cost_mat, self.model.batch_size))
-            )
-        delattr(self.model, "predict_dataloader")
+        pi = np.vstack([
+            self.model.forward(batch)
+            for batch in cost_mat.split(self.model.batch_size)
+            ])
         return pi
 
 
     @empty_cache_on_exit
     def fit(self, score_mat):
         cost_mat = -score_mat / self.score_max
+        cost_mat = torch.as_tensor(cost_mat).to(self.device)
 
-        self.trainer.tune(self.model) # auto_select_gpus
-        self.trainer.fit(self.model,
-            DataLoader(cost_mat, self.model.batch_size, True),
+        model = _LitCVX(*self._model_args)
+        trainer = Trainer(**self._trainer_kw)
+        print("trainer log at:", trainer.logger.log_dir)
+
+        trainer.fit(model,
+            DataLoader(cost_mat, model.batch_size, True),
             )
-        print("train_loss", self.model.train_loss)
+        print("train_loss", model.train_loss)
 
-        delattr(self.model, "train_dataloader")
-        delattr(self.trainer, "train_dataloader")
+        self.model = _LitCVX(*self._model_args,
+            v=model.v, epsilon=model.epsilon)
         return self
 
 
@@ -66,8 +68,15 @@ class _LitCVX(LightningModule):
         self.beta = beta
         self.user_rec_ub = user_rec_ub
 
-        self.batch_size = get_batch_size((n_users, n_items))
-        self.lr = n_items / (n_users / self.batch_size)
+        if torch.cuda.device_count():
+            total_memory = torch.cuda.get_device_properties(0).total_memory
+            max_batch_size = total_memory / 8 / 10 / n_items
+        else:
+            max_batch_size = float("inf")
+        n_batches = int(n_users / max_batch_size) + 1
+
+        self.lr = n_items / n_batches
+        self.batch_size = int(np.ceil(n_users / n_batches))
 
         self.epsilon = epsilon
         self.epsilon_gamma = min_epsilon ** (1/max_epochs)
