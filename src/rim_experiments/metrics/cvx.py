@@ -16,7 +16,7 @@ class CVX:
         beta = C / n_users
 
         self.score_max = score_mat.max()
-        assert (constraint_type=='ub' or alpha>beta), "must be item_rec feasible"
+        assert (constraint_type=='ub' or alpha>=beta), "must be item_rec feasible"
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type=='ub',

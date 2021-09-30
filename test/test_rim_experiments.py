@@ -7,11 +7,14 @@ def test_rim_experiments_importable():
 
 
 @pytest.mark.parametrize("split_fn_name", ["split_by_time", "split_by_user"])
-@pytest.mark.parametrize("cvx", [False, True])
-def test_synthetic_experiment(split_fn_name, cvx):
+@pytest.mark.parametrize("cvx, online", [
+    (False, False), (True, False), (True, True)
+    ])
+def test_synthetic_experiment(split_fn_name, cvx, online):
     from rim_experiments import main, plot_results
+    extra = {"max_epochs": 2} if cvx else {}
     self = main("prepare_synthetic_data", split_fn_name,
-        lb_mult=[0.5, 0.2, 0.1, 0], cvx=cvx)
+        lb_mult=[0.5, 0.2, 0.1, 0], cvx=cvx, online=online, **extra)
     fig = plot_results(self.results)
 
 

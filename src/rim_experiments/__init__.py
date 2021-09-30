@@ -9,6 +9,8 @@ from rim_experiments.util import _argsort, cached_property, df_to_coo
 
 @dataclasses.dataclass
 class ExperimentResult:
+    cvx: bool
+    online: bool
     _k1: int
     _c1: int
     _kmax: int
@@ -49,6 +51,8 @@ class Experiment:
             ],
         model_hyps={},
         device="cpu",
+        cvx=False,
+        online=False,
         **mtch_kw
         ):
         self.D = D
@@ -59,9 +63,15 @@ class Experiment:
         self.models_to_run = models_to_run
         self.model_hyps = model_hyps
         self.device = device
+
+        if online:
+            assert cvx, "online requires cvx"
+            assert V is not None, "online cvx is trained with explicit valid_mat"
+
         self.mtch_kw = mtch_kw
 
         self.results = ExperimentResult(
+            cvx, online,
             _k1 = self.D.default_item_rec_top_k,
             _c1 = self.D.default_user_rec_top_c,
             _kmax = len(self.D.item_in_test),
@@ -76,9 +86,16 @@ class Experiment:
         self.get_mtch_ = self.results.get_mtch_
 
 
-    def metrics_update(self, name, S):
+    def metrics_update(self, name, S, T=None):
         target_csr = df_to_coo(self.D.target_df)
         score_mat = self.D.transform(S).values
+
+        if self.online:
+            valid_mat = self.V.transform(T).values
+        elif self.cvx:
+            valid_mat = score_mat
+        else:
+            valid_mat = None
 
         self.item_rec[name] = evaluate_item_rec(target_csr, score_mat, self._k1)
         self.user_rec[name] = evaluate_user_rec(target_csr, score_mat, self._c1)
@@ -89,24 +106,25 @@ class Experiment:
         }.items() if v is not None}).T)
 
         if len(self.ub_mult):
-            self.ub_[name] = self._mtch_update(target_csr, score_mat, "ub", self.ub_mult)
+            self.ub_[name] = self._mtch_update(
+                target_csr, score_mat, "ub", self.ub_mult, valid_mat)
 
         if len(self.lb_mult):
-            self.lb_[name] = self._mtch_update(target_csr, score_mat, "lb", self.lb_mult)
+            self.lb_[name] = self._mtch_update(
+                target_csr, score_mat, "lb", self.lb_mult, valid_mat)
 
 
-    def _mtch_update(self, target_csr, score_mat, constraint_type, mult):
+    def _mtch_update(self, target_csr, score_mat, constraint_type, mult, valid_mat):
         """ assign user/item matches and return evaluation results.
         """
         confs = ([(self._k1, self._c1, "ub")] # equality constraint
             + [(self._k1, c, constraint_type) for c in (self._c1 * mult)])
 
         mtch_kw = self.mtch_kw.copy()
-
-        cvx = mtch_kw.get("cvx", False)
-        if cvx:
+        if self.cvx:
             if constraint_type=="lb":
                 warnings.warn("Ignoring lower-bound k, which is infeasible by item_rec.")
+            mtch_kw['valid_mat'] = valid_mat
         else:
             confs += [(k, self._c1, constraint_type) for k in (self._k1 * mult)]
             mtch_kw['argsort_ij'] = _argsort(score_mat, device=self.device)
@@ -115,7 +133,7 @@ class Experiment:
         for k, c, constraint_type in confs:
             res = evaluate_mtch(
                 target_csr, score_mat, k, c, constraint_type=constraint_type,
-                **mtch_kw
+                cvx=self.cvx, **mtch_kw
             )
             res.update({'k': k, 'c': c})
             out.append(res)
@@ -164,7 +182,9 @@ class Experiment:
     def run(self):
         for model in self.models_to_run:
             print("running", model)
-            self.metrics_update(model, self.transform(model, self.D))
+            S = self.transform(model, self.D)
+            T = self.transform(model, self.V) if self.online else None
+            self.metrics_update(model, S, T)
 
 
     @cached_property

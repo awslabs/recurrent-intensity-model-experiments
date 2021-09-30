@@ -41,8 +41,6 @@ def evaluate_user_rec(target_csr, score_mat, C):
 
 def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None, **kw):
     if cvx:
-        if valid_mat is None:
-            valid_mat = score_mat
         self = CVX(valid_mat, topk, C, **kw)
         assigned_csr = self.fit(valid_mat).transform(score_mat)
     else:
