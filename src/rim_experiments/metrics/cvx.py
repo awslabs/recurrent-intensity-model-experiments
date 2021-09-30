@@ -3,19 +3,20 @@ import functools, torch, gc
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from rim_experiments.util import empty_cache_on_exit, _LitValidated, get_batch_size
+from rim_experiments.util import empty_cache_on_exit, _LitValidated, \
+                            get_batch_size, get_best_gpus
 
 
 class CVX:
     def __init__(self, score_mat, topk, C, constraint_type='ub', device='cpu',
         max_epochs=100, min_epsilon=1e-10,
-        gpus=int(torch.cuda.is_available()), prefix='CVX'):
+        gpus=get_best_gpus() if torch.cuda.is_available() else 0,
+        prefix='CVX'):
 
         n_users, n_items = score_mat.shape
         alpha = topk / n_items
         beta = C / n_users
 
-        self.score_max = score_mat.max()
         assert (constraint_type=='ub' or alpha>=beta), "must be item_rec feasible"
 
         self._model_args = (
@@ -31,27 +32,35 @@ class CVX:
 
     @empty_cache_on_exit
     def transform(self, score_mat):
-        cost_mat = -score_mat / self.score_max
-        cost_mat = torch.as_tensor(cost_mat).to(self.device)
+        cost_mat = score_mat * (- self.score_max ** -1)
 
         pi = np.vstack([
             self.model.forward(batch)
-            for batch in cost_mat.split(self.model.batch_size)
+            for _, batch in cost_mat.iter_batches(
+                batch_size=self.model.batch_size)
             ])
         return pi
 
 
     @empty_cache_on_exit
     def fit(self, score_mat):
-        cost_mat = -score_mat / self.score_max
-        cost_mat = torch.as_tensor(cost_mat).to(self.device)
+        if hasattr(score_mat, "gpu_max"):
+            assert not score_mat.has_nan(), "score matrix has nan"
+            self.score_max = score_mat.gpu_max(device=self.device)
+        else:
+            self.score_max = score_mat.max()
+
+        cost_mat = score_mat * (- self.score_max ** -1)
 
         model = _LitCVX(*self._model_args)
         trainer = Trainer(**self._trainer_kw)
         print("trainer log at:", trainer.logger.log_dir)
 
+        collate_fn = getattr(cost_mat[0], "collate_fn",
+            torch.utils.data.dataloader.default_collate)
+
         trainer.fit(model,
-            DataLoader(cost_mat, model.batch_size, True),
+            DataLoader(cost_mat, model.batch_size, True, collate_fn=collate_fn),
             )
         print("train_loss", model.train_loss)
 
@@ -95,6 +104,9 @@ class _LitCVX(LightningModule):
 
     @torch.no_grad()
     def forward(self, batch):
+        if hasattr(batch, "eval"):
+            batch = batch.eval(self.device).detach()
+
         v = self.v.detach().to(batch.device)
         u, _ = _solve(v[None, :] - batch, self.alpha, self.epsilon)
         u = u.clip(None, 0)
@@ -103,6 +115,9 @@ class _LitCVX(LightningModule):
         return torch.sigmoid(z).cpu().numpy()
 
     def training_step(self, batch, batch_idx):
+        if hasattr(batch, "eval"):
+            batch = batch.eval(self.device).detach()
+
         u, _ = _solve(self.v[None, :] - batch, self.alpha, self.epsilon)
         u = u.clip(None, 0)
         v, _ = _solve(u[None, :] - batch.T, self.beta, self.epsilon)

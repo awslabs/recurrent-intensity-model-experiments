@@ -1,6 +1,7 @@
 import numpy as np, pandas as pd
 import scipy.optimize
 import functools
+from ..util import LogLowRankDataFrame
 
 class HawkesPoisson:
     """ intensity is additive function over non-negative states """
@@ -29,9 +30,9 @@ class HawkesPoisson:
             Y = D.target_df.sum(axis=1).reindex(H.index).values
             print(f"transform loss {loss(self.coeffs.x, X, Y, 0)}")
 
-        return pd.DataFrame(
-            np.outer(intensity, np.ones(len(D.item_in_test))),
-            index=H.index, columns=D.item_in_test.index)
+        return LogLowRankDataFrame(
+            np.log(intensity)[:, None], np.ones(len(D.item_df))[:, None], 1,
+            index=H.index, columns=D.item_df.index)
 
 
 def loss(x, H, Y, alpha=1e-3):

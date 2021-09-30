@@ -3,6 +3,12 @@ import functools, collections, time, contextlib, os, torch, gc, warnings
 from datetime import datetime
 from pytorch_lightning import LightningModule
 
+if torch.cuda.is_available():
+    from pynvml import *
+    nvmlInit()
+
+from .score_array import *
+
 
 class timed(contextlib.ContextDecorator):
     def __init__(self, name=""):
@@ -20,7 +26,14 @@ def warn_nan_output(func):
     @functools.wraps(func)
     def wrapped(*args, **kw):
         out = func(*args, **kw)
-        if np.isnan(getattr(out, "values", out)).any():
+        values = getattr(out, "values", out)
+
+        if hasattr(values, "has_nan"):
+            has_nan = values.has_nan()
+        else:
+            has_nan = np.isnan(values).any()
+
+        if has_nan:
             warnings.warn(f"{func.__name__} output contains NaN", stacklevel=2)
         return out
     return wrapped
@@ -69,17 +82,22 @@ def empty_cache_on_exit(func):
 
 def perplexity(x):
     x = np.ravel(x) / x.sum()
-    return np.exp(- x @ np.log(np.where(x>0, x, 1e-10)))
+    return float(np.exp(- x @ np.log(np.where(x>0, x, 1e-10))))
 
 
 cached_property = lambda foo: property(functools.lru_cache()(foo))
 
 
-def _assign_topk(S, k, tie_breaker=1e-10, batch_size=10000):
+@empty_cache_on_exit
+def _assign_topk(S, k, tie_breaker=1e-10, device="cpu", batch_size=10000):
     def fn(s):
+        if hasattr(s, "eval"):
+            s = s.eval(device)
+        else:
+            s = torch.tensor(s, device=device)
         if tie_breaker:
-            s = s + np.random.rand(*s.shape) * tie_breaker
-        return np.argpartition(-s, k, axis=1)[:, :k]
+            s = s + torch.rand(*s.shape, device=device) * tie_breaker
+        return s.topk(k).indices.cpu().numpy()
 
     indices = np.vstack([
         fn(S[i:min(i+batch_size, S.shape[0])])
@@ -95,7 +113,10 @@ def _assign_topk(S, k, tie_breaker=1e-10, batch_size=10000):
 @empty_cache_on_exit
 def _argsort(S, tie_breaker=1e-10, device="cpu"):
     print(f"_argsort {S.size:,} scores on device {device}; ", end="")
-    S_torch = torch.tensor(S, device=device)
+    if hasattr(S, "eval"):
+        S_torch = S.eval(device)
+    else:
+        S_torch = torch.tensor(S, device=device)
     if tie_breaker>0:
         S_torch = S_torch + torch.rand(*S.shape, device=device) * tie_breaker
     argsort_ind = torch.argsort(-S_torch.reshape(-1)).cpu().numpy()
@@ -154,7 +175,10 @@ def df_to_coo(df):
         return df.sparse.to_coo()
     except KeyError:
         warnings.warn("pandas bug: https://github.com/pandas-dev/pandas/issues/25270")
-        return df.values
+        df = df.copy()
+        df.index = list(range(len(df.index)))
+        df.columns = list(range(len(df.columns)))
+        return df.sparse.to_coo()
 
 
 def split_by_time(user_df, test_start, valid_start):
@@ -214,3 +238,12 @@ def get_batch_size(shape):
     max_batch_size = total_memory / 8 / 10 / n_items
     n_batches = int(n_users / max_batch_size) + 1
     return int(np.ceil(n_users / n_batches))
+
+
+def get_best_gpus():
+    memory_free = [
+        nvmlDeviceGetMemoryInfo(nvmlDeviceGetHandleByIndex(i)).free
+        for i in range(torch.cuda.device_count())
+    ]
+    print("best gpu", np.argmax(memory_free))
+    return [np.argmax(memory_free)]

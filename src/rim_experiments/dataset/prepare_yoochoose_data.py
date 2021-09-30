@@ -9,7 +9,7 @@ def prepare_yoochoose_data(
     seed=0, user_sample_frac=0.1, min_user_len=4, min_item_len=10,
     ):
     event_df = pd.read_csv(data_path).sort_values('TIMESTAMP', kind="mergesort")
-    event_df = event_df.drop_duplicates(['USER_ID', 'ITEM_ID'])
+    # event_df = event_df.drop_duplicates(['USER_ID', 'ITEM_ID'])
     event_df = _sample_by_user(event_df, user_sample_frac, seed+10)
     event_df = filter_min_len(event_df, min_user_len, min_item_len)
 

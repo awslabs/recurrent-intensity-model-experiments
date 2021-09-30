@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import functools
-from ..util import timed
+from ..util import timed, LogLowRankDataFrame
 
 from tick.hawkes import HawkesSumExpKern
 
@@ -42,9 +42,9 @@ class Hawkes:
             ])
             if hasattr(D, '_is_synthetic_data') and D._is_synthetic_data:
                 _verify_estimated_intensity(self.model, X, user_intensities)
-            return pd.DataFrame(
-                np.outer(user_intensities, np.ones(len(D.item_in_test))),
-                index=D.user_in_test.index, columns=D.item_in_test.index)
+            return LogLowRankDataFrame(
+                np.log(user_intensities)[:, None], np.ones(len(D.item_df))[:, None], 1,
+                index=D.user_in_test.index, columns=D.item_df.index)
 
 
 def _input_fn(raw_ts, horizon, training, training_eps, hetero):

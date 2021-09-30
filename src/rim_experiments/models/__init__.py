@@ -6,12 +6,16 @@ from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
 
+from rim_experiments.util import LogLowRankDataFrame
+
 
 class Rand:
     def transform(self, D):
-        return pd.DataFrame(
-            np.random.rand(len(D.user_in_test), len(D.item_in_test)),
-            index=D.user_in_test.index, columns=D.item_in_test.index)
+        """ return a constant of one """
+        shape = (len(D.user_in_test), len(D.item_df))
+        return LogLowRankDataFrame(
+            np.zeros(shape[0])[:, None], np.zeros(shape[1])[:, None], 1,
+            index=D.user_in_test.index, columns=D.item_df.index)
 
 
 class Pop:
@@ -20,15 +24,19 @@ class Pop:
         self.item_rec = item_rec
 
     def transform(self, D):
+        """ user_score * item_score = (user_log_bias + item_log_bias).exp() """
         user_scores = np.fmax(0.01, D.user_in_test['_hist_len']) \
             if self.user_rec else np.ones(len(D.user_in_test))
 
-        item_scores = np.fmax(0.01, D.item_in_test['_hist_len']) \
-            if self.item_rec else np.ones(len(D.item_in_test))
+        item_scores = np.fmax(0.01, D.item_df['_hist_len']) \
+            if self.item_rec else np.ones(len(D.item_df))
 
-        return pd.DataFrame(
-            np.outer(user_scores, item_scores),
-            index=D.user_in_test.index, columns=D.item_in_test.index)
+        ind_logits = np.vstack([np.log(user_scores), np.ones(len(user_scores))]).T
+        col_logits = np.vstack([np.ones(len(item_scores)), np.log(item_scores)]).T
+
+        return LogLowRankDataFrame(
+            ind_logits, col_logits, 1,
+            index=D.user_in_test.index, columns=D.item_df.index)
 
 
 class EMA:
@@ -39,6 +47,6 @@ class EMA:
         fn = lambda ts: np.exp(- (ts[-1] - np.array(ts[:-1])) / self.horizon).sum()
         user_scores = list(map(fn, D.user_in_test['_timestamps'].values))
 
-        return pd.DataFrame(
-            np.outer(user_scores, np.ones(len(D.item_in_test))),
-            index=D.user_in_test.index, columns=D.item_in_test.index)
+        return LogLowRankDataFrame(
+            np.log(user_scores)[:, None], np.ones(len(D.item_df))[:, None], 1,
+            index=D.user_in_test.index, columns=D.item_df.index)
