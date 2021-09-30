@@ -14,7 +14,7 @@ def test_synthetic_experiment(split_fn_name, cvx, online):
     from rim_experiments import main, plot_results
     extra = {"max_epochs": 2} if cvx else {}
     self = main("prepare_synthetic_data", split_fn_name,
-        lb_mult=[0.5, 0.2, 0.1, 0], cvx=cvx, online=online, **extra)
+        lb_mult=[0.5], cvx=cvx, online=online, **extra)
     fig = plot_results(self.results)
 
 

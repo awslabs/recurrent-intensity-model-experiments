@@ -91,7 +91,9 @@ class Experiment:
         score_mat = self.D.transform(S).values
 
         if self.online:
-            valid_mat = self.V.transform(T).values
+            # reindex by valid users and test items to keep dimensions consistent
+            valid_mat = T.reindex(self.V.user_in_test.index) \
+                .reindex(self.D.item_in_test.index, axis=1).fillna(0).values
         elif self.cvx:
             valid_mat = score_mat
         else:
@@ -100,10 +102,10 @@ class Experiment:
         self.item_rec[name] = evaluate_item_rec(target_csr, score_mat, self._k1)
         self.user_rec[name] = evaluate_user_rec(target_csr, score_mat, self._c1)
 
-        print(pd.DataFrame({k:v for k,v in {
+        print(pd.DataFrame({
             'item_rec': self.item_rec[name],
             'user_rec': self.user_rec[name],
-        }.items() if v is not None}).T)
+            }).T)
 
         if len(self.ub_mult):
             self.ub_[name] = self._mtch_update(
@@ -120,13 +122,15 @@ class Experiment:
         confs = ([(self._k1, self._c1, "ub")] # equality constraint
             + [(self._k1, c, constraint_type) for c in (self._c1 * mult)])
 
-        mtch_kw = self.mtch_kw.copy()
-        if self.cvx:
-            if constraint_type=="lb":
-                warnings.warn("Ignoring lower-bound k, which is infeasible by item_rec.")
-            mtch_kw['valid_mat'] = valid_mat
+        if self.cvx and constraint_type=="lb":
+            warnings.warn("Ignoring lower-bound k, which is infeasible in onln mtch.")
         else:
             confs += [(k, self._c1, constraint_type) for k in (self._k1 * mult)]
+
+        mtch_kw = self.mtch_kw.copy()
+        if self.cvx:
+            mtch_kw['valid_mat'] = valid_mat
+        else:
             mtch_kw['argsort_ij'] = _argsort(score_mat, device=self.device)
 
         out = []
