@@ -194,10 +194,13 @@ class Experiment:
             S = self.transform(model, self.D)
             T = self.transform(model, self.V) if self.online else None
             self.metrics_update(model, S, T)
+        return self
 
 
     @cached_property
     def _rnn(self):
+        if hasattr(self, '_pretrain_rnn'):
+            return self._pretrain_rnn
         fitted = RNN(self.D.item_df, **self.model_hyps.get("RNN", {})).fit(self.D)
         for name, param in fitted.model.named_parameters():
             print(name, param.data.shape)
