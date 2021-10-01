@@ -11,8 +11,8 @@ def prepare_synthetic_data(split_fn_name,
     num_users=300, num_items=200, num_events=10000):
     """ prepare synthetic data for end-to-end unit tests """
     event_df = pd.DataFrame({
-        'USER_ID': np.random.choice(num_users, num_events).astype(str),
-        'ITEM_ID': np.random.choice(num_items, num_events).astype(str),
+        'USER_ID': np.random.choice(num_users, num_events),
+        'ITEM_ID': np.random.choice(num_items, num_events)+1, # pandas bug
         'TIMESTAMP': np.random.uniform(0, 5, num_events),
     }).sort_values(["USER_ID", "TIMESTAMP"])
 
@@ -21,7 +21,7 @@ def prepare_synthetic_data(split_fn_name,
     if split_fn_name == 'split_by_time':
         user_df, valid_df = split_by_time(user_df, 4, 3)
     elif split_fn_name == 'split_by_user':
-        user_df, valid_df = split_by_user(user_df, user_df.index.astype(int) % 2, 3)
+        user_df, valid_df = split_by_user(user_df, user_df.index % 2, 3)
     else:
         raise ValueError(f"unknown {split_fn_name}")
 

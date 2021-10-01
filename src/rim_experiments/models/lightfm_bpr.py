@@ -1,4 +1,4 @@
-from ..util import create_matrix
+from ..util import create_matrix, ExponentiatedLowRankDataFrame
 import numpy as np, pandas as pd
 from lightfm import LightFM
 
@@ -25,17 +25,27 @@ class LightFM_BPR:
             train_intn = train_intn.T
 
         self.bpr_model.fit(train_intn, epochs=self.epochs, verbose=True)
-
-        bpr_scores = np.exp(
-            self.bpr_model.user_embeddings @ self.bpr_model.item_embeddings.T
-            + self.bpr_model.user_biases[:, None]
-            + self.bpr_model.item_biases[None, :]
-        )
-        if self.user_rec:
-            bpr_scores = bpr_scores.T
-
-        self.bpr_scores = pd.DataFrame(bpr_scores, D.user_df.index, D.item_df.index)
+        self.D = D
         return self
 
     def transform(self, D):
-        return D.transform(self.bpr_scores)
+        """ (user_embed * item_embed + user_bias + item_bias).exp() """
+        assert self.D is D, f"{self.__class__} only transforms training dataset"
+
+        ind_logits = np.hstack([
+            self.bpr_model.user_embeddings,
+            self.bpr_model.user_biases[:, None],
+            np.ones_like(self.bpr_model.user_biases)[:, None],
+            ])
+
+        col_logits = np.hstack([
+            self.bpr_model.item_embeddings,
+            np.ones_like(self.bpr_model.item_biases)[:, None],
+            self.bpr_model.item_biases[:, None],
+            ])
+
+        if self.user_rec:
+            ind_logits, col_logits = col_logits, ind_logits
+
+        return ExponentiatedLowRankDataFrame(
+            ind_logits, col_logits, 1, D.user_df.index, D.item_df.index)

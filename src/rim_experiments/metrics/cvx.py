@@ -1,25 +1,26 @@
 import pandas as pd, numpy as np, scipy as sp
-import functools, torch, gc
+import torch, itertools
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from rim_experiments.util import empty_cache_on_exit, _LitValidated, get_batch_size
+from rim_experiments.util import empty_cache_on_exit, _LitValidated, \
+                            get_batch_size, get_best_gpus
 
 
 class CVX:
     def __init__(self, score_mat, topk, C, constraint_type='ub', device='cpu',
         max_epochs=100, min_epsilon=1e-10,
-        gpus=int(torch.cuda.is_available()), prefix='CVX'):
+        gpus=get_best_gpus() if torch.cuda.is_available() else 0,
+        prefix='CVX'):
 
         n_users, n_items = score_mat.shape
         alpha = topk / n_items
         beta = C / n_users
 
-        self.score_max = score_mat.max()
-        assert (constraint_type=='ub' or alpha>=beta), "must be item_rec feasible"
+        assert constraint_type!='lb' or alpha>=beta, "must be item_rec feasible"
 
         self._model_args = (
-            n_users, n_items, alpha, beta, constraint_type=='ub',
+            n_users, n_items, alpha, beta, constraint_type,
             max_epochs, min_epsilon)
 
         tb_logger = loggers.TensorBoardLogger(
@@ -31,27 +32,36 @@ class CVX:
 
     @empty_cache_on_exit
     def transform(self, score_mat):
-        cost_mat = -score_mat / self.score_max
-        cost_mat = torch.as_tensor(cost_mat).to(self.device)
+        cost_mat = score_mat * (- self.score_max ** -1)
+        batch_size = self.model.batch_size
 
-        pi = np.vstack([
-            self.model.forward(batch)
-            for batch in cost_mat.split(self.model.batch_size)
-            ])
+        def fn(i):
+            batch = cost_mat[i:min(i+batch_size, len(cost_mat))]
+            return self.model.forward(batch)
+
+        pi = np.vstack([fn(i) for i in range(0, len(cost_mat), batch_size)])
         return pi
 
 
     @empty_cache_on_exit
     def fit(self, score_mat):
-        cost_mat = -score_mat / self.score_max
-        cost_mat = torch.as_tensor(cost_mat).to(self.device)
+        if hasattr(score_mat, "gpu_max"):
+            assert not score_mat.has_nan(), "score matrix has nan"
+            self.score_max = float(score_mat.gpu_max(device=self.device))
+        else:
+            self.score_max = float(score_mat.max())
+
+        cost_mat = score_mat * (- self.score_max ** -1)
 
         model = _LitCVX(*self._model_args)
         trainer = Trainer(**self._trainer_kw)
         print("trainer log at:", trainer.logger.log_dir)
 
+        collate_fn = getattr(cost_mat[0], "collate_fn",
+            torch.utils.data.dataloader.default_collate)
+
         trainer.fit(model,
-            DataLoader(cost_mat, model.batch_size, True),
+            DataLoader(cost_mat, model.batch_size, True, collate_fn=collate_fn),
             )
         print("train_loss", model.train_loss)
 
@@ -61,13 +71,13 @@ class CVX:
 
 
 class _LitCVX(LightningModule):
-    def __init__(self, n_users, n_items, alpha, beta, user_rec_ub,
+    def __init__(self, n_users, n_items, alpha, beta, constraint_type,
         max_epochs=100, min_epsilon=1e-10, v=None, epsilon=1):
 
         super().__init__()
         self.alpha = alpha
         self.beta = beta
-        self.user_rec_ub = user_rec_ub
+        self.constraint_type = constraint_type
 
         if torch.cuda.device_count():
             total_memory = torch.cuda.get_device_properties(0).total_memory
@@ -83,8 +93,24 @@ class _LitCVX(LightningModule):
         self.epsilon_gamma = min_epsilon ** (1/max_epochs)
 
         if v is None:
-            v = (-1)**user_rec_ub * torch.rand(n_items)
+            if constraint_type == 'ub':
+                v = -torch.rand(n_items)
+            elif constraint_type == 'lb':
+                v = torch.rand(n_items)
+            else: # eq
+                v = torch.rand(n_items) * 2 - 1
         self.v = torch.nn.Parameter(v)
+
+
+    @staticmethod
+    def _clip(v, constraint_type):
+        if constraint_type == 'ub':
+            return v.clip(None, 0)
+        elif constraint_type == 'lb':
+            return v.clip(0, None)
+        else: # eq
+            return v
+
 
     def configure_optimizers(self):
         return torch.optim.SGD(self.parameters(), lr=self.lr)
@@ -94,19 +120,32 @@ class _LitCVX(LightningModule):
         self.log("epsilon", self.epsilon, prog_bar=True)
 
     @torch.no_grad()
-    def forward(self, batch):
-        v = self.v.detach().to(batch.device)
+    def forward(self, batch, v=None):
+        if hasattr(batch, "eval"):
+            batch = batch.eval(self.device).detach()
+        else:
+            batch = torch.as_tensor(batch)
+
+        if v is None:
+            v = self.v.detach().to(batch.device)
+
         u, _ = _solve(v[None, :] - batch, self.alpha, self.epsilon)
         u = u.clip(None, 0)
         z = (-batch + u[:, None] + v[None, :]) / self.epsilon
         # print(get_grad(z, self.alpha))
         return torch.sigmoid(z).cpu().numpy()
 
+
     def training_step(self, batch, batch_idx):
+        if hasattr(batch, "eval"):
+            batch = batch.eval(self.device).detach()
+        else:
+            batch = torch.as_tensor(batch)
+
         u, _ = _solve(self.v[None, :] - batch, self.alpha, self.epsilon)
         u = u.clip(None, 0)
         v, _ = _solve(u[None, :] - batch.T, self.beta, self.epsilon)
-        v = v.clip(None, 0) if self.user_rec_ub else v.clip(0, None) # lb
+        v = self._clip(v, self.constraint_type)
         loss = ((self.v - v)**2).mean() / 2
         self.log("train_loss", loss)
         return loss

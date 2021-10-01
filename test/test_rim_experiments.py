@@ -1,4 +1,4 @@
-import pytest, torch
+import pytest, torch, tempfile
 import pandas as pd, numpy as np, scipy as sp
 
 
@@ -10,12 +10,19 @@ def test_rim_experiments_importable():
 @pytest.mark.parametrize("cvx, online", [
     (False, False), (True, False), (True, True)
     ])
-def test_synthetic_experiment(split_fn_name, cvx, online):
+def test_synthetic_experiment(split_fn_name, cvx, online, **kw):
     from rim_experiments import main, plot_results
-    extra = {"max_epochs": 2} if cvx else {}
+    kw = kw.copy()
+    if cvx:
+        kw.setdefault('max_epochs', 2)
+
     self = main("prepare_synthetic_data", split_fn_name,
-        lb_mult=[0.5], cvx=cvx, online=online, **extra)
+        lb_mult=[0.5], cvx=cvx, online=online, **kw)
     fig = plot_results(self.results)
+
+    with tempfile.NamedTemporaryFile("r") as fp:
+        self.results.save_results(fp.name)
+        print("saved results", fp.read())
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="skip in auto-tests")

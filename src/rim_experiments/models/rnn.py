@@ -9,12 +9,14 @@ from .word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from ..util import _LitValidated, empty_cache_on_exit
+from ..util import _LitValidated, empty_cache_on_exit, \
+                    ExponentiatedLowRankDataFrame, get_best_gpus
 
 
 class RNN:
     def __init__(self, item_df,
-        num_hidden=128, nlayers=2, max_epochs=5, gpus=int(torch.cuda.is_available()),
+        num_hidden=128, nlayers=2, max_epochs=5,
+        gpus=get_best_gpus() if torch.cuda.is_available() else 0,
         truncated_input_steps=256, truncated_bptt_steps=32):
 
         self._padded_item_list = [None] + item_df.index.tolist()
@@ -28,8 +30,7 @@ class RNN:
             num_hidden, num_hidden, nlayers, 0, True,
         ), truncated_bptt_steps)
 
-        self.trainer = Trainer(max_epochs=max_epochs,
-            gpus=gpus, auto_select_gpus=(gpus>0),
+        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus,
             callbacks=[EarlyStopping(monitor='val_loss')])
         print("trainer log at:", self.trainer.logger.log_dir)
 
@@ -46,15 +47,22 @@ class RNN:
 
         batches = self.trainer.predict(
             dataloaders=DataLoader(dataset, 1000, collate_fn=collate_fn))
-
         delattr(self.model, "predict_dataloader")
 
-        scores = pd.DataFrame(
-            np.vstack(batches),
-            index=D.user_in_test.index, columns=self._padded_item_list
-        ).reindex(D.item_in_test.index, axis=1)
+        user_hidden, user_log_bias = [np.concatenate(x) for x in zip(*batches)]
+        ind_logits = np.hstack([
+            user_hidden, user_log_bias[:, None], np.ones_like(user_log_bias)[:, None]
+            ])
 
-        return scores / np.fmax(1e-100, scores.values.sum(axis=1, keepdims=True))
+        item_hidden = self.model.model.decoder.weight.detach().cpu().numpy()
+        item_log_bias = self.model.model.decoder.bias.detach().cpu().numpy()
+        col_logits = np.hstack([
+            item_hidden, np.ones_like(item_log_bias)[:, None], item_log_bias[:, None]
+            ])
+
+        return ExponentiatedLowRankDataFrame(
+            ind_logits, col_logits, 1, D.user_in_test.index, self._padded_item_list)
+
 
     @empty_cache_on_exit
     def fit(self, D):
@@ -107,9 +115,10 @@ class _LitRNNModel(_LitValidated):
         TN_layout, lengths = batch
         hiddens = self.model.init_hidden(len(lengths))
         TNC_out, _ = self.model.rnn(self.model.encoder(TN_layout), hiddens)
-        out_last = TNC_out[lengths-1, torch.ones_like(lengths).cumsum(0)-1]
-        probs = self.model.decoder(out_last).softmax(dim=1)
-        return probs.cpu().numpy()
+        last_hidden = TNC_out[lengths-1, np.arange(len(lengths))]
+        pred_logits = self.model.decoder(last_hidden)
+        log_bias = (pred_logits.log_softmax(dim=1) - pred_logits).mean(axis=1)
+        return last_hidden.cpu().numpy(), log_bias.cpu().numpy()
 
     def configure_optimizers(self):
         return torch.optim.Adagrad(self.parameters(), lr=0.1)

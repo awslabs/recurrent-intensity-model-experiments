@@ -1,4 +1,4 @@
-import functools, collections, torch, dataclasses, warnings
+import functools, collections, torch, dataclasses, warnings, json
 from typing import Dict, List
 from rim_experiments.models import *
 from rim_experiments.metrics import *
@@ -28,6 +28,10 @@ class ExperimentResult:
         print(pd.DataFrame(self.item_rec).T)
         print('\nuser_rec')
         print(pd.DataFrame(self.user_rec).T)
+
+    def save_results(self, fn):
+        with open(fn, 'w') as fp:
+            json.dump(dataclasses.asdict(self), fp)
 
     def get_mtch_(self, k=None, c=None, name="ub_"):
         y = {}
@@ -92,15 +96,16 @@ class Experiment:
 
         if self.online:
             # reindex by valid users and test items to keep dimensions consistent
-            valid_mat = T.reindex(self.V.user_in_test.index) \
-                .reindex(self.D.item_in_test.index, axis=1).fillna(0).values
+            valid_mat = self.D.transform(T, self.V.user_in_test.index, 0).values
         elif self.cvx:
             valid_mat = score_mat
         else:
             valid_mat = None
 
-        self.item_rec[name] = evaluate_item_rec(target_csr, score_mat, self._k1)
-        self.user_rec[name] = evaluate_user_rec(target_csr, score_mat, self._c1)
+        self.item_rec[name] = evaluate_item_rec(
+            target_csr, score_mat, self._k1, device=self.device)
+        self.user_rec[name] = evaluate_user_rec(
+            target_csr, score_mat, self._c1, device=self.device)
 
         print(pd.DataFrame({
             'item_rec': self.item_rec[name],
@@ -137,7 +142,7 @@ class Experiment:
         for k, c, constraint_type in confs:
             res = evaluate_mtch(
                 target_csr, score_mat, k, c, constraint_type=constraint_type,
-                cvx=self.cvx, **mtch_kw
+                cvx=self.cvx, device=self.device, **mtch_kw
             )
             res.update({'k': k, 'c': c})
             out.append(res)
@@ -189,10 +194,13 @@ class Experiment:
             S = self.transform(model, self.D)
             T = self.transform(model, self.V) if self.online else None
             self.metrics_update(model, S, T)
+        return self
 
 
     @cached_property
     def _rnn(self):
+        if hasattr(self, '_pretrain_rnn'):
+            return self._pretrain_rnn
         fitted = RNN(self.D.item_df, **self.model_hyps.get("RNN", {})).fit(self.D)
         for name, param in fitted.model.named_parameters():
             print(name, param.data.shape)

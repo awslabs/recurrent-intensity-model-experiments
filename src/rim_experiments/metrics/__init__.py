@@ -7,7 +7,8 @@ from .cvx import CVX
 def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
     """ compare targets and recommendation assignments on user-item matrix
     """
-    hit = sp.sparse.csr_matrix(assigned_csr).multiply(target_csr)
+    assigned_csr = sp.sparse.csr_matrix(assigned_csr)
+    hit = assigned_csr.multiply(target_csr)
 
     out = {
         'prec':     hit.sum() / assigned_csr.sum(),
@@ -18,8 +19,13 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
     }
 
     if score_mat is not None:
-        obj_sum = getattr(assigned_csr, "multiply", assigned_csr.__mul__)(score_mat).sum()
-        out['obj'] = obj_sum / assigned_csr.sum()
+        if hasattr(score_mat, "iter_batches"):
+            obj_sum = np.sum([
+                assigned_csr[key].multiply(s.eval()).sum()
+                for key, s in score_mat.iter_batches()
+                ])
+        else:
+            obj_sum = assigned_csr.multiply(score_mat)
 
     if axis is not None:
         hit_axis = np.ravel(hit.sum(axis=axis))
@@ -29,13 +35,13 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
     return out
 
 
-def evaluate_item_rec(target_csr, score_mat, topk):
-    assigned_csr = _assign_topk(score_mat, topk)
+def evaluate_item_rec(target_csr, score_mat, topk, **kw):
+    assigned_csr = _assign_topk(score_mat, topk, **kw)
     return evaluate_assigned(target_csr, assigned_csr, score_mat, axis=1)
 
 
-def evaluate_user_rec(target_csr, score_mat, C):
-    assigned_csr = _assign_topk(score_mat.T, C).T
+def evaluate_user_rec(target_csr, score_mat, C, **kw):
+    assigned_csr = _assign_topk(score_mat.T, C, **kw).T
     return evaluate_assigned(target_csr, assigned_csr, score_mat, axis=0)
 
 
