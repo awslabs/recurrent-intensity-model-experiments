@@ -150,7 +150,8 @@ class ExponentiatedLowRankDataFrame(ScoreExpression):
             return self.T.reindex(index, fill_value=fill_value).T
 
         ind_logits = np.pad(self.ind_logits, ((0,1), (0,1)), constant_values=0)
-        ind_logits[-1, -1] = np.log(fill_value)
+        with np.errstate(divide='ignore'): # 0 -> -inf
+            ind_logits[-1, -1] = np.log(fill_value)
         col_logits = np.pad(self.col_logits, ((0,0), (0,1)), constant_values=1)
 
         new_ind = pd.Series(

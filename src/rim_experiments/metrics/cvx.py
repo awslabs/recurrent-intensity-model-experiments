@@ -20,7 +20,7 @@ class CVX:
         assert constraint_type!='lb' or alpha>=beta, "must be item_rec feasible"
 
         self._model_args = (
-            n_users, n_items, alpha, beta, constraint_type=='ub',
+            n_users, n_items, alpha, beta, constraint_type,
             max_epochs, min_epsilon)
 
         tb_logger = loggers.TensorBoardLogger(
@@ -71,13 +71,13 @@ class CVX:
 
 
 class _LitCVX(LightningModule):
-    def __init__(self, n_users, n_items, alpha, beta, user_rec_ub,
+    def __init__(self, n_users, n_items, alpha, beta, constraint_type,
         max_epochs=100, min_epsilon=1e-10, v=None, epsilon=1):
 
         super().__init__()
         self.alpha = alpha
         self.beta = beta
-        self.user_rec_ub = user_rec_ub
+        self.constraint_type = constraint_type
 
         if torch.cuda.device_count():
             total_memory = torch.cuda.get_device_properties(0).total_memory
@@ -93,8 +93,24 @@ class _LitCVX(LightningModule):
         self.epsilon_gamma = min_epsilon ** (1/max_epochs)
 
         if v is None:
-            v = (-1)**user_rec_ub * torch.rand(n_items)
+            if constraint_type == 'ub':
+                v = -torch.rand(n_items)
+            elif constraint_type == 'lb':
+                v = torch.rand(n_items)
+            else: # eq
+                v = torch.rand(n_items) * 2 - 1
         self.v = torch.nn.Parameter(v)
+
+
+    @staticmethod
+    def _clip(v, constraint_type):
+        if constraint_type == 'ub':
+            return v.clip(None, 0)
+        elif constraint_type == 'lb':
+            return v.clip(0, None)
+        else: # eq
+            return v
+
 
     def configure_optimizers(self):
         return torch.optim.SGD(self.parameters(), lr=self.lr)
@@ -104,18 +120,21 @@ class _LitCVX(LightningModule):
         self.log("epsilon", self.epsilon, prog_bar=True)
 
     @torch.no_grad()
-    def forward(self, batch):
+    def forward(self, batch, v=None):
         if hasattr(batch, "eval"):
             batch = batch.eval(self.device).detach()
         else:
             batch = torch.as_tensor(batch)
 
-        v = self.v.detach().to(batch.device)
+        if v is None:
+            v = self.v.detach().to(batch.device)
+
         u, _ = _solve(v[None, :] - batch, self.alpha, self.epsilon)
         u = u.clip(None, 0)
         z = (-batch + u[:, None] + v[None, :]) / self.epsilon
         # print(get_grad(z, self.alpha))
         return torch.sigmoid(z).cpu().numpy()
+
 
     def training_step(self, batch, batch_idx):
         if hasattr(batch, "eval"):
@@ -126,7 +145,7 @@ class _LitCVX(LightningModule):
         u, _ = _solve(self.v[None, :] - batch, self.alpha, self.epsilon)
         u = u.clip(None, 0)
         v, _ = _solve(u[None, :] - batch.T, self.beta, self.epsilon)
-        v = v.clip(None, 0) if self.user_rec_ub else v.clip(0, None) # lb
+        v = self._clip(v, self.constraint_type)
         loss = ((self.v - v)**2).mean() / 2
         self.log("train_loss", loss)
         return loss
