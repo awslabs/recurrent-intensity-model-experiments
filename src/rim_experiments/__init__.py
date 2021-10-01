@@ -191,7 +191,6 @@ class Experiment:
             S = self.transform(model, self.D)
             T = self.transform(model, self.V) if self.online else None
             self.metrics_update(model, S, T)
-        return self
 
 
     @cached_property
