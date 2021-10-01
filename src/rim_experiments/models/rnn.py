@@ -9,7 +9,8 @@ from .word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from ..util import _LitValidated, empty_cache_on_exit, LogLowRankDataFrame, get_best_gpus
+from ..util import _LitValidated, empty_cache_on_exit, \
+                    ExponentiatedLowRankDataFrame, get_best_gpus
 
 
 class RNN:
@@ -59,7 +60,7 @@ class RNN:
             item_hidden, np.ones_like(item_log_bias)[:, None], item_log_bias[:, None]
             ])
 
-        return LogLowRankDataFrame(
+        return ExponentiatedLowRankDataFrame(
             ind_logits, col_logits, 1, D.user_in_test.index, self._padded_item_list)
 
 

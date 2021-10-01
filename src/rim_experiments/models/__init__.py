@@ -6,14 +6,14 @@ from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
 
-from rim_experiments.util import LogLowRankDataFrame
+from rim_experiments.util import ExponentiatedLowRankDataFrame
 
 
 class Rand:
     def transform(self, D):
         """ return a constant of one """
         shape = (len(D.user_in_test), len(D.item_df))
-        return LogLowRankDataFrame(
+        return ExponentiatedLowRankDataFrame(
             np.zeros(shape[0])[:, None], np.zeros(shape[1])[:, None], 1,
             index=D.user_in_test.index, columns=D.item_df.index)
 
@@ -34,7 +34,7 @@ class Pop:
         ind_logits = np.vstack([np.log(user_scores), np.ones(len(user_scores))]).T
         col_logits = np.vstack([np.ones(len(item_scores)), np.log(item_scores)]).T
 
-        return LogLowRankDataFrame(
+        return ExponentiatedLowRankDataFrame(
             ind_logits, col_logits, 1,
             index=D.user_in_test.index, columns=D.item_df.index)
 
@@ -47,6 +47,6 @@ class EMA:
         fn = lambda ts: np.exp(- (ts[-1] - np.array(ts[:-1])) / self.horizon).sum()
         user_scores = list(map(fn, D.user_in_test['_timestamps'].values))
 
-        return LogLowRankDataFrame(
+        return ExponentiatedLowRankDataFrame(
             np.log(user_scores)[:, None], np.ones(len(D.item_df))[:, None], 1,
             index=D.user_in_test.index, columns=D.item_df.index)

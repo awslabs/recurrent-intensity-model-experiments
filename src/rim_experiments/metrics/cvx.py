@@ -1,5 +1,5 @@
 import pandas as pd, numpy as np, scipy as sp
-import functools, torch, gc
+import torch, itertools
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -17,7 +17,7 @@ class CVX:
         alpha = topk / n_items
         beta = C / n_users
 
-        assert (constraint_type=='ub' or alpha>=beta), "must be item_rec feasible"
+        assert constraint_type!='lb' or alpha>=beta, "must be item_rec feasible"
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type=='ub',
@@ -33,12 +33,13 @@ class CVX:
     @empty_cache_on_exit
     def transform(self, score_mat):
         cost_mat = score_mat * (- self.score_max ** -1)
+        batch_size = self.model.batch_size
 
-        pi = np.vstack([
-            self.model.forward(batch)
-            for _, batch in cost_mat.iter_batches(
-                batch_size=self.model.batch_size)
-            ])
+        def fn(i):
+            batch = cost_mat[i:min(i+batch_size, len(cost_mat))]
+            return self.model.forward(batch)
+
+        pi = np.vstack([fn(i) for i in range(0, len(cost_mat), batch_size)])
         return pi
 
 
@@ -46,9 +47,9 @@ class CVX:
     def fit(self, score_mat):
         if hasattr(score_mat, "gpu_max"):
             assert not score_mat.has_nan(), "score matrix has nan"
-            self.score_max = score_mat.gpu_max(device=self.device)
+            self.score_max = float(score_mat.gpu_max(device=self.device))
         else:
-            self.score_max = score_mat.max()
+            self.score_max = float(score_mat.max())
 
         cost_mat = score_mat * (- self.score_max ** -1)
 
@@ -106,6 +107,8 @@ class _LitCVX(LightningModule):
     def forward(self, batch):
         if hasattr(batch, "eval"):
             batch = batch.eval(self.device).detach()
+        else:
+            batch = torch.as_tensor(batch)
 
         v = self.v.detach().to(batch.device)
         u, _ = _solve(v[None, :] - batch, self.alpha, self.epsilon)
@@ -117,6 +120,8 @@ class _LitCVX(LightningModule):
     def training_step(self, batch, batch_idx):
         if hasattr(batch, "eval"):
             batch = batch.eval(self.device).detach()
+        else:
+            batch = torch.as_tensor(batch)
 
         u, _ = _solve(self.v[None, :] - batch, self.alpha, self.epsilon)
         u = u.clip(None, 0)

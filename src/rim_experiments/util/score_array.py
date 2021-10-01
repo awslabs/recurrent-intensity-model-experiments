@@ -1,18 +1,19 @@
 import numpy as np, pandas as pd
-import torch, dataclasses, functools
+import torch, dataclasses, functools, warnings
 from typing import Dict, List
 
 
-@dataclasses.dataclass(repr=False)
 class ScoreExpression:
-    def eval(self, device=None):
+    """ symbolic expression with explicit lazy evaluation
+    """
+    def eval(self):
+        raise NotImplementedError
+
+    def has_nan(self):
         raise NotImplementedError
 
     @property
     def shape(self):
-        raise NotImplementedError
-
-    def has_nan(self):
         raise NotImplementedError
 
     def __len__(self):
@@ -24,11 +25,17 @@ class ScoreExpression:
 
 
 @dataclasses.dataclass(repr=False)
-class LogLowRankValues(ScoreExpression):
-    """ a log-low-rank matrix """
+class ExponentiatedLowRankValues(ScoreExpression):
+    """ mimics a numpy 2-d array with exponentiated low-rank structures
+    """
     ind_logits: List[list]
     col_logits: List[list]
     sign: float
+
+
+    def __post_init__(self):
+        assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
+
 
     def eval(self, device=None):
         if device is None:
@@ -47,16 +54,11 @@ class LogLowRankValues(ScoreExpression):
     def shape(self):
         return (len(self.ind_logits), len(self.col_logits))
 
-    @property
-    def num_hidden(self):
-        return self.ind_logits.shape[1]
-
 
     def __getitem__(self, key):
         if np.isscalar(key):
-            return _LogVectorMatrixValues(self.ind_logits[key], self.col_logits, self.sign)
-        else:
-            return self.__class__(self.ind_logits[key], self.col_logits, self.sign)
+            key = [key]
+        return self.__class__(self.ind_logits[key], self.col_logits, self.sign)
 
 
     @property
@@ -89,42 +91,53 @@ class LogLowRankValues(ScoreExpression):
         return m.item() if hasattr(m, "item") else m
 
 
-@dataclasses.dataclass(repr=False)
-class _LogVectorMatrixValues(ScoreExpression):
-    vec_logits: list
-    col_logits: List[list]
-    sign: float
-
-    @staticmethod
-    def collate_fn(batch):
+    @classmethod
+    def collate_fn(cls, batch):
         ind_logits = []
         col_logits = batch[0].col_logits
         sign = batch[0].sign
 
         for elm in batch:
-            ind_logits.append(elm.vec_logits)
+            ind_logits.append(elm.ind_logits)
             assert elm.col_logits is col_logits
             assert elm.sign == sign
 
-        return LogLowRankValues(
-            np.asarray(ind_logits), col_logits, sign,
-        )
+        return cls(np.vstack(ind_logits), col_logits, sign)
 
 
 @dataclasses.dataclass(repr=False)
-class LogLowRankDataFrame(LogLowRankValues):
-    """ extends log-low-rank matrix with reindexing functions """
+class ExponentiatedLowRankDataFrame(ScoreExpression):
+    """ mimics a pandas dataframe with exponentiated low-rank structures
+    """
+    ind_logits: List[list]
+    col_logits: List[list]
+    sign: float
     index: list
     columns: list
 
     def __post_init__(self):
-        assert self.shape == (len(self.index), len(self.columns)), \
-            "values shape inconsistent with index, columns"
+        assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
+        assert self.ind_logits.shape[0] == len(self.index), "check index"
+        assert self.col_logits.shape[0] == len(self.columns), "check columns"
 
 
     @property
     def values(self):
-        return LogLowRankValues(self.ind_logits, self.col_logits, self.sign)
+        return ExponentiatedLowRankValues(self.ind_logits, self.col_logits, self.sign)
+
+
+    def eval(self):
+        return pd.DataFrame(self.values.eval(), index=self.index, columns=self.columns)
+
+
+    def has_nan(self):
+        return np.isnan(self.ind_logits).any() or np.isnan(self.col_logits).any()
+
+
+    @property
+    def shape(self):
+        return (len(self.index), len(self.columns))
+
 
     @property
     def T(self):
@@ -148,21 +161,17 @@ class LogLowRankDataFrame(LogLowRankValues):
             ind_logits[new_ind], col_logits, self.sign, index, self.columns)
 
 
-    def eval(self):
-        data = super().eval()
-        return pd.DataFrame(data, index=self.index, columns=self.columns)
-
-
     def __mul__(self, other):
-        """ left-join with other dataframes """
+        """ left-join multiply with other dataframes; fill_value=0 on missing """
         if isinstance(other, self.__class__):
             other = other.reindex(self.index, fill_value=0) \
                          .reindex(self.columns, axis=1, fill_value=0)
 
             ind_logits = np.hstack([self.ind_logits, other.ind_logits])
             col_logits = np.hstack([self.col_logits, other.col_logits])
-            return self.__class__(ind_logits, col_logits, self.sign * other.sign,
-                self.index, self.columns)
+            sign = self.sign * other.sign
+
+            return self.__class__(ind_logits, col_logits, sign, self.index, self.columns)
         else:
             warnings.warn(f"falling back to dense to multiply with {other.__class__}")
             return self.eval() * other

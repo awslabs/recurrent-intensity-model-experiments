@@ -1,4 +1,4 @@
-from ..util import create_matrix, LogLowRankDataFrame
+from ..util import create_matrix, ExponentiatedLowRankDataFrame
 import numpy as np, pandas as pd
 from lightfm import LightFM
 
@@ -47,5 +47,5 @@ class LightFM_BPR:
         if self.user_rec:
             ind_logits, col_logits = col_logits, ind_logits
 
-        return LogLowRankDataFrame(
+        return ExponentiatedLowRankDataFrame(
             ind_logits, col_logits, 1, D.user_df.index, D.item_df.index)
