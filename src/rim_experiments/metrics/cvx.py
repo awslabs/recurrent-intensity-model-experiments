@@ -17,7 +17,11 @@ class CVX:
         alpha = topk / n_items
         beta = C / n_users
 
-        assert constraint_type!='lb' or alpha>=beta, "must be item_rec feasible"
+        if hasattr(score_mat, "gpu_max"):
+            assert not score_mat.has_nan(), "score matrix has nan"
+            self.score_max = float(score_mat.gpu_max(device=device))
+        else:
+            self.score_max = float(score_mat.max())
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type,
@@ -28,7 +32,7 @@ class CVX:
 
         self._trainer_kw = dict(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
             log_every_n_steps=1)
-        self.device = device
+
 
     @empty_cache_on_exit
     def transform(self, score_mat):
@@ -45,12 +49,6 @@ class CVX:
 
     @empty_cache_on_exit
     def fit(self, score_mat):
-        if hasattr(score_mat, "gpu_max"):
-            assert not score_mat.has_nan(), "score matrix has nan"
-            self.score_max = float(score_mat.gpu_max(device=self.device))
-        else:
-            self.score_max = float(score_mat.max())
-
         cost_mat = score_mat * (- self.score_max ** -1)
 
         model = _LitCVX(*self._model_args)
@@ -168,7 +166,7 @@ def _solve(add, alpha, epsilon, n_iters=10, n_bt=4, tol=1e-5):
     """ minimize epsilon*log(1+exp((u+add) / epsilon)).mean() - u*alpha
     whose gradient is sigmoid((u+add)/epsilon).mean() = alpha
     """
-    topk = int(alpha*add.shape[1]) + 1
+    topk = min(int(alpha*add.shape[1]) + 1, add.shape[1])
     u = -torch.topk(add, topk, sorted=False).values.amin(1)
 
     for i in range(n_iters):

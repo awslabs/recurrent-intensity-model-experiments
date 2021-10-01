@@ -20,8 +20,7 @@ class ExperimentResult:
 
     item_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
     user_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
-    ub_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
-    lb_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
+    mtch_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
 
     def print_results(self):
         print('\nitem_rec')
@@ -33,7 +32,7 @@ class ExperimentResult:
         with open(fn, 'w') as fp:
             json.dump(dataclasses.asdict(self), fp)
 
-    def get_mtch_(self, k=None, c=None, name="ub_"):
+    def get_mtch_(self, k=None, c=None, name="mtch_"):
         y = {}
         for method, x in getattr(self, name).items():
             x = pd.DataFrame(x)
@@ -45,9 +44,12 @@ class ExperimentResult:
 
 
 class Experiment:
+    """ Produce item_rec / user_rec metrics;
+    then sweeps through multipliers for relevance-diversity curve,
+    interpreting mult<1 as item min-exposure and mult>=1 as user max-limit
+    """
     def __init__(self, D, V,
-        ub_mult=[], # [3, 10, 30, 100], # sweep for constraints to generate curve
-        lb_mult=[], # [0.5, 0.2, 0.1, 0],
+        mult=[], # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
         models_to_run=[
             "Rand", "Pop", "EMA", "Hawkes", "HP",
             "RNN", "RNN-Pop", "RNN-EMA", "RNN-Hawkes", "RNN-HP",
@@ -62,8 +64,7 @@ class Experiment:
         self.D = D
         self.V = V
 
-        self.ub_mult = np.array(ub_mult)
-        self.lb_mult = np.array(lb_mult)
+        self.mult = np.array(mult)
         self.models_to_run = models_to_run
         self.model_hyps = model_hyps
         self.device = device
@@ -112,25 +113,21 @@ class Experiment:
             'user_rec': self.user_rec[name],
             }).T)
 
-        if len(self.ub_mult):
-            self.ub_[name] = self._mtch_update(
-                target_csr, score_mat, "ub", self.ub_mult, valid_mat)
-
-        if len(self.lb_mult):
-            self.lb_[name] = self._mtch_update(
-                target_csr, score_mat, "lb", self.lb_mult, valid_mat)
+        if len(self.mult):
+            self.mtch_[name] = self._mtch_update(target_csr, score_mat, valid_mat)
 
 
-    def _mtch_update(self, target_csr, score_mat, constraint_type, mult, valid_mat):
+    def _mtch_update(self, target_csr, score_mat, valid_mat):
         """ assign user/item matches and return evaluation results.
         """
-        confs = ([(self._k1, self._c1, "ub")] # equality constraint
-            + [(self._k1, c, constraint_type) for c in (self._c1 * mult)])
-
-        if self.cvx and constraint_type=="lb":
-            warnings.warn("Ignoring lower-bound k, which is infeasible in onln mtch.")
-        else:
-            confs += [(k, self._c1, constraint_type) for k in (self._k1 * mult)]
+        confs = []
+        for m in self.mult:
+            if m < 1:
+                # lower-bound is interpreted as item min-exposure
+                confs.append((self._k1, self._c1 * m, 'lb'))
+            else:
+                # upper-bound is interpreted as user max-limit
+                confs.append((self._k1 * m, self._c1, 'ub'))
 
         mtch_kw = self.mtch_kw.copy()
         if self.cvx:
@@ -194,7 +191,6 @@ class Experiment:
             S = self.transform(model, self.D)
             T = self.transform(model, self.V) if self.online else None
             self.metrics_update(model, S, T)
-        return self
 
 
     @cached_property
@@ -224,27 +220,18 @@ def main(name, *args, **kw):
     return self
 
 
-def plot_results(self, plot_lb=True, plot_ub=True, logy=True):
+def plot_results(self, logy=True):
     """ self is an instance of Experiment or ExperimentResult """
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(1, 2, figsize=(7, 2.5))
     df = [self.get_mtch_(k=self._k1), self.get_mtch_(c=self._c1)]
-    lb = [self.get_mtch_(k=self._k1, name="lb_"),
-          self.get_mtch_(c=self._c1, name="lb_")]
 
     xname = [f'ItemRec Prec@{self._k1}', f'UserRec Prec@{self._c1}']
     yname = ['item_ppl', 'user_ppl']
 
-    for ax, df, lb, xname, yname in zip(ax, df, lb, xname, yname):
-        if plot_lb and lb is not None:
-            ax.plot(
-                lb.loc['prec'].unstack().values.T,
-                lb.loc[yname].unstack().values.T,
-                '+-',
-            )
-            ax.set_prop_cycle(None)
-        if plot_ub and df is not None:
+    for ax, df, xname, yname in zip(ax, df, xname, yname):
+        if df is not None:
             ax.plot(
                 df.loc['prec'].unstack().values.T,
                 df.loc[yname].unstack().values.T,
@@ -255,7 +242,7 @@ def plot_results(self, plot_lb=True, plot_ub=True, logy=True):
         if logy:
             ax.set_yscale('log')
     fig.legend(
-        (df if df is not None else lb).loc['prec'].unstack().index.values,
+        df.loc['prec'].unstack().index.values,
         bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,
         mode="expand", borderaxespad=0.)
     fig.subplots_adjust(wspace=0.25)
