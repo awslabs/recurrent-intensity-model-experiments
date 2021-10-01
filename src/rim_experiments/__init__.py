@@ -114,10 +114,10 @@ class Experiment:
             }).T)
 
         if len(self.mult):
-            self.mtch_[name] = self._mtch_update(target_csr, score_mat, valid_mat)
+            self.mtch_[name] = self._mtch_update(target_csr, score_mat, valid_mat, name)
 
 
-    def _mtch_update(self, target_csr, score_mat, valid_mat):
+    def _mtch_update(self, target_csr, score_mat, valid_mat, name):
         """ assign user/item matches and return evaluation results.
         """
         confs = []
@@ -132,6 +132,7 @@ class Experiment:
         mtch_kw = self.mtch_kw.copy()
         if self.cvx:
             mtch_kw['valid_mat'] = valid_mat
+            mtch_kw['prefix'] = f"{name}-{self.online}"
         else:
             mtch_kw['argsort_ij'] = _argsort(score_mat, device=self.device)
 
