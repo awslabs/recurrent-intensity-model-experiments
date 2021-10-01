@@ -6,10 +6,8 @@ def test_rim_experiments_importable():
     import rim_experiments
 
 
+@pytest.mark.parametrize("cvx, online", [(False, False), (True, False), (True, True)])
 @pytest.mark.parametrize("split_fn_name", ["split_by_time", "split_by_user"])
-@pytest.mark.parametrize("cvx, online", [
-    (False, False), (True, False), (True, True)
-    ])
 def test_synthetic_experiment(split_fn_name, cvx, online, **kw):
     from rim_experiments import main, plot_results
     kw = kw.copy()
