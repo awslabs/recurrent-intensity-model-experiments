@@ -12,7 +12,7 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
 ## Getting Started
 
 1. Download and install via `pip install -e .` Additional conda dependencies may be found at [environment.yml](environment.yml)
-2. Add in [data](data) folder. See detailed instructions therein.
+2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run experiment as
     ```
     from rim_experiments import main, plot_results
