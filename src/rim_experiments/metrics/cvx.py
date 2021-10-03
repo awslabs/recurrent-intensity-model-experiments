@@ -118,7 +118,7 @@ class _LitCVX(LightningModule):
         self.log("epsilon", self.epsilon, prog_bar=True)
 
     @torch.no_grad()
-    def forward(self, batch, v=None):
+    def forward(self, batch, v=None, epsilon=None):
         if hasattr(batch, "eval"):
             batch = batch.eval(self.device).detach()
         else:
@@ -127,9 +127,12 @@ class _LitCVX(LightningModule):
         if v is None:
             v = self.v.detach().to(batch.device)
 
-        u, _ = _solve(v[None, :] - batch, self.alpha, self.epsilon)
+        if epsilon is None:
+            epsilon = self.epsilon
+
+        u, _ = _solve(v[None, :] - batch, self.alpha, epsilon)
         u = u.clip(None, 0)
-        z = (-batch + u[:, None] + v[None, :]) / self.epsilon
+        z = (-batch + u[:, None] + v[None, :]) / epsilon
         # print(get_grad(z, self.alpha))
         return torch.sigmoid(z).cpu().numpy()
 

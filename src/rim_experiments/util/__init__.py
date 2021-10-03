@@ -242,10 +242,12 @@ def get_batch_size(shape):
 
 def get_best_gpus():
     if "BEST_GPU" in os.environ:
-        return [int(os.environ['BEST_GPU'])]
-    memory_free = [
-        nvmlDeviceGetMemoryInfo(nvmlDeviceGetHandleByIndex(i)).free
-        for i in range(torch.cuda.device_count())
-    ]
-    print("best gpu", np.argmax(memory_free))
-    return [np.argmax(memory_free)]
+        best_gpu = int(os.environ['BEST_GPU'])
+    else:
+        memory_free = [
+            nvmlDeviceGetMemoryInfo(nvmlDeviceGetHandleByIndex(i)).free
+            for i in range(torch.cuda.device_count())
+        ]
+        best_gpu = np.argmax(memory_free)
+    print("best gpu", best_gpu)
+    return [best_gpu]

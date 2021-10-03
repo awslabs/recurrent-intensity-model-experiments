@@ -59,9 +59,11 @@ for i, (ax, df) in enumerate(zip(ax, [
             ax.plot(df.loc['prec'][name], df.loc[yname][name],
                     label=label, marker=marker, ls=':')
         )
+    ax.grid()
     ax.set_xlabel(xname)
     if i==0:
         ax.set_ylabel(ylabel)
+        ax.set_yscale("log")
 fig_item_rec.legend(
     hdl, [k for k,v in plot_names.values()],
     bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,
@@ -89,9 +91,11 @@ for i, (ax, df) in enumerate(zip(ax, [
             ax.plot(df.loc['prec'][name], df.loc[yname][name],
                     label=label, marker=marker, ls=':')
         )
+    ax.grid()
     ax.set_xlabel(xname)
     if i==0:
         ax.set_ylabel(ylabel)
+        ax.set_yscale("log")
 fig_user_rec.legend(
     hdl, [k for k,v in plot_names.values()],
     bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,
