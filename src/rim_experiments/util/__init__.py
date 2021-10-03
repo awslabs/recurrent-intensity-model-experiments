@@ -2,6 +2,7 @@ import pandas as pd, numpy as np, scipy as sp
 import functools, collections, time, contextlib, os, torch, gc, warnings
 from datetime import datetime
 from pytorch_lightning import LightningModule
+from backports.cached_property import cached_property
 
 if torch.cuda.is_available():
     from pynvml import *
@@ -83,9 +84,6 @@ def empty_cache_on_exit(func):
 def perplexity(x):
     x = np.ravel(x) / x.sum()
     return float(np.exp(- x @ np.log(np.where(x>0, x, 1e-10))))
-
-
-cached_property = lambda foo: property(functools.lru_cache()(foo))
 
 
 @empty_cache_on_exit

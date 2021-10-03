@@ -21,8 +21,12 @@ class CVX:
         if hasattr(score_mat, "gpu_max"):
             assert not score_mat.has_nan(), "score matrix has nan"
             self.score_max = float(score_mat.gpu_max(device=device))
+            self.score_min = float(score_mat.gpu_min(device=device))
         else:
             self.score_max = float(score_mat.max())
+            self.score_min = float(score_mat.min())
+
+        print(f"entering {prefix} CVX score in ({self.score_min}, {self.score_max})")
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type,
@@ -37,7 +41,7 @@ class CVX:
 
     @empty_cache_on_exit
     def transform(self, score_mat):
-        cost_mat = score_mat * (- self.score_max ** -1)
+        cost_mat = score_mat * (-1./self.score_max)
         batch_size = self.model.batch_size
 
         def fn(i):
@@ -50,7 +54,7 @@ class CVX:
 
     @empty_cache_on_exit
     def fit(self, score_mat):
-        cost_mat = score_mat * (- self.score_max ** -1)
+        cost_mat = score_mat * (-1./self.score_max)
 
         model = _LitCVX(*self._model_args)
         trainer = Trainer(**self._trainer_kw)

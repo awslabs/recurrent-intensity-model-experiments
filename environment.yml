@@ -17,3 +17,4 @@ dependencies:
   - pytest
   - implicit
   - dataclasses # backport from python3.7
+  - backports.cached-property
