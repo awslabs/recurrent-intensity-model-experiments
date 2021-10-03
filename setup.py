@@ -21,5 +21,6 @@ setup(
         "pyarrow>=0.13.0",
         "tick>=0.6",
         "implicit>=0.4.4",
+        "backports.cached-property",
     ],
 )

@@ -3,6 +3,8 @@ from ..util import create_matrix, CustomLowRankDataFrame
 from implicit.als import AlternatingLeastSquares
 from implicit.lmf import LogisticMatrixFactorization
 
+_to_numpy = lambda x: x.to_numpy() if hasattr(x, 'to_numpy') else x
+
 class ALS:
     def __init__(self, factors=32, iterations=50,regularization=0.01, random_state=None,use_native=True,use_cg=True,use_gpu=torch.cuda.is_available()):
 
@@ -32,7 +34,8 @@ class ALS:
         col_logits = self.als_model.item_factors
 
         return CustomLowRankDataFrame(
-            ind_logits, col_logits, 1, D.user_df.index, D.item_df.index, 'raw')
+            _to_numpy(ind_logits), _to_numpy(col_logits), 1,
+            D.user_df.index, D.item_df.index, 'raw')
 
 
 class LogisticMF:
@@ -64,4 +67,5 @@ class LogisticMF:
         col_logits = self.lmf_model.item_factors
 
         return CustomLowRankDataFrame(
-            ind_logits, col_logits, 1, D.user_df.index, D.item_df.index, 'sigmoid')
+            _to_numpy(ind_logits), _to_numpy(col_logits), 1,
+            D.user_df.index, D.item_df.index, 'sigmoid')
