@@ -151,7 +151,7 @@ def dual_iterate(v, s, alpha, beta, eps,
 
 
 if __name__ == '__main__':
-    import matplotlib
+    import matplotlib, pylab as pl
     matplotlib.rcParams['pdf.fonttype'] = 42
     matplotlib.rcParams['ps.fonttype'] = 42
 
