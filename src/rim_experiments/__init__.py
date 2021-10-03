@@ -53,7 +53,7 @@ class Experiment:
         models_to_run=[
             "Rand", "Pop", "EMA", "Hawkes", "HP",
             "RNN", "RNN-Pop", "RNN-EMA", "RNN-Hawkes", "RNN-HP",
-            "BPR-Item", "BPR-User","ALS","LogisticMF"
+            "BPR-Item", "BPR-User",#"ALS","LogisticMF"
             ],
         model_hyps={},
         device="cpu",

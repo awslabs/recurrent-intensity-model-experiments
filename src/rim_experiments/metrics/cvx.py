@@ -224,8 +224,8 @@ if int(os.environ.get('CVX_BISECT', 1)):
         _primal = lambda u: torch.sigmoid((add - u[:, None]) / epsilon)
         _grad_u = lambda u: alpha - _primal(u).mean(axis=1) # monotone with u
 
-        assert (_grad_u(u_min) <= 0).all()
-        assert (_grad_u(u_max) >= 0).all()
+        assert (_grad_u(u_min) <= 0).all() or alpha == 0 or alpha == 1
+        assert (_grad_u(u_max) >= 0).all() or alpha == 0 or alpha == 1
 
         for i in range(50):
             u = (u_min + u_max) / 2
