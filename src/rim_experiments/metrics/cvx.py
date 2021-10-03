@@ -216,8 +216,8 @@ if int(os.environ.get('CVX_BISECT', 1)):
             warnings.warn(f"clipping alpha={alpha} to [0, 1]")
             alpha = np.clip(alpha, 0, 1)
 
-        alpha = torch.as_tensor(alpha).to(add)
-        epsilon = torch.as_tensor(epsilon).to(add)
+        alpha = torch.as_tensor(alpha).to(add.device)
+        epsilon = torch.as_tensor(epsilon).to(add.device)
 
         _primal = lambda u: torch.sigmoid((add - u[:, None]) / epsilon)
         _grad_u = lambda u: alpha - _primal(u).mean(axis=1) # monotone with u
