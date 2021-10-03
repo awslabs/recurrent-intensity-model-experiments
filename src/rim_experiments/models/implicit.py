@@ -1,9 +1,10 @@
+import torch
 from ..util import create_matrix, CustomLowRankDataFrame
 from implicit.als import AlternatingLeastSquares
 from implicit.lmf import LogisticMatrixFactorization
 
 class ALS:
-    def __init__(self, factors=32, iterations=50,regularization=0.01, random_state=None,use_native=True,use_cg=True,use_gpu=True):
+    def __init__(self, factors=32, iterations=50,regularization=0.01, random_state=None,use_native=True,use_cg=True,use_gpu=torch.cuda.is_available()):
 
         self.als_model = AlternatingLeastSquares(
             factors=factors,
