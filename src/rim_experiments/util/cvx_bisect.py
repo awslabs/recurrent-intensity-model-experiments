@@ -76,7 +76,7 @@ def grad_u(u, v, s, alpha, eps, stable=True):
         return alpha - pi.mean(axis=1)
 
 
-def dual_solve_u(v, s, alpha, eps, verbose=False, approx_quantiles=True):
+def dual_solve_u(v, s, alpha, eps, verbose=False):
     """
     min_{u>=0} max_pi L(pi, u, v)
         = E_xy [ u(x)alpha(x) + v(y)beta(y) + Softplus(1/eps)(s-u-v) ],
@@ -86,42 +86,26 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, approx_quantiles=True):
     if alpha < 0 or alpha > 1:
         warnings.warn(f"clipping alpha={alpha} to [0, 1]")
         alpha = np.clip(alpha, 0, 1)
+
     v = torch.as_tensor(v).to(s.device)
     alpha = torch.as_tensor(alpha).to(s.device)
     eps = torch.as_tensor(eps).to(s.device)
 
-    # z = (s-u-v)/eps inf * 0 = inf
     z = alpha.log() - (1-alpha).log()
-    u_min = (s - v[None, :]).amin(axis=1) - z * eps.clip(1e-20, None) - 1e-3
-    u_max = (s - v[None, :]).amax(axis=1) - z * eps.clip(1e-20, None) + 1e-3
 
-    g_min = grad_u(u_min, v, s, alpha, eps)
-    g_max = grad_u(u_max, v, s, alpha, eps)
+    if alpha == 0 or alpha == 1: # z = +-infinity
+        u = -z * torch.ones_like(s[:, 0])
+        return u
 
-    if verbose:
-        print(u_min, g_min, u_max, g_max)
+    u_min = (s - v[None, :]).amin(axis=1) - z * eps - 1e-3
+    u_max = (s - v[None, :]).amax(axis=1) - z * eps + 1e-3
 
-    assert (g_min <= 0).all()
-    assert (g_max >= 0).all()
+    assert (grad_u(u_min, v, s, alpha, eps) <= 0).all()
+    assert (grad_u(u_max, v, s, alpha, eps) >= 0).all()
 
-    if approx_quantiles:
-        k = (alpha*s.shape[1]).to(int)
-        u_list = (s - v[None, :]).topk(min(s.shape[1], k + 1)).values[:, -3:].T
-    else:
-        u_list = []
-
-    for i in range(30):
-        if i < len(u_list):
-            u = u_list[i]
-            u = torch.fmin(torch.fmax(u, u_min), u_max)
-        else:
-            u = (u_min + u_max) / 2
-
+    for i in range(50):
+        u = (u_min + u_max) / 2
         g = grad_u(u, v, s, alpha, eps)
-
-        if verbose:
-            print(u, g)
-
         assert not u.isnan().any()
         u_min = torch.where(g<0, u, u_min)
         u_max = torch.where(g>0, u, u_max)
@@ -179,7 +163,7 @@ if __name__ == '__main__':
     matplotlib.rcParams['ps.fonttype'] = 42
 
     s = torch.tensor([[1], [0.5]])
-    alpha = 0.99
+    alpha = 1
     beta = 0.4
     eps = 1
 
@@ -196,33 +180,34 @@ if __name__ == '__main__':
         pl.plot(*zip(*[(v.cpu().numpy(), y.cpu().numpy())
           for v, y in dual_iterate(
               torch.as_tensor([-0.5]), s, alpha, beta, eps, stepsize=2,
-          )]), '+-', color=colors[i], label=f'(sub)gradient' if i==2 else None)
-
-    for i, eps in enumerate([1, 0.5, 0.01]):
-        pl.plot(*zip(*[(v.cpu().numpy(), y.cpu().numpy())
-          for v, y in dual_iterate(
-              torch.as_tensor([-0.5]), s, alpha, beta, eps,
-          )]), 'o--', mfc='none', color=colors[i], lw=2,
-                label=f'alternating' if i==2 else None)
+          )]), 'o-', mfc='none', color=colors[i], label=f'(sub)gradient' if i==2 else None)
+        for v, y in dual_iterate(
+              torch.as_tensor([-0.5]), s, alpha, beta, eps, stepsize=2,
+          ):
+            print(eps, v, y)
 
     v = torch.as_tensor([-0.5])
     arr = []
     for eps in [1, 0.5, 0.01]:
-        for _ in range(10):
+        for _ in range(3):
             u = dual_solve_u(v, s, alpha, eps)
             u = dual_clip(u, 'ub')
-            f = dual_complete(u, v, s, alpha, beta, eps)
-            arr.append([v.numpy(), f.numpy()])
+            y = dual_complete(u, v, s, alpha, beta, eps)
+            arr.append([v.numpy(), y.numpy()])
+            print(eps, u, v, y)
 
             v = dual_solve_u(u, s.T, beta, eps)
 
             u = dual_solve_u(v, s, alpha, eps)
             u = dual_clip(u, 'ub')
-            f = dual_complete(u, v, s, alpha, beta, eps)
-            arr.append([v.numpy(), f.numpy()])
-    pl.plot(*zip(*arr), '.--', label='annealed')
+            y = dual_complete(u, v, s, alpha, beta, eps)
+            arr.append([v.numpy(), y.numpy()])
+            print(eps, u, v, y)
+
+    pl.plot(*zip(*arr), '+--', label='annealed')
 
     pl.ylabel("dual objective", fontsize=12)
     pl.xlabel("dual variable v", fontsize=12)
     pl.legend(loc='upper right')
+
     fig.savefig('cvx_synthetic.pdf', bbox_inches='tight')
