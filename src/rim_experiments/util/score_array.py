@@ -91,6 +91,13 @@ class ExponentiatedLowRankValues(ScoreExpression):
         return m.item() if hasattr(m, "item") else m
 
 
+    def gpu_min(self, *args, **kw):
+        m = float("inf")
+        for _, s in self.iter_batches(*args, **kw):
+            m = min(m, s.eval().min())
+        return m.item() if hasattr(m, "item") else m
+
+
     @classmethod
     def collate_fn(cls, batch):
         ind_logits = []
@@ -110,11 +117,11 @@ class SigmoidLowRankValues(ExponentiatedLowRankValues):
     """
     def eval(self, device=None):
         if device is None:
-            return 1/(1-np.exp(self.ind_logits @ self.col_logits.T))
+            return 1/(1+np.exp(-self.ind_logits @ self.col_logits.T)) * self.sign
         else:
             ind_logits = torch.as_tensor(self.ind_logits, device=device)
             col_logits = torch.as_tensor(self.col_logits, device=device)
-            return (ind_logits @ col_logits.T).sigmoid()
+            return (ind_logits @ col_logits.T).sigmoid() * self.sign
 
 
 @dataclasses.dataclass(repr=False)
@@ -123,11 +130,11 @@ class DotProdLowRankValues(ExponentiatedLowRankValues):
     """
     def eval(self, device=None):
         if device is None:
-            return self.ind_logits @ self.col_logits.T
+            return self.ind_logits @ self.col_logits.T * self.sign
         else:
             ind_logits = torch.as_tensor(self.ind_logits, device=device)
             col_logits = torch.as_tensor(self.col_logits, device=device)
-            return (ind_logits @ col_logits.T)
+            return (ind_logits @ col_logits.T) * self.sign
 
 
 
