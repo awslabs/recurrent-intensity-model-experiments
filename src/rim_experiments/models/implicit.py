@@ -1,7 +1,10 @@
-import torch
+import torch, warnings
 from ..util import create_matrix, CustomLowRankDataFrame
-from implicit.als import AlternatingLeastSquares
-from implicit.lmf import LogisticMatrixFactorization
+try:
+    from implicit.als import AlternatingLeastSquares
+    from implicit.lmf import LogisticMatrixFactorization
+except ImportError:
+    warnings.warn("implicit import error")
 
 _to_numpy = lambda x: x.to_numpy() if hasattr(x, 'to_numpy') else x
 

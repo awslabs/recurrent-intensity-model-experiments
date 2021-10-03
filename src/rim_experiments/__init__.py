@@ -28,6 +28,11 @@ class ExperimentResult:
         print('\nuser_rec')
         print(pd.DataFrame(self.user_rec).T)
 
+        mtch1 = self.get_mtch_(self._k1, self._c1)
+        if mtch1 is not None:
+            print('\nmtch_')
+            print(mtch1.T)
+
     def save_results(self, fn):
         with open(fn, 'w') as fp:
             json.dump(dataclasses.asdict(self), fp)
@@ -36,10 +41,14 @@ class ExperimentResult:
         y = {}
         for method, x in getattr(self, name).items():
             x = pd.DataFrame(x)
-            if k is not None:
+            if k is not None and c is not None:
+                y[method] = x.set_index(['k', 'c']).loc[(k, c)]
+            elif k is not None:
                 y[method] = x.set_index(['k', 'c']).loc[k].sort_index().T
-            else:
+            elif c is not None:
                 y[method] = x.set_index(['c', 'k']).loc[c].sort_index().T
+            else:
+                raise ValueError("either k or c must be provided")
         return pd.concat(y, axis=1) if len(y) else None
 
 
@@ -53,7 +62,7 @@ class Experiment:
         models_to_run=[
             "Rand", "Pop", "EMA", "Hawkes", "HP",
             "RNN", "RNN-Pop", "RNN-EMA", "RNN-Hawkes", "RNN-HP",
-            "BPR-Item", "BPR-User","ALS","LogisticMF"
+            "BPR-Item", "BPR-User",#"ALS","LogisticMF"
             ],
         model_hyps={},
         device="cpu",
@@ -64,7 +73,7 @@ class Experiment:
         self.D = D
         self.V = V
 
-        self.mult = np.array(mult)
+        self.mult = mult
         self.models_to_run = models_to_run
         self.model_hyps = model_hyps
         self.device = device
