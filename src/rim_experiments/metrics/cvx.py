@@ -224,9 +224,9 @@ if int(os.environ.get('CVX_BISECT', 1)):
 
         z = alpha.log() - (1-alpha).log()
 
-        if not z.isfinite(): # alpha <= 0 or >= 1
-            u = -z
-            return (-u if return_negative_u else u, (z-z).max())
+        if alpha == 0 or alpha == 1: # z is +- infinity
+            u = -z * torch.ones_like(add[:, 0])
+            return (-u if return_negative_u else u, (u-u).max())
 
         u_min = add.amin(axis=1) - z * epsilon - 1e-3
         u_max = add.amax(axis=1) - z * epsilon + 1e-3
