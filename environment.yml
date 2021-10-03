@@ -15,4 +15,5 @@ dependencies:
   - matplotlib>=3.3.4
   - flake8
   - pytest
+  - implicit
   - dataclasses # backport from python3.7

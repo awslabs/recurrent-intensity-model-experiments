@@ -104,6 +104,32 @@ class ExponentiatedLowRankValues(ScoreExpression):
 
         return cls(np.vstack(ind_logits), col_logits, sign)
 
+@dataclasses.dataclass(repr=False)
+class SigmoidLowRankValues(ExponentiatedLowRankValues):
+    """ mimics a numpy 2-d array with sigmoid low-rank structures
+    """
+    def eval(self, device=None):
+        if device is None:
+            return 1/(1-np.exp(self.ind_logits @ self.col_logits.T))
+        else:
+            ind_logits = torch.as_tensor(self.ind_logits, device=device)
+            col_logits = torch.as_tensor(self.col_logits, device=device)
+            return (ind_logits @ col_logits.T).sigmoid()
+
+
+@dataclasses.dataclass(repr=False)
+class DotProdLowRankValues(ExponentiatedLowRankValues):
+    """ mimics a numpy 2-d array with raw dot product low-rank structures
+    """
+    def eval(self, device=None):
+        if device is None:
+            return self.ind_logits @ self.col_logits.T
+        else:
+            ind_logits = torch.as_tensor(self.ind_logits, device=device)
+            col_logits = torch.as_tensor(self.col_logits, device=device)
+            return (ind_logits @ col_logits.T)
+
+
 
 @dataclasses.dataclass(repr=False)
 class ExponentiatedLowRankDataFrame(ScoreExpression):
@@ -173,6 +199,87 @@ class ExponentiatedLowRankDataFrame(ScoreExpression):
             sign = self.sign * other.sign
 
             return self.__class__(ind_logits, col_logits, sign, self.index, self.columns)
+        else:
+            warnings.warn(f"falling back to dense to multiply with {other.__class__}")
+            return self.eval() * other
+
+
+@dataclasses.dataclass(repr=False)
+class CustomLowRankDataFrame(ScoreExpression):
+    """ mimics a pandas dataframe with exponentiated low-rank structures
+    """
+    ind_logits: List[list]
+    col_logits: List[list]
+    sign: float
+    index: list
+    columns: list
+    activation: str = 'exponential'
+
+    def __post_init__(self):
+        assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
+        assert self.ind_logits.shape[0] == len(self.index), "check index"
+        assert self.col_logits.shape[0] == len(self.columns), "check columns"
+        assert self.activation in ['exponential','sigmoid','raw']
+
+
+    @property
+    def values(self):
+        if self.activation=='exponential':
+            return ExponentiatedLowRankValues(self.ind_logits, self.col_logits, self.sign)
+        elif self.activation=='sigmoid':
+            return SigmoidLowRankValues(self.ind_logits, self.col_logits, self.sign)
+        elif self.activation=='raw':
+            return DotProdLowRankValues(self.ind_logits, self.col_logits, self.sign)
+
+
+    def eval(self):
+        return pd.DataFrame(self.values.eval(), index=self.index, columns=self.columns)
+
+
+    def has_nan(self):
+        return np.isnan(self.ind_logits).any() or np.isnan(self.col_logits).any()
+
+
+    @property
+    def shape(self):
+        return (len(self.index), len(self.columns))
+
+
+    @property
+    def T(self):
+        return self.__class__(self.col_logits, self.ind_logits, self.sign,
+            self.columns, self.index, self.activation)
+
+
+    def reindex(self, index, axis=0, fill_value=float("nan")):
+        if axis==1:
+            return self.T.reindex(index, fill_value=fill_value).T
+
+        ind_logits = np.pad(self.ind_logits, ((0,1), (0,1)), constant_values=0)
+        #TODO: change fillna according to activation type
+        with np.errstate(divide='ignore'): # 0 -> -inf
+            ind_logits[-1, -1] = np.log(fill_value)
+        col_logits = np.pad(self.col_logits, ((0,0), (0,1)), constant_values=1)
+
+        new_ind = pd.Series(
+            np.arange(len(self)), index=self.index
+            ).reindex(index, fill_value=-1).values
+
+        return self.__class__(
+            ind_logits[new_ind], col_logits, self.sign, index, self.columns,self.activation)
+
+
+    def __mul__(self, other):
+        """ left-join multiply with other dataframes; fill_value=0 on missing """
+        if isinstance(other, self.__class__):
+            other = other.reindex(self.index, fill_value=0) \
+                         .reindex(self.columns, axis=1, fill_value=0)
+
+            ind_logits = np.hstack([self.ind_logits, other.ind_logits])
+            col_logits = np.hstack([self.col_logits, other.col_logits])
+            sign = self.sign * other.sign
+
+            return self.__class__(ind_logits, col_logits, sign, self.index, self.columns,self.activation)
         else:
             warnings.warn(f"falling back to dense to multiply with {other.__class__}")
             return self.eval() * other

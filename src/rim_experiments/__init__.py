@@ -53,7 +53,7 @@ class Experiment:
         models_to_run=[
             "Rand", "Pop", "EMA", "Hawkes", "HP",
             "RNN", "RNN-Pop", "RNN-EMA", "RNN-Hawkes", "RNN-HP",
-            "BPR-Item", "BPR-User"
+            "BPR-Item", "BPR-User","ALS","LogisticMF"
             ],
         model_hyps={},
         device="cpu",
@@ -184,6 +184,12 @@ class Experiment:
 
         if model == "BPR-User":
             return LightFM_BPR(user_rec=True).fit(D).transform(D)
+
+        if model == "ALS":
+            return ALS().fit(D).transform(D)
+
+        if model == "LogisticMF":
+            return LogisticMF().fit(D).transform(D)
 
 
     def run(self):
