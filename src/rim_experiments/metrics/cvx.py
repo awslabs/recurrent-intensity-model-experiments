@@ -206,10 +206,12 @@ if int(os.environ.get('CVX_BISECT', 1)):
     print("CVX_BISECT")
 
     @torch.no_grad()
-    def _solve(add, alpha, epsilon, output_negative_u=True):
+    def _solve(add, alpha, epsilon, return_negative_u=True):
         """ find u s.t. E_y[pi(x,y)] == alpha,
         where pi(x,y) = sigmoid((add(x,y) - u(y)) / epsilon)
         """
+        assert np.isscalar(alpha), "only supports scalar for simplicity"
+
         if alpha < 0 or alpha > 1:
             warnings.warn(f"clipping alpha={alpha} to [0, 1]")
             alpha = np.clip(alpha, 0, 1)
@@ -217,15 +219,20 @@ if int(os.environ.get('CVX_BISECT', 1)):
         alpha = torch.as_tensor(alpha).to(add)
         epsilon = torch.as_tensor(epsilon).to(add)
 
-        z = alpha.log() - (1-alpha).log()
-        u_min = add.amin(axis=1) - z * epsilon.clip(1e-20, None) - 1e-3
-        u_max = add.amax(axis=1) - z * epsilon.clip(1e-20, None) + 1e-3
-
         _primal = lambda u: torch.sigmoid((add - u[:, None]) / epsilon)
         _grad_u = lambda u: alpha - _primal(u).mean(axis=1) # monotone with u
 
-        assert (_grad_u(u_min) <= 0).all() or alpha == 0 or alpha == 1
-        assert (_grad_u(u_max) >= 0).all() or alpha == 0 or alpha == 1
+        z = alpha.log() - (1-alpha).log()
+
+        if not z.isfinite(): # alpha <= 0 or >= 1
+            u = -z
+            return (-u if return_negative_u else u, (z-z).max())
+
+        u_min = add.amin(axis=1) - z * epsilon - 1e-3
+        u_max = add.amax(axis=1) - z * epsilon + 1e-3
+
+        assert (_grad_u(u_min) <= 0).all()
+        assert (_grad_u(u_max) >= 0).all()
 
         for i in range(50):
             u = (u_min + u_max) / 2
@@ -233,4 +240,4 @@ if int(os.environ.get('CVX_BISECT', 1)):
             u_min = torch.where(g<0, u, u_min)
             u_max = torch.where(g>0, u, u_max)
 
-        return (-u if output_negative_u else u, (u_max-u_min).max())
+        return (-u if return_negative_u else u, (u_max-u_min).max())
