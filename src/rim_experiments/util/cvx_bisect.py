@@ -63,6 +63,9 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, approx_quantiles=True):
             where u = min{u>=0 : E_y[pi(x,y)] <= alpha(x)}
     find exact u s.t. E_y[pi(x,y)] == alpha(x)
     """
+    if alpha < 0 or alpha > 1:
+        warnings.warn(f"clipping alpha={alpha} to [0, 1]")
+        alpha = np.clip(alpha, 0, 1)
     v = torch.as_tensor(v).to(s)
     alpha = torch.as_tensor(alpha).to(s)
     eps = torch.as_tensor(eps).to(s)
