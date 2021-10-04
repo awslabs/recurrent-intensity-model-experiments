@@ -27,6 +27,7 @@ class CVX:
             self.score_min = float(score_mat.min())
 
         print(f"entering {prefix} CVX score in ({self.score_min}, {self.score_max})")
+        self.device = device
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type,
@@ -46,7 +47,7 @@ class CVX:
 
         def fn(i):
             batch = cost_mat[i:min(i+batch_size, len(cost_mat))]
-            return self.model.forward(batch)
+            return self.model.forward(batch, device=self.device)
 
         pi = np.vstack([fn(i) for i in range(0, len(cost_mat), batch_size)])
         return pi
@@ -66,7 +67,7 @@ class CVX:
         trainer.fit(model,
             DataLoader(cost_mat, model.batch_size, True, collate_fn=collate_fn),
             )
-        print("train_loss", model.train_loss)
+        print('v', model.v.detach().cpu().numpy())
 
         self.model = _LitCVX(*self._model_args,
             v=model.v, epsilon=model.epsilon)
@@ -82,15 +83,9 @@ class _LitCVX(LightningModule):
         self.beta = beta
         self.constraint_type = constraint_type
 
-        if torch.cuda.device_count():
-            total_memory = torch.cuda.get_device_properties(0).total_memory
-            max_batch_size = total_memory / 8 / 10 / n_items
-        else:
-            max_batch_size = float("inf")
-        n_batches = int(n_users / max_batch_size) + 1
-
+        self.batch_size = get_batch_size((n_users, n_items)) #, frac=0.05)
+        n_batches = n_users / self.batch_size
         self.lr = n_items / n_batches
-        self.batch_size = int(np.ceil(n_users / n_batches))
 
         self.epsilon = epsilon
         self.epsilon_gamma = min_epsilon ** (1/max_epochs)
@@ -123,9 +118,9 @@ class _LitCVX(LightningModule):
         self.log("epsilon", self.epsilon, prog_bar=True)
 
     @torch.no_grad()
-    def forward(self, batch, v=None, epsilon=None):
+    def forward(self, batch, v=None, epsilon=None, device="cpu"):
         if hasattr(batch, "eval"):
-            batch = batch.eval(self.device).detach()
+            batch = batch.eval(device).detach()
         else:
             batch = torch.as_tensor(batch)
 
@@ -155,9 +150,6 @@ class _LitCVX(LightningModule):
         loss = ((self.v - v)**2).mean() / 2
         self.log("train_loss", loss)
         return loss
-
-    def training_epoch_end(self, outputs):
-        self.train_loss = torch.stack([o['loss'] for o in outputs]).mean()
 
 
 def get_fmin(z, u, epsilon, alpha):
@@ -204,9 +196,12 @@ def _solve(add, alpha, epsilon, n_iters=10, n_bt=4, tol=1e-5):
 
 if int(os.environ.get('CVX_BISECT', 1)):
     print("CVX_BISECT")
+    _stable = int(os.environ.get("CVX_STABLE", '0'))
+    if _stable:
+        print("CVX_STABLE")
 
     @torch.no_grad()
-    def _solve(add, alpha, epsilon, return_negative_u=True):
+    def _solve(add, alpha, epsilon, return_negative_u=True, _stable=_stable):
         """ find u s.t. E_y[pi(x,y)] == alpha,
         where pi(x,y) = sigmoid((add(x,y) - u(y)) / epsilon)
         """
@@ -219,10 +214,25 @@ if int(os.environ.get('CVX_BISECT', 1)):
         alpha = torch.as_tensor(alpha).to(add.device)
         epsilon = torch.as_tensor(epsilon).to(add.device)
 
-        _primal = lambda u: torch.sigmoid((add - u[:, None]) / epsilon)
-        _grad_u = lambda u: alpha - _primal(u).mean(axis=1) # monotone with u
-
         z = alpha.log() - (1-alpha).log()
+
+        if _stable:
+            def _grad_u(u):
+                u = u[:, None]
+                d = (u - add) / epsilon + z    # u = add - z * epsilon
+
+                d_lt_0 = ( d.exp() - 1 ) / (
+                    (z.exp() + 1) * (((u - add) / epsilon).exp() + 1)
+                ) # grad < 0
+
+                d_gt_0 = ( 1 - (-d).exp() ) / (
+                    ((-z).exp() + 1) * (((add - u) / epsilon).exp() + 1)
+                ) # grad > 0
+
+                return torch.where(d < 0, d_lt_0, d_gt_0).mean(axis=1)
+        else:
+            _primal = lambda u: torch.sigmoid((add - u[:, None]) / epsilon)
+            _grad_u = lambda u: alpha - _primal(u).mean(axis=1) # monotone with u
 
         if alpha == 0 or alpha == 1: # z is +- infinity
             u = -z * torch.ones_like(add[:, 0])
@@ -237,6 +247,7 @@ if int(os.environ.get('CVX_BISECT', 1)):
         for i in range(50):
             u = (u_min + u_max) / 2
             g = _grad_u(u)
+            assert not u.isnan().any(), "dual variable should not be nan"
             u_min = torch.where(g<0, u, u_min)
             u_max = torch.where(g>0, u, u_max)
 

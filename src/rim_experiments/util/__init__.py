@@ -42,7 +42,12 @@ def warn_nan_output(func):
 
 def _empty_cache():
     gc.collect()
-    torch.cuda.empty_cache()
+    if 'BEST_GPU' in os.environ:
+        best_gpu = int(os.environ['BEST_GPU'])
+        with torch.cuda.device(f'cuda:{best_gpu}'):
+            torch.cuda.empty_cache()
+    else:
+        torch.cuda.empty_cache()
 
 
 def _get_cuda_objs():
@@ -224,18 +229,6 @@ class _LitValidated(LightningModule):
 
     def validation_epoch_end(self, outputs):
         self.val_loss = torch.stack(outputs).mean()
-
-
-def get_batch_size(shape):
-    """ round to similar batch sizes """
-    n_users, n_items = shape
-    if torch.cuda.device_count():
-        total_memory = torch.cuda.get_device_properties(0).total_memory
-    else:
-        total_memory = 16e9
-    max_batch_size = total_memory / 8 / 10 / n_items
-    n_batches = int(n_users / max_batch_size) + 1
-    return int(np.ceil(n_users / n_batches))
 
 
 def get_best_gpus():

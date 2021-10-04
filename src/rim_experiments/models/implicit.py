@@ -11,7 +11,7 @@ _to_numpy = lambda x: x.to_numpy() if hasattr(x, 'to_numpy') else x
 class ALS:
     def __init__(self, factors=32, iterations=50,regularization=0.01, random_state=None,use_native=True,use_cg=True,use_gpu=torch.cuda.is_available()):
 
-        self.als_model = AlternatingLeastSquares(
+        self.als_model_hparams = dict(
             factors=factors,
             iterations=iterations,
             random_state=random_state,
@@ -25,18 +25,22 @@ class ALS:
         df_train = D.event_df[D.event_df['_holdout']==0]
         #create matrix create user-item matrix, whereas implicit takes in item-user matrix
         train_item_user = create_matrix(df_train, D.user_df.index, D.item_df.index, 'csr').T
-        self.als_model.fit(train_item_user)
+
+        print(self.als_model_hparams)
+        als_model = AlternatingLeastSquares(**self.als_model_hparams)
+        als_model.fit(train_item_user)
+
+        self.ind_logits = _to_numpy(als_model.user_factors)
+        self.col_logits = _to_numpy(als_model.item_factors)
+
         self.D = D
         return self
 
     def transform(self, D):
         """ (user_factor * item_factor) """
 
-        ind_logits = self.als_model.user_factors
-        col_logits = self.als_model.item_factors
-
         return LowRankDataFrame(
-            _to_numpy(ind_logits), _to_numpy(col_logits),
+            self.ind_logits, self.col_logits,
             self.D.user_df.index, self.D.item_df.index, 'sigmoid')
 
 
