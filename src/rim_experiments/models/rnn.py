@@ -10,14 +10,15 @@ from .word_language_model.model import RNNModel
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from ..util import _LitValidated, empty_cache_on_exit, \
-                    ExponentiatedLowRankDataFrame, get_best_gpus
+                    LowRankDataFrame, get_best_gpus
 
 
 class RNN:
     def __init__(self, item_df,
         num_hidden=128, nlayers=2, max_epochs=5,
         gpus=get_best_gpus() if torch.cuda.is_available() else 0,
-        truncated_input_steps=256, truncated_bptt_steps=32):
+        truncated_input_steps=256, truncated_bptt_steps=32,
+        load_from_checkpoint=None):
 
         self._padded_item_list = [None] + item_df.index.tolist()
         self._truncated_input_steps = truncated_input_steps
@@ -29,6 +30,10 @@ class RNN:
             'GRU', len(self._padded_item_list),
             num_hidden, num_hidden, nlayers, 0, True,
         ), truncated_bptt_steps)
+
+        if load_from_checkpoint is not None:
+            self.model.load_state_dict(
+                torch.load(load_from_checkpoint)['state_dict'])
 
         self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus,
             callbacks=[EarlyStopping(monitor='val_loss')])
@@ -45,7 +50,7 @@ class RNN:
               f"truncated@{self._truncated_input_steps} per user")
         print(f"sample_y={sample_y}")
 
-        batches = self.trainer.predict(
+        batches = self.trainer.predict(self.model,
             dataloaders=DataLoader(dataset, 1000, collate_fn=collate_fn))
         delattr(self.model, "predict_dataloader")
 
@@ -60,8 +65,9 @@ class RNN:
             item_hidden, np.ones_like(item_log_bias)[:, None], item_log_bias[:, None]
             ])
 
-        return ExponentiatedLowRankDataFrame(
-            ind_logits, col_logits, 1, D.user_in_test.index, self._padded_item_list)
+        return LowRankDataFrame(
+            ind_logits, col_logits, D.user_in_test.index,
+            self._padded_item_list, act='exp')
 
 
     @empty_cache_on_exit
