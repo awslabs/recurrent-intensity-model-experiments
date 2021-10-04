@@ -1,5 +1,6 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, warnings
+from types import SimpleNamespace
 from rim_experiments.util import create_matrix, cached_property, perplexity, \
                                  timed, warn_nan_output, groupby_collect, df_to_coo
 
@@ -145,6 +146,14 @@ class Dataset:
         return create_matrix(
             self.event_df[self.event_df['_holdout']==1],
             self.user_in_test.index, self.item_in_test.index, "df"
+        )
+
+    @cached_property
+    def training_data(self):
+        return SimpleNamespace(
+            event_df = self.event_df[self.event_df['_holdout']==0],
+            user_df = self.user_df,
+            item_df = self.item_df,
         )
 
     @warn_nan_output

@@ -62,7 +62,8 @@ class Experiment:
         models_to_run=[
             "Rand", "Pop", "EMA", "Hawkes", "HP",
             "RNN", "RNN-Pop", "RNN-EMA", "RNN-Hawkes", "RNN-HP",
-            "BPR-Item", "BPR-User",#"ALS","LogisticMF"
+            "ALS", "LogisticMF",
+            "BPR-Item", "BPR-User",
             ],
         model_hyps={},
         device="cpu",
@@ -79,7 +80,9 @@ class Experiment:
         self.device = device
 
         if online:
-            assert cvx, "online requires cvx"
+            if not cvx:
+                warnings.warn("online requires cvx, resetting cvx to True")
+                cvx = True
             assert V is not None, "online cvx is trained with explicit valid_mat"
 
         self.mtch_kw = mtch_kw
@@ -189,16 +192,16 @@ class Experiment:
             return self._rnn.transform(D) * self._hawkes_poisson.transform(D)
 
         if model == "BPR-Item":
-            return LightFM_BPR(item_rec=True).fit(D).transform(D)
+            return self._bpr_item.transform(D)
 
         if model == "BPR-User":
-            return LightFM_BPR(user_rec=True).fit(D).transform(D)
+            return self._bpr_user.transform(D)
 
         if model == "ALS":
-            return ALS().fit(D).transform(D)
+            return self._als.transform(D)
 
         if model == "LogisticMF":
-            return LogisticMF().fit(D).transform(D)
+            return self._logistic_mf.transform(D)
 
 
     def run(self):
@@ -211,20 +214,35 @@ class Experiment:
 
     @cached_property
     def _rnn(self):
-        if hasattr(self, '_pretrain_rnn'):
-            return self._pretrain_rnn
-        fitted = RNN(self.D.item_df, **self.model_hyps.get("RNN", {})).fit(self.D)
+        fitted = RNN(self.D.item_df, **self.model_hyps.get("RNN", {})).fit(
+            self.D.training_data)
         for name, param in fitted.model.named_parameters():
             print(name, param.data.shape)
         return fitted
 
     @cached_property
     def _hawkes(self):
-        return Hawkes(self.D.horizon).fit(self.D)
+        return Hawkes(self.D.horizon).fit(self.D.training_data)
 
     @cached_property
     def _hawkes_poisson(self):
         return HawkesPoisson(self._hawkes).fit(self.V)
+
+    @cached_property
+    def _bpr_item(self):
+        return LightFM_BPR(item_rec=True).fit(self.D.training_data)
+
+    @cached_property
+    def _bpr_user(self):
+        return LightFM_BPR(user_rec=True).fit(self.D.training_data)
+
+    @cached_property
+    def _als(self):
+        return ALS().fit(self.D.training_data)
+
+    @cached_property
+    def _logistic_mf(self):
+        return LogisticMF().fit(self.D.training_data)
 
 
 def main(name, *args, **kw):
