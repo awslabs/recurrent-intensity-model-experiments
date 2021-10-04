@@ -13,6 +13,10 @@ kw = {
     "mult": [0, 0.5, 1, 3, 100],
     # "device": "cuda:2",
     # "models_to_run": ["Pop", "RNN-Pop"],
+    # "model_hyps" : {"RNN": {
+    #     "max_epochs": 0,
+    #     "load_from_checkpoint": load_from_pt_log + '/checkpoints/' + checkpoint_name[0],
+    # }},
 }
 
 plot_names = {
