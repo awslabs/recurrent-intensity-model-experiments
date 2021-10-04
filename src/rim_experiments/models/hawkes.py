@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import functools
-from ..util import timed, ExponentiatedLowRankDataFrame
+from ..util import timed, LowRankDataFrame
 
 from tick.hawkes import HawkesSumExpKern
 
@@ -17,7 +17,11 @@ class Hawkes:
     @timed("Hawkes.fit")
     def fit(self, D):
         input_fn = functools.partial(self._input_fn, training=True)
-        X = list(map(input_fn, D.user_in_test['_timestamps'].values))
+        training_user = D.user_df[
+            (D.user_df['_hist_len']>0) &
+            (D.user_df['TEST_START_TIME'] < np.inf)
+        ] # _timestamps includes TEST_START_TIME
+        X = list(map(input_fn, training_user['_timestamps'].values))
 
         self.model.fit(X)
         self._learned_coeffs = _get_learned_coeffs(self.model)
@@ -42,9 +46,9 @@ class Hawkes:
             ])
             if hasattr(D, '_is_synthetic_data') and D._is_synthetic_data:
                 _verify_estimated_intensity(self.model, X, user_intensities)
-            return ExponentiatedLowRankDataFrame(
-                np.log(user_intensities)[:, None], np.ones(len(D.item_df))[:, None], 1,
-                index=D.user_in_test.index, columns=D.item_df.index)
+            return LowRankDataFrame(
+                np.log(user_intensities)[:, None], np.ones(len(D.item_df))[:, None],
+                index=D.user_in_test.index, columns=D.item_df.index, act='exp')
 
 
 def _input_fn(raw_ts, horizon, training, training_eps, hetero):

@@ -1,4 +1,4 @@
-from ..util import create_matrix, ExponentiatedLowRankDataFrame
+from ..util import create_matrix, LowRankDataFrame
 import numpy as np, pandas as pd
 from lightfm import LightFM
 
@@ -29,8 +29,7 @@ class LightFM_BPR:
         return self
 
     def transform(self, D):
-        """ (user_embed * item_embed + user_bias + item_bias).exp() """
-        assert self.D is D, f"{self.__class__} only transforms training dataset"
+        """ (user_embed * item_embed + user_bias + item_bias).sigmoid() """
 
         ind_logits = np.hstack([
             self.bpr_model.user_embeddings,
@@ -47,5 +46,5 @@ class LightFM_BPR:
         if self.user_rec:
             ind_logits, col_logits = col_logits, ind_logits
 
-        return ExponentiatedLowRankDataFrame(
-            ind_logits, col_logits, 1, D.user_df.index, D.item_df.index)
+        return LowRankDataFrame(
+            ind_logits, col_logits, self.D.user_df.index, self.D.item_df.index, 'sigmoid')

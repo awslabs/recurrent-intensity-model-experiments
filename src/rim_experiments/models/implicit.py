@@ -1,5 +1,5 @@
-import torch, warnings
-from ..util import create_matrix, CustomLowRankDataFrame
+import torch, warnings, numpy as np, pandas as pd
+from ..util import create_matrix, LowRankDataFrame
 try:
     from implicit.als import AlternatingLeastSquares
     from implicit.lmf import LogisticMatrixFactorization
@@ -31,14 +31,13 @@ class ALS:
 
     def transform(self, D):
         """ (user_factor * item_factor) """
-        assert self.D is D, f"{self.__class__} only transforms training dataset"
 
         ind_logits = self.als_model.user_factors
         col_logits = self.als_model.item_factors
 
-        return CustomLowRankDataFrame(
-            _to_numpy(ind_logits), _to_numpy(col_logits), 1,
-            D.user_df.index, D.item_df.index, 'raw')
+        return LowRankDataFrame(
+            _to_numpy(ind_logits), _to_numpy(col_logits),
+            self.D.user_df.index, self.D.item_df.index, 'sigmoid')
 
 
 class LogisticMF:
@@ -64,11 +63,10 @@ class LogisticMF:
 
     def transform(self, D):
         """ (user_factor * item_factor) """
-        assert self.D is D, f"{self.__class__} only transforms training dataset"
 
         ind_logits = self.lmf_model.user_factors
         col_logits = self.lmf_model.item_factors
 
-        return CustomLowRankDataFrame(
-            _to_numpy(ind_logits), _to_numpy(col_logits), 1,
-            D.user_df.index, D.item_df.index, 'sigmoid')
+        return LowRankDataFrame(
+            _to_numpy(ind_logits), _to_numpy(col_logits),
+            self.D.user_df.index, self.D.item_df.index, 'sigmoid')
