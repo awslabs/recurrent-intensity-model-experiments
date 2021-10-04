@@ -77,7 +77,7 @@ for i, (ax, df) in enumerate(zip(ax, [
             name = 'BPR-Item'
         hdl.extend(
             ax.plot(df.loc['prec'][name], df.loc[yname][name],
-                    label=label, marker=marker, ls=':')
+                    label=label, marker=marker) #, ls=':')
         )
     ax.grid()
     ax.set_xlabel(xname)
@@ -109,7 +109,7 @@ for i, (ax, df) in enumerate(zip(ax, [
             name = 'BPR-User'
         hdl.extend(
             ax.plot(df.loc['prec'][name], df.loc[yname][name],
-                    label=label, marker=marker, ls=':')
+                    label=label, marker=marker) #, ls=':')
         )
     ax.grid()
     ax.set_xlabel(xname)
