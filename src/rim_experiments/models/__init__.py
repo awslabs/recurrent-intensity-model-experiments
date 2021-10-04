@@ -7,16 +7,16 @@ from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
 from .implicit import ALS, LogisticMF
 
-from rim_experiments.util import ExponentiatedLowRankDataFrame
+from rim_experiments.util import LowRankDataFrame
 
 
 class Rand:
     def transform(self, D):
         """ return a constant of one """
         shape = (len(D.user_in_test), len(D.item_df))
-        return ExponentiatedLowRankDataFrame(
-            np.zeros(shape[0])[:, None], np.zeros(shape[1])[:, None], 1,
-            index=D.user_in_test.index, columns=D.item_df.index)
+        return LowRankDataFrame(
+            np.zeros(shape[0])[:, None], np.zeros(shape[1])[:, None],
+            index=D.user_in_test.index, columns=D.item_df.index, act='exp')
 
 
 class Pop:
@@ -35,9 +35,9 @@ class Pop:
         ind_logits = np.vstack([np.log(user_scores), np.ones(len(user_scores))]).T
         col_logits = np.vstack([np.ones(len(item_scores)), np.log(item_scores)]).T
 
-        return ExponentiatedLowRankDataFrame(
-            ind_logits, col_logits, 1,
-            index=D.user_in_test.index, columns=D.item_df.index)
+        return LowRankDataFrame(
+            ind_logits, col_logits,
+            index=D.user_in_test.index, columns=D.item_df.index, act='exp')
 
 
 class EMA:
@@ -48,6 +48,6 @@ class EMA:
         fn = lambda ts: np.exp(- (ts[-1] - np.array(ts[:-1])) / self.horizon).sum()
         user_scores = list(map(fn, D.user_in_test['_timestamps'].values))
 
-        return ExponentiatedLowRankDataFrame(
-            np.log(user_scores)[:, None], np.ones(len(D.item_df))[:, None], 1,
-            index=D.user_in_test.index, columns=D.item_df.index)
+        return LowRankDataFrame(
+            np.log(user_scores)[:, None], np.ones(len(D.item_df))[:, None],
+            index=D.user_in_test.index, columns=D.item_df.index, act='exp')
