@@ -3,6 +3,18 @@ import torch, dataclasses, functools, warnings
 from typing import Dict, List
 
 
+def get_batch_size(shape, frac=0.1):
+    """ round to similar batch sizes """
+    n_users, n_items = shape
+    if torch.cuda.device_count():
+        total_memory = torch.cuda.get_device_properties(0).total_memory
+    else:
+        total_memory = 16e9
+    max_batch_size = total_memory / 8 / n_items * frac
+    n_batches = int(n_users / max_batch_size) + 1
+    return int(np.ceil(n_users / n_batches))
+
+
 class ScoreExpression:
     """ symbolic expression with explicit lazy evaluation
     """
@@ -87,7 +99,10 @@ class LowRankValues(ScoreExpression):
             return self.eval() * other
 
 
-    def iter_batches(self, device=None, batch_size=1000):
+    def iter_batches(self, device=None, batch_size=None):
+        if batch_size is None:
+            batch_size = get_batch_size(self.shape, frac=0.03)
+
         for i in range(0, len(self), batch_size):
             key = slice(i, min(i+batch_size, len(self)))
             yield key, self[key]

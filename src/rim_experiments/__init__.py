@@ -60,8 +60,11 @@ class Experiment:
     def __init__(self, D, V,
         mult=[], # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
         models_to_run=[
-            "Rand", "Pop", "EMA", "Hawkes", "HP",
-            "RNN", "RNN-Pop", "RNN-EMA", "RNN-Hawkes", "RNN-HP",
+            "Rand", "Pop",
+            "Hawkes", "HP",
+            "RNN", "RNN-Pop",
+            "RNN-Hawkes", "RNN-HP",
+            "EMA", "RNN-EMA",
             "ALS", "LogisticMF",
             "BPR-Item", "BPR-User",
             ],

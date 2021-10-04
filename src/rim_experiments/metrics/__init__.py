@@ -1,4 +1,4 @@
-import numpy as np, pandas as pd, scipy as sp
+import numpy as np, pandas as pd, scipy as sp, warnings
 from ..util import perplexity, _assign_topk
 from .matching import assign_mtch
 from .cvx import CVX
@@ -49,6 +49,8 @@ def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None, **k
     if cvx:
         self = CVX(valid_mat, topk, C, **kw)
         assigned_csr = self.fit(valid_mat).transform(score_mat)
+        if assigned_csr.sum() == 0:
+            warnings.warn("cvx should not return empty assignments unless in Rand")
     else:
         assigned_csr = assign_mtch(score_mat, topk, C, **kw)
     out = evaluate_assigned(target_csr, assigned_csr, score_mat)
