@@ -1,3 +1,9 @@
+try:
+    import pylab as pl
+    pl.plot(); pl.show() # tick behaves oddly with matplotlib
+except ImportError:
+    pass
+
 import functools, collections, torch, dataclasses, warnings, json
 from typing import Dict, List
 from rim_experiments.models import *
@@ -69,7 +75,7 @@ class Experiment:
             "BPR-Item", "BPR-User",
             ],
         model_hyps={},
-        device="cpu",
+        device="cpu", # for gpu, use "cuda" after setting CUDA_VISIBLE_DEVICES
         cvx=False,
         online=False,
         **mtch_kw

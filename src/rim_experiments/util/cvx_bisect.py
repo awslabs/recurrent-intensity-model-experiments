@@ -5,7 +5,7 @@ s.t.    E_y[pi(x,y)] <= alpha(x)
 """
 
 import numpy as np
-import torch, warnings
+import torch, warnings, os
 
 
 def lagrangian(pi, u, v, s, alpha, beta, eps):
@@ -14,10 +14,18 @@ def lagrangian(pi, u, v, s, alpha, beta, eps):
         = E_xy[ s(x,y) * pi(x,y) - u(x)(pi(x,y)-alpha(x)) - v(y)(pi(x,y)-beta(y)) ]
         + eps * E_xy[H(pi)]
     """
-    grad_u = alpha - pi.mean(axis=1)
-    grad_v = beta - pi.mean(axis=0)
+    grad_u = alpha - pi.mean(1)
+    grad_v = beta - pi.mean(0)
     ent = - pi * pi.clip(1e-10, None).log() - (1-pi) * (1-pi).clip(1e-10, None).log()
     return (s * pi).mean() + (u * grad_u).mean() + (v * grad_v).mean() + eps * ent.mean()
+
+
+def s_u_v(s, u, v):
+    if u is not None:
+        s = s - torch.as_tensor(u, device=s.device).reshape((-1, 1))
+    if v is not None:
+        s = s - torch.as_tensor(v, device=s.device).reshape((1, -1))
+    return s
 
 
 def primal_solution(u, v, s, eps):
@@ -25,14 +33,11 @@ def primal_solution(u, v, s, eps):
     max_pi L(pi, u, v; ...) solved by
     pi = sigmoid[(s(x,y) - u(x) - v(y)) / eps]
     """
-    u = torch.as_tensor(u).to(s.device)
-    v = torch.as_tensor(v).to(s.device)
-    r = s - u[:, None] - v[None, :]
     if eps > 0:
-        return torch.sigmoid(r / eps)
+        return torch.sigmoid(s_u_v(s, u, v) / eps)
     else:
         # TODO: how to represent subgradients in [0, 1]?
-        return torch.sign(r) * 0.5 + 0.5
+        return torch.sign(s_u_v(s, u, v)) * 0.5 + 0.5
 
 
 def dual_complete(u, v, s, alpha, beta, eps):
@@ -40,42 +45,24 @@ def dual_complete(u, v, s, alpha, beta, eps):
     min_{u>=0, v<=0} d(u, v)
         = E_xy [ u(x)alpha(x) + v(y)beta(y) + Softplus(1/eps)(s-u-v) ]
     """
-    u = torch.as_tensor(u).to(s.device)
-    v = torch.as_tensor(v).to(s.device)
+    u = torch.as_tensor(u, device=s.device)
+    v = torch.as_tensor(v, device=s.device)
     if eps > 0:
-        sp = torch.nn.Softplus(1./eps)(s - u[:, None] - v[None, :])
+        sp = torch.nn.Softplus(1./eps)(s - u - v)
     else:
-        sp = torch.nn.ReLU()(s - u[:, None] - v[None, :])
+        sp = torch.nn.ReLU()(s - u - v)
     return (u * alpha).mean() + (v * beta).mean() + sp.mean()
 
 
-def grad_u(u, v, s, alpha, eps, stable=True):
+def grad_u(u, v, s, alpha, eps, x=None):
     """
     find u = min{u>=0 : E_y[pi(x,y)] <= alpha(x)}
     """
-    if stable: # this does not make a practical difference wrt. slow convergence
-        u = torch.as_tensor(u).to(s.device)[:, None]
-        v = torch.as_tensor(v).to(s.device)[None, :]
-        alpha = torch.as_tensor(alpha)
-
-        z = alpha.log() - (1-alpha).log()
-        r = s - v
-        d = (u - r) / eps + z    # u = r - z * eps, if |Y|=1
-
-        d_lt_0 = ( d.exp() - 1 ) / (
-            (z.exp() + 1) * (((u - r) / eps).exp() + 1)
-        ) # grad < 0
-
-        d_gt_0 = ( 1 - (-d).exp() ) / (
-            ((-z).exp() + 1) * (((r - u) / eps).exp() + 1)
-        ) # grad > 0
-
-        return torch.where(d < 0, d_lt_0, d_gt_0).mean(axis=1)
-    else:
-        pi = primal_solution(u, v, s, eps)
-        return alpha - pi.mean(axis=1)
+    pi = primal_solution(u, v, s, eps)
+    return alpha - pi.mean(1)
 
 
+@torch.no_grad()
 def dual_solve_u(v, s, alpha, eps, verbose=False):
     """
     min_{u>=0} max_pi L(pi, u, v)
@@ -87,9 +74,8 @@ def dual_solve_u(v, s, alpha, eps, verbose=False):
         warnings.warn(f"clipping alpha={alpha} to [0, 1]")
         alpha = np.clip(alpha, 0, 1)
 
-    v = torch.as_tensor(v).to(s.device)
-    alpha = torch.as_tensor(alpha).to(s.device)
-    eps = torch.as_tensor(eps).to(s.device)
+    alpha = torch.as_tensor(alpha, device=s.device)
+    eps = torch.as_tensor(eps, device=s.device)
 
     z = alpha.log() - (1-alpha).log()
 
@@ -97,8 +83,14 @@ def dual_solve_u(v, s, alpha, eps, verbose=False):
         u = -z * torch.ones_like(s[:, 0])
         return u
 
-    u_min = (s - v[None, :]).amin(axis=1) - z * eps - 1e-3
-    u_max = (s - v[None, :]).amax(axis=1) - z * eps + 1e-3
+    if 'CVX_STABLE' in os.environ and int(os.environ['CVX_STABLE']):
+        v = torch.as_tensor(v, device=s.device).reshape((1, -1))
+    else:
+        s = s_u_v(s, None, v)
+        v = None
+
+    u_min = s_u_v(s, None, v).amin(1) - z * eps - 1e-3
+    u_max = s_u_v(s, None, v).amax(1) - z * eps + 1e-3
 
     assert (grad_u(u_min, v, s, alpha, eps) <= 0).all()
     assert (grad_u(u_max, v, s, alpha, eps) >= 0).all()
@@ -147,7 +139,7 @@ def dual_iterate(v, s, alpha, beta, eps,
         u = dual_solve_u(v, s, alpha, eps)
         u = dual_clip(u, constraint_type_a)
 
-        yield v, dual_complete(u, v, s, alpha, beta, eps)
+        yield v, dual_complete(u, v, s, alpha, beta, eps), primal_solution(u, v, s, eps)
 
         if stepsize > 0:
             grad_v = grad_u(v, u, s.T, beta, eps)
@@ -155,6 +147,58 @@ def dual_iterate(v, s, alpha, beta, eps,
         else:
             v = dual_solve_u(u, s.T, beta, eps)
         v = dual_clip(v, constraint_type_b)
+
+
+if 'CVX_STABLE' in os.environ and int(os.environ['CVX_STABLE']):
+    print("CVX_STABLE")
+
+    def _log_diff_exp(a, b):
+        """ e^a - e^b = (1 - e^(b-a)) e^a, if a>b
+        """
+        min = lambda: torch.fmin(a, b)
+        max = lambda: torch.fmax(a, b)
+        log = torch.log1p(-torch.exp(min() - max())) + max()
+        sign = torch.sign(a - b)
+        return sign, log
+
+
+    def _log_diff_sigmoid(z, x):
+        """ sigmoid(z) - sigmoid(x)
+        = (e^-x - e^-z) / (1+e^-z) / (1+e^-x)
+        = e^-z[-] / (e^-z[-] + e^-z[+]) - e^-x[-] / (e^-x[-] + e^-x[+])
+        = (e^(-z[-]-x[+]) - e^(-x[-]-z[+])) / (e^-z[-] + e^-z[+]) / (e^-x[-] + e^-x[+])
+
+        >>> z = torch.tensor([[-1e20], [0.], [1e20]])
+        >>> x = torch.tensor([-np.inf, -1e20, 0, 1e20, np.inf])
+        >>> assert (torch.sigmoid(z) - torch.sigmoid(x) ==
+        ... _log_diff_sigmoid(z, x)[0] * _log_diff_sigmoid(z, x)[1].exp()).all()
+        """
+        z_pos = lambda: z.clip(0, None)
+        z_neg = lambda: -z.clip(None, 0)
+        x_pos = lambda: x.clip(0, None)
+        x_neg = lambda: -x.clip(None, 0)
+
+        sign, log_nom = _log_diff_exp( -z_neg() - x_pos(), -x_neg() - z_pos() )
+        return sign, log_nom - \
+            torch.logaddexp(-z_neg(), -z_pos()) - torch.logaddexp(-x_neg(), -x_pos())
+
+
+    def grad_u(u, v, s, alpha, eps):
+        """ alpha - pi.mean(1)
+        be more precise if eps->0 while there are a lot of ties
+        """
+        assert 0<alpha<1 or eps>0, "prevent inf-inf when both are extreme values"
+        alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
+
+        z = alpha.log() - (1-alpha).log()
+        x = s_u_v(s, u, v) / eps
+        sign, log = _log_diff_sigmoid(z, x)
+
+        pos = torch.logsumexp((sign>0).log() + log, dim=1)
+        neg = torch.logsumexp((sign<0).log() + log, dim=1)
+
+        sign, log = _log_diff_exp(pos, neg)
+        return sign * log.exp() / s.shape[1]
 
 
 if __name__ == '__main__':

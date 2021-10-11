@@ -1,17 +1,21 @@
 import pandas as pd, numpy as np, scipy as sp
-import functools, collections, warnings
-from types import SimpleNamespace
+import functools, collections, warnings, dataclasses
 from rim_experiments.util import create_matrix, cached_property, perplexity, \
                                  timed, warn_nan_output, groupby_collect, df_to_coo
 
 
-def _check_inputs(event_df, user_df, item_df):
+def _check_index(event_df, user_df, item_df):
     assert not user_df.index.has_duplicates, "assume one test window per user for simplicity"
     assert not item_df.index.has_duplicates, "assume one entry per item"
     assert event_df['USER_ID'].isin(user_df.index).all(), \
                                 "user_df must include all users in event_df"
     assert event_df['ITEM_ID'].isin(item_df.index).all(), \
                                 "item_df must include all items in event_df"
+
+
+def _check_more_inputs(event_df, user_df, item_df):
+    assert user_df['TEST_START_TIME'].notnull().all(), \
+                    "user_df must include TEST_START_TIME for all users"
 
     with timed("checking whether the events are sorted via necessary conditions"):
         user_time = event_df[['USER_ID','TIMESTAMP']].values
@@ -24,18 +28,22 @@ def _check_inputs(event_df, user_df, item_df):
             warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
 
 
-def _holdout_and_trim_events(event_df, user_df, horizon):
-    """ mark _holdout=1 on test [start, end); remove post-test events
+def _mark_holdout(event_df, user_df, horizon):
+    """ mark _holdout=1 on test [start, end); mark _holdout=2 on post-test events
     training-only (Group-A) users should have TEST_START_TIME=+inf
     """
-    test_start = user_df['TEST_START_TIME'].reindex(event_df['USER_ID']).values
+    event_df = event_df.join(user_df[['TEST_START_TIME']], on='USER_ID')
+    event_df['_holdout'] = (
+        event_df['TIMESTAMP'] >= event_df['TEST_START_TIME']
+    ).astype(int) + (
+        event_df['TIMESTAMP'] >= event_df['TEST_START_TIME'] + horizon
+    ).astype(int)
 
-    assert not np.isnan(test_start).any(), "user_df must include all users"
-    event_df['_holdout'] = (test_start <= event_df['TIMESTAMP']).astype(bool)
-
-    if horizon == float("inf"):
-        warnings.warn("TPP models require finite horizon to train properly.")
-    return event_df[event_df['TIMESTAMP'] < test_start + horizon].copy()
+    post_test = (event_df['_holdout']==2).mean()
+    if post_test>0:
+        warnings.warn(f"Post-test {post_test:.1%} events with _holdout=2 should be ignored")
+    del event_df['TEST_START_TIME']
+    return event_df
 
 
 def _augment_user_hist(user_df, event_df):
@@ -70,56 +78,94 @@ def _augment_item_hist(item_df, event_df):
     ).fillna({'_hist_len': 0})
 
 
-class Dataset:
+@dataclasses.dataclass(eq=False)
+class _UnlabeledDataset:
+    """ a dataset with observed events and optional user histories and timestamps
+    for self-supervised training
     """
-    A dataset class contains 3 related tables and we will infer columns with underscored names
-        event_df: [USER_ID, ITEM_ID, TIMESTAMP]; will infer [_holdout]
-        user_df: [USER_ID, TEST_START_TIME]; will infer [_hist_items, _timestamps, _in_test]
-        item_df: [ITEM_ID]; will infer [_hist_len, _in_test]
+    event_df: pd.DataFrame
+    user_df: pd.DataFrame
+    item_df: pd.DataFrame
+
+    def __post_init__(self):
+        _check_index(self.event_df, self.user_df, self.item_df)
+        if "_hist_items" not in self.user_df:
+            warnings.warn(f"{self} not applicable for sequence models.")
+        if "_timestamps" not in self.user_df:
+            warnings.warn(f"{self} not applicable for temporal models.")
+
+    def __hash__(self):
+        return id(self)
+
+
+@dataclasses.dataclass(eq=False)
+class Dataset(_UnlabeledDataset):
+    """ A dataset class contains 3 related tables
+        event_df: [USER_ID, ITEM_ID, TIMESTAMP]
+        user_df: [USER_ID (index), TEST_START_TIME]
+        item_df: [ITEM_ID (index)]
+    Infer target labels from TEST_START_TIME (per user) and horizon.
+    Filter test users/items by _hist_len.
     """
-    def __init__(self, event_df, user_df, item_df, horizon,
-        min_user_len=1, min_item_len=1, print_stats=False):
+    horizon: float = float("inf")
+    min_user_len: int = 1
+    min_item_len: int = 1
+    _is_synthetic_data: bool = False
+    print_stats: bool = False
 
-        _check_inputs(event_df, user_df, item_df)
+    def __post_init__(self):
+        _check_index(self.event_df, self.user_df, self.item_df)
+        _check_more_inputs(self.event_df, self.user_df, self.item_df)
 
-        print("augmenting and trimming data")
-        self.event_df = _holdout_and_trim_events(event_df, user_df, horizon)
-        self.user_df = _augment_user_hist(user_df, self.event_df)
-        self.item_df = _augment_item_hist(item_df, self.event_df)
-        self.horizon = horizon
+        print("augmenting and data tables")
+        self.event_df = _mark_holdout(self.event_df, self.user_df, self.horizon)
+        self.user_df = _augment_user_hist(self.user_df, self.event_df)
+        self.item_df = _augment_item_hist(self.item_df, self.event_df)
 
         print("marking and cleaning test data")
-        self.user_df['_in_test'] = (
-            (self.user_df['_hist_len']>=min_user_len) &
+        self.user_in_test = self.user_df[
+            (self.user_df['_hist_len']>=self.min_user_len) &
             (self.user_df['TEST_START_TIME']<float("inf")) # exclude Group-A users
-        ).astype(bool)
-        self.item_df['_in_test'] = (
-            self.item_df['_hist_len']>=min_item_len
-        ).astype(bool)
+        ].copy()
+        self.item_in_test = self.item_df[
+            self.item_df['_hist_len']>=self.min_item_len
+        ].copy()
+        self.target_df = create_matrix(
+            self.event_df[self.event_df['_holdout']==1].copy(),
+            self.user_in_test.index, self.item_in_test.index, "df"
+        )
+        self.training_data = _UnlabeledDataset(
+            self.event_df[self.event_df['_holdout']==0].copy(),
+            self.user_df, self.item_df
+        )
 
         print("inferring default parameters")
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
 
-        if print_stats:
+        if self.print_stats:
             print('dataset stats')
             print(pd.DataFrame(self.get_stats()).T.stack().apply('{:.2f}'.format))
             print(self.user_df.sample().iloc[0])
             print(self.item_df.sample().iloc[0])
+        print("dataset post-init complete")
+
+    def __hash__(self):
+        return id(self)
 
     def get_stats(self):
         return {
             'user_df': {
-                '# warm users': sum(self.user_df['_in_test']),
-                '# cold users': sum(~self.user_df['_in_test']),
+                '# warm users': len(self.user_in_test),
+                '# all users': len(self.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': self.user_in_test['_hist_span'].mean(),
                 'horizon': self.horizon,
                 'avg target items': df_to_coo(self.target_df).sum(axis=1).mean(),
             },
             'item_df': {
-                '# warm items': sum(self.item_df['_in_test']),
-                '# cold items': sum(~self.item_df['_in_test']),
+                '# warm items': len(self.item_in_test),
+                '# all items': len(self.item_df),
                 'avg hist len': self.item_in_test['_hist_len'].mean(),
                 'avg target users': df_to_coo(self.target_df).sum(axis=0).mean(),
             },
@@ -132,29 +178,6 @@ class Dataset:
                 "item_ppl": perplexity(self.item_in_test['_hist_len']),
             },
         }
-
-    @property
-    def user_in_test(self):
-        return self.user_df[self.user_df['_in_test']]
-
-    @property
-    def item_in_test(self):
-        return self.item_df[self.item_df['_in_test']]
-
-    @cached_property
-    def target_df(self):
-        return create_matrix(
-            self.event_df[self.event_df['_holdout']==1],
-            self.user_in_test.index, self.item_in_test.index, "df"
-        )
-
-    @cached_property
-    def training_data(self):
-        return SimpleNamespace(
-            event_df = self.event_df[self.event_df['_holdout']==0],
-            user_df = self.user_df,
-            item_df = self.item_df,
-        )
 
     @warn_nan_output
     def transform(self, S, user_index=None, fill_value=float("nan")):

@@ -9,14 +9,12 @@ from .word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from ..util import _LitValidated, empty_cache_on_exit, \
-                    LowRankDataFrame, get_best_gpus
+from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame
 
 
 class RNN:
     def __init__(self, item_df,
-        num_hidden=128, nlayers=2, max_epochs=5,
-        gpus=get_best_gpus() if torch.cuda.is_available() else 0,
+        num_hidden=128, nlayers=2, max_epochs=5, gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, truncated_bptt_steps=32,
         load_from_checkpoint=None):
 

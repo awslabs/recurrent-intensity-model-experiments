@@ -1,14 +1,18 @@
 import numpy as np, pandas as pd, scipy as sp, warnings
+from scipy.sparse import issparse
 from ..util import perplexity, _assign_topk
 from .matching import assign_mtch
 from .cvx import CVX
 
 
+def _multiply(x, y):
+    return x.multiply(y) if issparse(x) else y.multiply(x) if issparse(y) else x*y
+
+
 def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
     """ compare targets and recommendation assignments on user-item matrix
     """
-    assigned_csr = sp.sparse.csr_matrix(assigned_csr)
-    hit = assigned_csr.multiply(target_csr)
+    hit = _multiply(target_csr, assigned_csr)
 
     out = {
         'prec':     hit.sum() / assigned_csr.sum(),
@@ -21,11 +25,11 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
     if score_mat is not None:
         if hasattr(score_mat, "iter_batches"):
             obj_sum = np.sum([
-                assigned_csr[key].multiply(s.eval()).sum()
+                _multiply(assigned_csr[key], s.eval()).sum()
                 for key, s in score_mat.iter_batches()
                 ])
         else:
-            obj_sum = assigned_csr.multiply(score_mat)
+            obj_sum = _multiply(assigned_csr, score_mat).sum()
 
     if axis is not None:
         hit_axis = np.ravel(hit.sum(axis=axis))

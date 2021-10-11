@@ -3,15 +3,13 @@ import torch, itertools, os, warnings
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from rim_experiments.util import empty_cache_on_exit, _LitValidated, \
-                            get_batch_size, get_best_gpus
-from rim_experiments.util.cvx_bisect import dual_solve_u
+from rim_experiments.util import empty_cache_on_exit, _LitValidated, get_batch_size
+from rim_experiments.util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
 
 
 class CVX:
     def __init__(self, score_mat, topk, C, constraint_type='ub', device='cpu',
-        max_epochs=100, min_epsilon=1e-10,
-        gpus=get_best_gpus() if torch.cuda.is_available() else 0,
+        max_epochs=100, min_epsilon=1e-10, gpus=int(torch.cuda.is_available()),
         prefix='CVX'):
 
         n_users, n_items = score_mat.shape
@@ -42,30 +40,30 @@ class CVX:
 
     @empty_cache_on_exit
     def transform(self, score_mat):
-        cost_mat = score_mat * (-1./self.score_max)
+        score_mat = score_mat * (1./self.score_max)
         batch_size = self.model.batch_size
 
         def fn(i):
-            batch = cost_mat[i:min(i+batch_size, len(cost_mat))]
+            batch = score_mat[i:min(i+batch_size, len(score_mat))]
             return self.model.forward(batch, device=self.device)
 
-        pi = np.vstack([fn(i) for i in range(0, len(cost_mat), batch_size)])
+        pi = np.vstack([fn(i) for i in range(0, len(score_mat), batch_size)])
         return pi
 
 
     @empty_cache_on_exit
     def fit(self, score_mat):
-        cost_mat = score_mat * (-1./self.score_max)
+        score_mat = score_mat * (1./self.score_max)
 
         model = _LitCVX(*self._model_args)
         trainer = Trainer(**self._trainer_kw)
         print("trainer log at:", trainer.logger.log_dir)
 
-        collate_fn = getattr(cost_mat[0], "collate_fn",
+        collate_fn = getattr(score_mat[0], "collate_fn",
             torch.utils.data.dataloader.default_collate)
 
         trainer.fit(model,
-            DataLoader(cost_mat, model.batch_size, True, collate_fn=collate_fn),
+            DataLoader(score_mat, model.batch_size, True, collate_fn=collate_fn),
             )
         print('v', model.v.detach().cpu().numpy())
 
@@ -100,16 +98,6 @@ class _LitCVX(LightningModule):
         self.v = torch.nn.Parameter(v)
 
 
-    @staticmethod
-    def _clip(v, constraint_type):
-        if constraint_type == 'ub':
-            return v.clip(None, 0)
-        elif constraint_type == 'lb':
-            return v.clip(0, None)
-        else: # eq
-            return v
-
-
     def configure_optimizers(self):
         return torch.optim.SGD(self.parameters(), lr=self.lr)
 
@@ -130,11 +118,10 @@ class _LitCVX(LightningModule):
         if epsilon is None:
             epsilon = self.epsilon
 
-        u, _ = _solve(v[None, :] - batch, self.alpha, epsilon)
-        u = u.clip(None, 0)
-        z = (-batch + u[:, None] + v[None, :]) / epsilon
-        # print(get_grad(z, self.alpha))
-        return torch.sigmoid(z).cpu().numpy()
+        u = dual_solve_u(v, batch, self.alpha, epsilon)
+        u = dual_clip(u, "ub")
+        pi = primal_solution(u, v, batch, epsilon)
+        return pi.cpu().numpy()
 
 
     def training_step(self, batch, batch_idx):
@@ -143,112 +130,11 @@ class _LitCVX(LightningModule):
         else:
             batch = torch.as_tensor(batch)
 
-        u, _ = _solve(self.v[None, :] - batch, self.alpha, self.epsilon)
-        u = u.clip(None, 0)
-        v, _ = _solve(u[None, :] - batch.T, self.beta, self.epsilon)
-        v = self._clip(v, self.constraint_type)
+        u = dual_solve_u(self.v.detach(), batch, self.alpha, self.epsilon)
+        u = dual_clip(u, "ub")
+        v = dual_solve_u(u, batch.T, self.beta, self.epsilon)
+        v = dual_clip(v, self.constraint_type)
+
         loss = ((self.v - v)**2).mean() / 2
         self.log("train_loss", loss)
         return loss
-
-
-def get_fmin(z, u, epsilon, alpha):
-    return epsilon*torch.logaddexp(torch.zeros_like(z), z).mean(axis=1) - u*alpha
-
-def get_grad(z, alpha):
-    return torch.sigmoid(z).mean(axis=1) - alpha
-
-def get_hess(z, epsilon):
-    return (torch.sigmoid(z) * torch.sigmoid(-z)).mean(axis=1) / epsilon
-
-@torch.no_grad()
-def _solve(add, alpha, epsilon, n_iters=10, n_bt=4, tol=1e-5):
-    """ minimize epsilon*log(1+exp((u+add) / epsilon)).mean() - u*alpha
-    whose gradient is sigmoid((u+add)/epsilon).mean() = alpha
-    """
-    topk = min(int(alpha*add.shape[1]) + 1, add.shape[1])
-    u = -torch.topk(add, topk, sorted=False).values.amin(1)
-
-    for i in range(n_iters):
-        u0 = u
-        z = (u[:, None] + add)/epsilon
-        fmin = get_fmin(z, u, epsilon, alpha)
-        grad = get_grad(z, alpha)
-        if grad.abs().mean().tolist() < tol:
-            break
-        hess = get_hess(z, epsilon)
-        eta = torch.ones_like(u)
-
-        for bt in range(n_bt):
-            u = u0 - eta * grad / hess.clip(1e-3, None)
-            z = (u[:, None] + add)/epsilon
-            fnew = get_fmin(z, u, epsilon, alpha)
-            success = (fnew - fmin <= 0.5 * grad * (u - u0) + 1e-6)
-
-            if success.all():
-                break
-            else:
-                eta = torch.where(success, eta, eta*0.5)
-
-    assert not torch.isnan(u).any(), "nan in solve"
-    return u, grad.abs().mean().tolist()
-
-
-if int(os.environ.get('CVX_BISECT', 1)):
-    print("CVX_BISECT")
-    _stable = int(os.environ.get("CVX_STABLE", '0'))
-    if _stable:
-        print("CVX_STABLE")
-
-    @torch.no_grad()
-    def _solve(add, alpha, epsilon, return_negative_u=True, _stable=_stable):
-        """ find u s.t. E_y[pi(x,y)] == alpha,
-        where pi(x,y) = sigmoid((add(x,y) - u(y)) / epsilon)
-        """
-        assert np.isscalar(alpha), "only supports scalar for simplicity"
-
-        if alpha < 0 or alpha > 1:
-            warnings.warn(f"clipping alpha={alpha} to [0, 1]")
-            alpha = np.clip(alpha, 0, 1)
-
-        alpha = torch.as_tensor(alpha).to(add.device)
-        epsilon = torch.as_tensor(epsilon).to(add.device)
-
-        z = alpha.log() - (1-alpha).log()
-
-        if _stable:
-            def _grad_u(u):
-                u = u[:, None]
-                d = (u - add) / epsilon + z    # u = add - z * epsilon
-
-                d_lt_0 = ( d.exp() - 1 ) / (
-                    (z.exp() + 1) * (((u - add) / epsilon).exp() + 1)
-                ) # grad < 0
-
-                d_gt_0 = ( 1 - (-d).exp() ) / (
-                    ((-z).exp() + 1) * (((add - u) / epsilon).exp() + 1)
-                ) # grad > 0
-
-                return torch.where(d < 0, d_lt_0, d_gt_0).mean(axis=1)
-        else:
-            _primal = lambda u: torch.sigmoid((add - u[:, None]) / epsilon)
-            _grad_u = lambda u: alpha - _primal(u).mean(axis=1) # monotone with u
-
-        if alpha == 0 or alpha == 1: # z is +- infinity
-            u = -z * torch.ones_like(add[:, 0])
-            return (-u if return_negative_u else u, (u-u).max())
-
-        u_min = add.amin(axis=1) - z * epsilon - 1e-3
-        u_max = add.amax(axis=1) - z * epsilon + 1e-3
-
-        assert (_grad_u(u_min) <= 0).all()
-        assert (_grad_u(u_max) >= 0).all()
-
-        for i in range(50):
-            u = (u_min + u_max) / 2
-            g = _grad_u(u)
-            assert not u.isnan().any(), "dual variable should not be nan"
-            u_min = torch.where(g<0, u, u_min)
-            u_max = torch.where(g>0, u, u_max)
-
-        return (-u if return_negative_u else u, (u_max-u_min).max())

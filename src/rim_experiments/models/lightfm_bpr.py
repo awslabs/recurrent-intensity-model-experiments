@@ -19,7 +19,7 @@ class LightFM_BPR:
             item_alpha=item_alpha)
 
     def fit(self, D):
-        df_train = D.event_df[D.event_df['_holdout']==0]
+        df_train = D.event_df
         train_intn = create_matrix(df_train, D.user_df.index, D.item_df.index, 'csr')
         if self.user_rec:
             train_intn = train_intn.T

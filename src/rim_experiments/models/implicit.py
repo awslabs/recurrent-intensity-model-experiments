@@ -11,7 +11,7 @@ _to_numpy = lambda x: x.to_numpy() if hasattr(x, 'to_numpy') else x
 class ALS:
     def __init__(self, factors=32, iterations=50,regularization=0.01, random_state=None,use_native=True,use_cg=True,use_gpu=torch.cuda.is_available()):
 
-        self.als_model_hparams = dict(
+        self.als_model = AlternatingLeastSquares(
             factors=factors,
             iterations=iterations,
             random_state=random_state,
@@ -22,16 +22,14 @@ class ALS:
             )
 
     def fit(self, D):
-        df_train = D.event_df[D.event_df['_holdout']==0]
+        df_train = D.event_df
         #create matrix create user-item matrix, whereas implicit takes in item-user matrix
         train_item_user = create_matrix(df_train, D.user_df.index, D.item_df.index, 'csr').T
 
-        print(self.als_model_hparams)
-        als_model = AlternatingLeastSquares(**self.als_model_hparams)
-        als_model.fit(train_item_user)
-
-        self.ind_logits = _to_numpy(als_model.user_factors)
-        self.col_logits = _to_numpy(als_model.item_factors)
+        self.als_model.fit(train_item_user)
+        self.ind_logits = _to_numpy(self.als_model.user_factors)
+        self.col_logits = _to_numpy(self.als_model.item_factors)
+        delattr(self, "als_model")
 
         self.D = D
         return self
@@ -58,7 +56,7 @@ class LogisticMF:
         )
 
     def fit(self, D):
-        df_train = D.event_df[D.event_df['_holdout'] == 0]
+        df_train = D.event_df
         # create matrix create user-item matrix, whereas implicit takes in item-user matrix
         train_item_user = create_matrix(df_train, D.user_df.index, D.item_df.index, 'csr').T
         self.lmf_model.fit(train_item_user)
