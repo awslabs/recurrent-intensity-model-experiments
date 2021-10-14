@@ -22,9 +22,8 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
     ```
     ![greedy-ml-1m](figure/greedy-ml-1m.png)
     ```
-    self = main("prepare_ml_1m_data", mult=mult,
-                cvx=True, online=True, device='cuda')
-    fig = plot_results(self)
+    cvx_online = main("prepare_ml_1m_data", mult=mult, cvx=True, online=True)
+    fig = plot_results(cvx_online)
     ```
     ![online-ml-1m](figure/online-ml-1m.png)
 4. To extend to other datasets, see example in [prepare_synthetic_data](src/rim_experiments/dataset/__init__.py)

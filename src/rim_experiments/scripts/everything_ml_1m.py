@@ -1,11 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import pylab as pl, os
+import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-pl.plot()
-pl.show()
 
 from rim_experiments import *
 from rim_experiments.dataset import *
@@ -13,7 +11,6 @@ from rim_experiments.dataset import *
 kw = {
     # "mult": [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
     "mult": [0, 0.5, 1, 3, 100],
-    # "device": "cuda",
     "models_to_run": [
         "Rand", "Pop",
         "Hawkes", "HP",

@@ -16,6 +16,7 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
 
     out = {
         'prec':     hit.sum() / assigned_csr.sum(),
+        'recs/user': assigned_csr.sum() / assigned_csr.shape[0],
         'item_cov': (assigned_csr.sum(axis=0)>0).mean(),  # 1 by n_items
         'item_ppl': perplexity(assigned_csr.sum(axis=0)),
         'user_cov': (assigned_csr.sum(axis=1)>0).mean(),  # n_users by 1

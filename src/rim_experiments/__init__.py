@@ -1,6 +1,6 @@
 try:
-    import pylab as pl
-    pl.plot(); pl.show() # tick behaves oddly with matplotlib
+    import matplotlib.pyplot as plt
+    plt.plot(); plt.show() # tick behaves weirdly with matplotlib
 except ImportError:
     pass
 
@@ -75,7 +75,7 @@ class Experiment:
             "BPR-Item", "BPR-User",
             ],
         model_hyps={},
-        device="cpu", # for gpu, use "cuda" after setting CUDA_VISIBLE_DEVICES
+        device="cuda" if torch.cuda.is_available() else "cpu",
         cvx=False,
         online=False,
         **mtch_kw
@@ -274,11 +274,13 @@ def plot_results(self, logy=True):
     yname = ['item_ppl', 'user_ppl']
 
     for ax, df, xname, yname in zip(ax, df, xname, yname):
+        ax.set_prop_cycle('color', [
+            plt.get_cmap('tab20')(i/20) for i in range(20)])
         if df is not None:
             ax.plot(
                 df.loc['prec'].unstack().values.T,
                 df.loc[yname].unstack().values.T,
-                '+:',
+                '.-',
             )
         ax.set_xlabel(xname)
         ax.set_ylabel(yname)

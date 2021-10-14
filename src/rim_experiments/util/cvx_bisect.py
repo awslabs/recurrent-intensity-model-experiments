@@ -36,7 +36,7 @@ def primal_solution(u, v, s, eps):
     if eps > 0:
         return torch.sigmoid(s_u_v(s, u, v) / eps)
     else:
-        # TODO: how to represent subgradients in [0, 1]?
+        # obtain subgradients via torch.floor or ceil
         return torch.sign(s_u_v(s, u, v)) * 0.5 + 0.5
 
 
@@ -54,12 +54,22 @@ def dual_complete(u, v, s, alpha, beta, eps):
     return (u * alpha).mean() + (v * beta).mean() + sp.mean()
 
 
-def grad_u(u, v, s, alpha, eps, x=None):
+def grad_u(u, v, s, alpha, eps):
     """
     find u = min{u>=0 : E_y[pi(x,y)] <= alpha(x)}
     """
     pi = primal_solution(u, v, s, eps)
-    return alpha - pi.mean(1)
+    if eps>0:
+        return alpha - pi.mean(1)
+    else:
+        return _subgradient(alpha, pi)
+
+
+def _subgradient(alpha, pi):
+    lb = alpha - torch.ceil(pi).mean(1)
+    ub = alpha - torch.floor(pi).mean(1)
+    return torch.where(ub < 0, ub, torch.where(
+        lb > 0, lb, torch.zeros_like(lb)))
 
 
 @torch.no_grad()
@@ -187,7 +197,10 @@ if 'CVX_STABLE' in os.environ and int(os.environ['CVX_STABLE']):
         """ alpha - pi.mean(1)
         be more precise if eps->0 while there are a lot of ties
         """
-        assert 0<alpha<1 or eps>0, "prevent inf-inf when both are extreme values"
+        if eps==0:
+            pi = torch.sign(s_u_v(s, u, v)) * 0.5 + 0.5
+            return _subgradient(alpha, pi)
+
         alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
 
         z = alpha.log() - (1-alpha).log()

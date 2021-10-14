@@ -121,7 +121,7 @@ class _LitRNNModel(_LitValidated):
         TNC_out, _ = self.model.rnn(self.model.encoder(TN_layout), hiddens)
         last_hidden = TNC_out[lengths-1, np.arange(len(lengths))]
         pred_logits = self.model.decoder(last_hidden)
-        log_bias = (pred_logits.log_softmax(dim=1) - pred_logits).mean(axis=1)
+        log_bias = -pred_logits.logsumexp(1)
         return last_hidden.cpu().numpy(), log_bias.cpu().numpy()
 
     def configure_optimizers(self):

@@ -3,11 +3,6 @@ import functools, collections, time, contextlib, os, torch, gc, warnings
 from datetime import datetime
 from pytorch_lightning import LightningModule
 from backports.cached_property import cached_property
-
-if torch.cuda.is_available():
-    from pynvml import *
-    nvmlInit()
-
 from .score_array import *
 
 

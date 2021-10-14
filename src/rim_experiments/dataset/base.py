@@ -41,7 +41,8 @@ def _mark_holdout(event_df, user_df, horizon):
 
     post_test = (event_df['_holdout']==2).mean()
     if post_test>0:
-        warnings.warn(f"Post-test {post_test:.1%} events with _holdout=2 should be ignored")
+        warnings.warn("Post-test events with _holdout=2 should be ignored; "
+            f"they account for {post_test:.1%} of all events")
     del event_df['TEST_START_TIME']
     return event_df
 
@@ -79,7 +80,7 @@ def _augment_item_hist(item_df, event_df):
 
 
 @dataclasses.dataclass(eq=False)
-class _UnlabeledDataset:
+class _SelfSupervisedDataset:
     """ a dataset with observed events and optional user histories and timestamps
     for self-supervised training
     """
@@ -99,8 +100,8 @@ class _UnlabeledDataset:
 
 
 @dataclasses.dataclass(eq=False)
-class Dataset(_UnlabeledDataset):
-    """ A dataset class contains 3 related tables
+class Dataset(_SelfSupervisedDataset):
+    """ A labeled dataset from 3 related tables:
         event_df: [USER_ID, ITEM_ID, TIMESTAMP]
         user_df: [USER_ID (index), TEST_START_TIME]
         item_df: [ITEM_ID (index)]
@@ -134,7 +135,7 @@ class Dataset(_UnlabeledDataset):
             self.event_df[self.event_df['_holdout']==1].copy(),
             self.user_in_test.index, self.item_in_test.index, "df"
         )
-        self.training_data = _UnlabeledDataset(
+        self.training_data = _SelfSupervisedDataset(
             self.event_df[self.event_df['_holdout']==0].copy(),
             self.user_df, self.item_df
         )
@@ -148,7 +149,8 @@ class Dataset(_UnlabeledDataset):
             print(pd.DataFrame(self.get_stats()).T.stack().apply('{:.2f}'.format))
             print(self.user_df.sample().iloc[0])
             print(self.item_df.sample().iloc[0])
-        print("dataset post-init complete")
+
+        print("Dataset initialized!")
 
     def __hash__(self):
         return id(self)

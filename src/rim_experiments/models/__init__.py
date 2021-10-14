@@ -1,11 +1,14 @@
 import pandas as pd, numpy as np
-import functools, collections
+import functools, collections, warnings
 
 from .rnn import RNN
 from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
-from .implicit import ALS, LogisticMF
+try:
+    from .implicit import ALS, LogisticMF
+except ImportError:
+    warnings.warn("Implicit package not properly installed.")
 
 from rim_experiments.util import LowRankDataFrame
 
