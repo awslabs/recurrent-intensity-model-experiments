@@ -16,10 +16,16 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
 3. Run experiment as
     ```
     from rim_experiments import main, plot_results
-    self = main("prepare_ml_1m_data", lb_mult=[0.5, 0.2, 0.1, 0])
+    mult=[0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100]
+    self = main("prepare_ml_1m_data", mult=mult)
     fig = plot_results(self)
     ```
     ![greedy-ml-1m](figure/greedy-ml-1m.png)
+    ```
+    cvx_online = main("prepare_ml_1m_data", mult=mult, cvx=True, online=True)
+    fig = plot_results(cvx_online)
+    ```
+    ![online-ml-1m](figure/online-ml-1m.png)
 4. To extend to other datasets, see example in [prepare_synthetic_data](src/rim_experiments/dataset/__init__.py)
 5. The provided examples are tested in [test](test).
 

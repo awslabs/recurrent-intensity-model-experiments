@@ -49,6 +49,7 @@ class LowRankValues(ScoreExpression):
     def __post_init__(self):
         assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
         assert self.act in ['exp', 'sigmoid'], "requires nonnegative act to solve cvx"
+        self.batch_size = get_batch_size(self.shape, frac=0.03)
 
 
     def eval(self, device=None):
@@ -99,12 +100,9 @@ class LowRankValues(ScoreExpression):
             return self.eval() * other
 
 
-    def iter_batches(self, device=None, batch_size=None):
-        if batch_size is None:
-            batch_size = get_batch_size(self.shape, frac=0.03)
-
-        for i in range(0, len(self), batch_size):
-            key = slice(i, min(i+batch_size, len(self)))
+    def iter_batches(self, device=None):
+        for i in range(0, len(self), self.batch_size):
+            key = slice(i, min(i+self.batch_size, len(self)))
             yield key, self[key]
 
 

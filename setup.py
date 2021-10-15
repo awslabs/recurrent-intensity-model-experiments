@@ -12,7 +12,6 @@ setup(
     },
 
     # use `conda env update --file environment.yml` to install full dependencies
-    # "pynvml", # if on gpu host
     install_requires=[
         "torch>=1.7.1", # torch==1.7.1+cu101
         "pytorch-lightning>=1.3.8",
@@ -20,7 +19,7 @@ setup(
         "lightfm>=1.16",
         "pyarrow>=0.13.0",
         "tick>=0.6",
-        # "implicit>=0.4.4", # manual install
+        # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu
         "backports.cached-property",
     ],
 )

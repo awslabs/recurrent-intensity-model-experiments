@@ -3,11 +3,6 @@ import functools, collections, time, contextlib, os, torch, gc, warnings
 from datetime import datetime
 from pytorch_lightning import LightningModule
 from backports.cached_property import cached_property
-
-if torch.cuda.is_available():
-    from pynvml import *
-    nvmlInit()
-
 from .score_array import *
 
 
@@ -42,12 +37,7 @@ def warn_nan_output(func):
 
 def _empty_cache():
     gc.collect()
-    if 'BEST_GPU' in os.environ:
-        best_gpu = int(os.environ['BEST_GPU'])
-        with torch.cuda.device(f'cuda:{best_gpu}'):
-            torch.cuda.empty_cache()
-    else:
-        torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
 
 
 def _get_cuda_objs():
@@ -92,20 +82,20 @@ def perplexity(x):
 
 
 @empty_cache_on_exit
-def _assign_topk(S, k, tie_breaker=1e-10, device="cpu", batch_size=10000):
-    def fn(s):
+def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
+    indices = []
+    batches = S.iter_batches() if hasattr(S, "iter_batches") else [(None, S)]
+    for _, s in batches:
         if hasattr(s, "eval"):
             s = s.eval(device)
         else:
             s = torch.tensor(s, device=device)
         if tie_breaker:
             s = s + torch.rand(*s.shape, device=device) * tie_breaker
-        return s.topk(k).indices.cpu().numpy()
+        s_topk = s.topk(k).indices.cpu().numpy()
+        indices.append(s_topk)
+    indices = np.vstack(indices)
 
-    indices = np.vstack([
-        fn(S[i:min(i+batch_size, S.shape[0])])
-        for i in range(0, S.shape[0], batch_size)
-    ])
     return sp.sparse.csr_matrix((
         np.ones(indices.size),
         np.ravel(indices),
@@ -116,14 +106,30 @@ def _assign_topk(S, k, tie_breaker=1e-10, device="cpu", batch_size=10000):
 @empty_cache_on_exit
 def _argsort(S, tie_breaker=1e-10, device="cpu"):
     print(f"_argsort {S.size:,} scores on device {device}; ", end="")
+    if hasattr(S, "batch_size") and S.batch_size < S.shape[0]:
+        warnings.warn(f"switching numpy.argsort due to {S.batch_size}<{S.shape[0]}")
+        device = None
+
     if hasattr(S, "eval"):
-        S_torch = S.eval(device)
+        S = S.eval(device)
+
+    shape = S.shape
+
+    if device is None:
+        if tie_breaker>0:
+            S = S + np.random.rand(*S.shape) * tie_breaker
+        S = -S.reshape(-1)
+        _empty_cache()
+        argsort_ind = np.argsort(S)
     else:
-        S_torch = torch.tensor(S, device=device)
-    if tie_breaker>0:
-        S_torch = S_torch + torch.rand(*S.shape, device=device) * tie_breaker
-    argsort_ind = torch.argsort(-S_torch.reshape(-1)).cpu().numpy()
-    return np.unravel_index(argsort_ind, S.shape)
+        S = torch.as_tensor(S, device=device)
+        if tie_breaker>0:
+            S = S + torch.rand(*S.shape, device=device) * tie_breaker
+        S = -S.reshape(-1)
+        _empty_cache()
+        argsort_ind = torch.argsort(S).cpu().numpy()
+
+    return np.unravel_index(argsort_ind, shape)
 
 
 def extract_user_item(event_df):
@@ -229,16 +235,3 @@ class _LitValidated(LightningModule):
 
     def validation_epoch_end(self, outputs):
         self.val_loss = torch.stack(outputs).mean()
-
-
-def get_best_gpus():
-    if "BEST_GPU" in os.environ:
-        best_gpu = int(os.environ['BEST_GPU'])
-    else:
-        memory_free = [
-            nvmlDeviceGetMemoryInfo(nvmlDeviceGetHandleByIndex(i)).free
-            for i in range(torch.cuda.device_count())
-        ]
-        best_gpu = np.argmax(memory_free)
-    print("best gpu", best_gpu)
-    return [best_gpu]

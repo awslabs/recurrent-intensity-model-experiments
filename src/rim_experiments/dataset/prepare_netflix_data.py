@@ -27,6 +27,7 @@ def prepare_netflix_data(
     user_df, item_df = extract_user_item(event_df)
     user_df, valid_df = split_by_time(user_df, test_start, valid_start)
 
-    D = Dataset(event_df, user_df, item_df, test_end-test_start, print_stats=True)
+    D = Dataset(event_df, user_df, item_df, test_end-test_start)
+    D.print_stats()
     V = Dataset(event_df, valid_df, item_df, test_start-valid_start)
     return (D, V)

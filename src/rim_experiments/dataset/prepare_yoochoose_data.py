@@ -25,7 +25,8 @@ def prepare_yoochoose_data(
 
     train_df, valid_df = split_by_user(user_df, in_groupA, test_start_rel)
     D = Dataset(event_df, train_df, item_df, horizon,
-        min_user_len=min_user_len, min_item_len=min_item_len, print_stats=True)
+        min_user_len=min_user_len, min_item_len=min_item_len)
+    D.print_stats()
     V = Dataset(event_df, valid_df, item_df, horizon,
         min_user_len=min_user_len, min_item_len=min_item_len)
     return (D, V)

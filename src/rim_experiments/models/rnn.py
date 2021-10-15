@@ -9,14 +9,12 @@ from .word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from ..util import _LitValidated, empty_cache_on_exit, \
-                    LowRankDataFrame, get_best_gpus
+from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame
 
 
 class RNN:
     def __init__(self, item_df,
-        num_hidden=128, nlayers=2, max_epochs=5,
-        gpus=get_best_gpus() if torch.cuda.is_available() else 0,
+        num_hidden=128, nlayers=2, max_epochs=5, gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, truncated_bptt_steps=32,
         load_from_checkpoint=None):
 
@@ -123,7 +121,7 @@ class _LitRNNModel(_LitValidated):
         TNC_out, _ = self.model.rnn(self.model.encoder(TN_layout), hiddens)
         last_hidden = TNC_out[lengths-1, np.arange(len(lengths))]
         pred_logits = self.model.decoder(last_hidden)
-        log_bias = (pred_logits.log_softmax(dim=1) - pred_logits).mean(axis=1)
+        log_bias = -pred_logits.logsumexp(1)
         return last_hidden.cpu().numpy(), log_bias.cpu().numpy()
 
     def configure_optimizers(self):

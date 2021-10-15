@@ -25,7 +25,7 @@ def prepare_synthetic_data(split_fn_name,
     else:
         raise ValueError(f"unknown {split_fn_name}")
 
-    D = Dataset(event_df, user_df, item_df, horizon=1, print_stats=True)
-    D._is_synthetic_data = True
+    D = Dataset(event_df, user_df, item_df, horizon=1, _is_synthetic_data=True)
+    D.print_stats()
     V = Dataset(event_df, valid_df, item_df, horizon=1)
     return (D, V)
