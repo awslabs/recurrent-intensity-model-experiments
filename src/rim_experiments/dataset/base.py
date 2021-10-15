@@ -112,7 +112,6 @@ class Dataset(_SelfSupervisedDataset):
     min_user_len: int = 1
     min_item_len: int = 1
     _is_synthetic_data: bool = False
-    print_stats: bool = False
 
     def __post_init__(self):
         _check_index(self.event_df, self.user_df, self.item_df)
@@ -144,12 +143,6 @@ class Dataset(_SelfSupervisedDataset):
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
 
-        if self.print_stats:
-            print('dataset stats')
-            print(pd.DataFrame(self.get_stats()).T.stack().apply('{:.2f}'.format))
-            print(self.user_df.sample().iloc[0])
-            print(self.item_df.sample().iloc[0])
-
         print("Dataset initialized!")
 
     def __hash__(self):
@@ -180,6 +173,12 @@ class Dataset(_SelfSupervisedDataset):
                 "item_ppl": perplexity(self.item_in_test['_hist_len']),
             },
         }
+
+    def print_stats(self, verbose=True):
+        print(pd.DataFrame(self.get_stats()).T.stack().apply('{:.2f}'.format))
+        if verbose:
+            print(self.user_df.sample().iloc[0])
+            print(self.item_df.sample().iloc[0])
 
     @warn_nan_output
     def transform(self, S, user_index=None, fill_value=float("nan")):
