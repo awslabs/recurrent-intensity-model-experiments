@@ -45,8 +45,8 @@ def dual_complete(u, v, s, alpha, beta, eps):
     min_{u>=0, v<=0} d(u, v)
         = E_xy [ u(x)alpha(x) + v(y)beta(y) + Softplus(1/eps)(s-u-v) ]
     """
-    u = torch.as_tensor(u, device=s.device)
-    v = torch.as_tensor(v, device=s.device)
+    u = torch.as_tensor(u, device=s.device).reshape((-1, 1))
+    v = torch.as_tensor(v, device=s.device).reshape((1, -1))
     if eps > 0:
         sp = torch.nn.Softplus(1./eps)(s - u - v)
     else:

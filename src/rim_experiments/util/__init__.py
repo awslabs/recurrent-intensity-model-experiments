@@ -85,7 +85,7 @@ def perplexity(x):
 def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
     indices = []
     batches = S.iter_batches() if hasattr(S, "iter_batches") else [(None, S)]
-    for key, s in batches:
+    for _, s in batches:
         if hasattr(s, "eval"):
             s = s.eval(device)
         else:
