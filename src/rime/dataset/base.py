@@ -101,10 +101,12 @@ class _SelfSupervisedDataset:
 
 @dataclasses.dataclass(eq=False)
 class Dataset(_SelfSupervisedDataset):
-    """ A labeled dataset from 3 related tables:
-        event_df: [USER_ID, ITEM_ID, TIMESTAMP]
-        user_df: [USER_ID (index), TEST_START_TIME]
-        item_df: [ITEM_ID (index)]
+    """ A labeled dataset from 3 related tables.
+
+    :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
+    :parameter user_df: [USER_ID (index), TEST_START_TIME]
+    :parameter item_df: [ITEM_ID (index)]
+
     Infer target labels from TEST_START_TIME (per user) and horizon.
     Filter test users/items by _hist_len.
     """

@@ -7,10 +7,6 @@ setup(
     packages=find_packages(where="src", exclude=("test",)),
     package_dir={"": "src"},
 
-    package_data={
-        "rime": ["word_language_model/*.py"],
-    },
-
     # use `conda env update --file environment.yml` to install full dependencies
     install_requires=[
         "torch>=1.7.1", # torch==1.7.1+cu101
