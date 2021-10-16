@@ -29,6 +29,9 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
 4. To extend to other datasets, see example in [prepare_synthetic_data](src/rim_experiments/dataset/__init__.py)
 5. The provided examples are tested in [test](test).
 
+## Development
+
+Please visit latest API reference at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
 
 ## Security
 
