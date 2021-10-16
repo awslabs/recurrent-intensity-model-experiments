@@ -15,7 +15,7 @@ def test_synthetic_experiment(split_fn_name, cvx, online, **kw):
         kw.setdefault('max_epochs', 2)
 
     self = main("prepare_synthetic_data", split_fn_name,
-        mult=[0, 1, 101], cvx=cvx, online=online, **kw)
+        mult=[0.5], cvx=cvx, online=online, **kw)
     fig = plot_results(self.results)
 
     with tempfile.NamedTemporaryFile("r") as fp:
