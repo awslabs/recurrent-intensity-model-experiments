@@ -2,14 +2,14 @@ import pytest, torch, tempfile
 import pandas as pd, numpy as np, scipy as sp
 
 
-def test_rim_experiments_importable():
-    import rim_experiments
+def test_rime_importable():
+    import rime
 
 
 @pytest.mark.parametrize("cvx, online", [(False, False), (True, False), (True, True)])
 @pytest.mark.parametrize("split_fn_name", ["split_by_time", "split_by_user"])
 def test_synthetic_experiment(split_fn_name, cvx, online, **kw):
-    from rim_experiments import main, plot_results
+    from rime import main, plot_results
     kw = kw.copy()
     if cvx:
         kw.setdefault('max_epochs', 2)
@@ -30,7 +30,7 @@ def test_synthetic_experiment(split_fn_name, cvx, online, **kw):
     "prepare_yoochoose_data",
 ])
 def test_do_experiment(name):
-    from rim_experiments import main
+    from rime import main
     main(name)
 
 
@@ -40,7 +40,7 @@ def test_do_experiment(name):
 ])
 def test_solve_cvx(maximization, expect, **kw):
     """ we expect to see cvx = 3+4+3 < 1+4+9 = greedy """
-    from rim_experiments.metrics.cvx import CVX
+    from rime.metrics.cvx import CVX
     score_mat = np.array([[1, 2, 3], [2, 4, 6], [3, 6, 9]])
     if not maximization:
         score_mat = 10-score_mat

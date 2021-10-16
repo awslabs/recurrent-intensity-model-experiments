@@ -8,7 +8,7 @@ setup(
     package_dir={"": "src"},
 
     package_data={
-        "rim_experiments": ["word_language_model/*.py"],
+        "rime": ["word_language_model/*.py"],
     },
 
     # use `conda env update --file environment.yml` to install full dependencies

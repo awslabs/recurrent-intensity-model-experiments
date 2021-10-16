@@ -1,11 +1,11 @@
-Welcome to Recurrent Intensity Model Experiments (RIME)'s documentation!
+Welcome to Recurrent Intensity Model Experiments's documentation!
 ========================================================================
 
 .. autosummary::
    :toctree: _autosummary
    :recursive:
 
-   rim_experiments
+   rime
 
 
 Indices and tables

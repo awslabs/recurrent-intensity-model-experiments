@@ -3,8 +3,8 @@ import torch, itertools, os, warnings
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from rim_experiments.util import empty_cache_on_exit, _LitValidated, get_batch_size
-from rim_experiments.util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
+from ..util import empty_cache_on_exit, _LitValidated, get_batch_size
+from ..util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
 
 
 class CVX:

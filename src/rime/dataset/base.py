@@ -1,7 +1,7 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, warnings, dataclasses
-from rim_experiments.util import create_matrix, cached_property, perplexity, \
-                                 timed, warn_nan_output, groupby_collect, df_to_coo
+from ..util import create_matrix, cached_property, perplexity, \
+                   timed, warn_nan_output, groupby_collect, df_to_coo
 
 
 def _check_index(event_df, user_df, item_df):

@@ -6,11 +6,11 @@ except ImportError:
 
 import functools, collections, torch, dataclasses, warnings, json
 from typing import Dict, List
-from rim_experiments.models import *
-from rim_experiments.metrics import *
-from rim_experiments.dataset import Dataset
-from rim_experiments import dataset
-from rim_experiments.util import _argsort, cached_property, df_to_coo
+from rime.models import *
+from rime.metrics import *
+from rime.dataset import Dataset
+from rime import dataset
+from rime.util import _argsort, cached_property, df_to_coo
 
 
 @dataclasses.dataclass
