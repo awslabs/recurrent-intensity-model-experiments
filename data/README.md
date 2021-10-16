@@ -1,5 +1,5 @@
 Put a symlink to each data source we use in the experiments.
-Additional details are shown in `rim_experiments.dataset.*`.
+Additional details are shown in `rime.dataset.*`.
 
 * [MovieLens ml-1m](https://grouplens.org/datasets/movielens/1m/). We create an intermediate cache at `./ml-1m/ratings.dat`.
 ```

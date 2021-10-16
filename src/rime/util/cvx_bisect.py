@@ -1,7 +1,8 @@
-""" 
-max_pi  E_xy[s(x,y) * pi(x,y)]
-s.t.    E_y[pi(x,y)] <= alpha(x)
-        E_x[pi(x,y)] >= beta(y)
+""" Detailed steps to solve the following convex optimization problem.
+
+    max_pi  E_xy[s(x,y) * pi(x,y)]
+    s.t.    E_y[pi(x,y)] <= alpha(x)
+            E_x[pi(x,y)] >= beta(y)
 """
 
 import numpy as np

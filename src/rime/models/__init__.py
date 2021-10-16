@@ -10,7 +10,7 @@ try:
 except ImportError:
     warnings.warn("Implicit package not properly installed.")
 
-from rim_experiments.util import LowRankDataFrame
+from rime.util import LowRankDataFrame
 
 
 class Rand:

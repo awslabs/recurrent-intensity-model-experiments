@@ -5,8 +5,8 @@ import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-from rim_experiments import *
-from rim_experiments.dataset import *
+from rime import *
+from rime.dataset import *
 
 kw = {
     # "mult": [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],

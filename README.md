@@ -15,7 +15,7 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run experiment as
     ```
-    from rim_experiments import main, plot_results
+    from rime import main, plot_results
     mult=[0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100]
     self = main("prepare_ml_1m_data", mult=mult)
     fig = plot_results(self)
@@ -26,7 +26,7 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
     fig = plot_results(cvx_online)
     ```
     ![online-ml-1m](figure/online-ml-1m.png)
-4. To extend to other datasets, see example in [prepare_synthetic_data](src/rim_experiments/dataset/__init__.py)
+4. To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py)
 5. The provided examples are tested in [test](test).
 
 ## Development
