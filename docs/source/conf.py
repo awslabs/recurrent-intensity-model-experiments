@@ -18,8 +18,8 @@
 # -- Project information -----------------------------------------------------
 
 project = 'Recurrent Intensity Model Experiments'
-copyright = '2021, Yifei Ma, Ge Liu, Anoop Deoras'
-author = 'Yifei Ma, Ge Liu, Anoop Deoras'
+copyright = '2021, Paper authors and collaborators'
+author = 'Paper authors and collaborators'
 
 
 # -- General configuration ---------------------------------------------------

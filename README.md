@@ -26,12 +26,10 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
     fig = plot_results(cvx_online)
     ```
     ![online-ml-1m](figure/online-ml-1m.png)
-4. To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py)
-5. The provided examples are tested in [test](test).
 
-## Development
-
-Please visit latest API reference at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
+To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py).
+Auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
+The main functions are tested in [test](test)
 
 ## Security
 
