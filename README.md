@@ -42,7 +42,7 @@ Here is what `Experiment.run` basically does:
 rnn = rime.models.rnn.RNN(**self.model_hyps["RNN"]).fit(D.training_data)
 hawkes = rime.models.hawkes.Hawkes(D.horizon).fit(D.training_data)
 S = rnn.transform(D) * hawkes.transform(D)  # output shape (D.user_in_test, D.item_in_test)
-self.metrics_update("RNN", S)
+self.metrics_update("RNN-Hawkes", S)
 ```
 
 OnlnMtch does not allow leakage of `D.user_in_test`. Instead, CVX is calibrated by `V.user_in_test`:
@@ -55,7 +55,7 @@ online_assignments = cvx.fit(T.values).transform(S.values)
 out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, ...)
 ```
 
-OnlnMtch is integrated as `self.metrics_update("RNN", S, T)`,
+OnlnMtch is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
 when `T is not None` and `self.online=True`.
 
 Auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
