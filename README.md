@@ -4,10 +4,17 @@
 
 Repository to reproduce the experiments in the paper:
 
-Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendation and Online Matching. ICML 2021 Time-Series Workshop.
-[link1](http://roseyu.com/time-series-workshop/submissions/2021/TSW-ICML2021_paper_47.pdf)
-[link2](https://www.amazon.science/publications/recurrent-intensity-modeling-for-user-recommendation-and-online-matching)
+[Recurrent Intensity Modeling for User Recommendation and Online Matching](http://roseyu.com/time-series-workshop/submissions/2021/TSW-ICML2021_paper_47.pdf);
+[(Another Link)](https://www.amazon.science/publications/recurrent-intensity-modeling-for-user-recommendation-and-online-matching)
 
+```
+@inproceedings{ma2021recurrent,
+	Author = {Ma, Yifei and Liu, Ge and Deoras, Anoop},
+	Booktitle = {ICML Time Series Workshop},
+	Title = {Recurrent Intensity Modeling for User Recommendation and Online Matching},
+	Year = {2021}
+}
+```
 
 ## Getting Started
 
