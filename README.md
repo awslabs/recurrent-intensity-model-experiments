@@ -32,7 +32,7 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
 Here is the content of the `main` function:
 ```
 D, V = prepare_some_dataset(...) # output instances of rime.dataset.base.Dataset
-self = rime.Experiemnt(D, V, ...)
+self = rime.Experiemnt(D, V, ...) # V is required only for Hawkes-Poisson and CVX-online.
 self.run()
 self.results.print_results()
 ```
@@ -56,7 +56,7 @@ out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments,
 ```
 
 OnlnMtch is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
-when `T is not None` and `self.online=True`.
+when `self.online=True` and `T is not None`.
 
 Auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
 To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py).
