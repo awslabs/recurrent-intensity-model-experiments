@@ -31,6 +31,35 @@ To extend to other datasets, see example in [prepare_synthetic_data](src/rime/da
 Auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
 The main functions are tested in [test](test)
 
+## Code Organization
+
+Here is the content of the `main` function:
+```
+D, V = prepare_some_dataset(...) # output instances of rime.dataset.base.Dataset
+self = Experiemnt(D, V, ...)
+self.run()
+self.results.print_results()
+```
+
+Here is what `Experiment.run` basically does:
+```
+model = rime.models.rnn.RNN(**self.model_hyps['RNN'])
+S = model.fit(D.training_data).transform(D) # output shape (D.user_in_test, D.item_in_test)
+self.metrics_update("RNN", S)
+```
+
+OnlnMtch does not allow leakage of `D.user_in_test`. Instead, CVX is calibrated by `V.user_in_test`:
+```
+T = model.transform(V).reindex(D.item_in_test.index, axis=1, fill_value=0)
+                                            # output shape (V.user_in_test, D.item_in_test)
+cvx = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
+online_assignments = cvx.fit(T.values).transform(S.values)
+out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, ...)
+```
+
+OnlnMtch is integrated as `self.metrics_update("RNN", S, T)`,
+when `T is not None` and `self.online=True`.
+
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
