@@ -32,7 +32,7 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
 Here is the content of the `main` function:
 ```
 D, V = prepare_some_dataset(...) # output instances of rime.dataset.base.Dataset
-self = rime.Experiemnt(D, V, ...) # V is required only for Hawkes-Poisson and CVX-online.
+self = rime.Experiemnt(D, V, ...) # V is required only for Hawkes-Poisson and CVX-Online.
 self.run()
 self.results.print_results()
 ```
@@ -45,17 +45,17 @@ S = rnn.transform(D) * hawkes.transform(D)  # output shape (D.user_in_test, D.it
 self.metrics_update("RNN-Hawkes", S)
 ```
 
-OnlnMtch does not allow leakage of `D.user_in_test`. Instead, CVX is calibrated by `V.user_in_test`:
+CVX-Online does not allow leakage of `D.user_in_test`. Instead, it is calibrated by `V.user_in_test`:
 ```
 T = rnn.transform(V) * hawkes.transform(V)
 T = T.reindex(D.item_in_test.index, axis=1, fill_value=0)
                                             # output shape (V.user_in_test, D.item_in_test)
-cvx = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
-online_assignments = cvx.fit(T.values).transform(S.values)
+cvx_online = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
+online_assignments = cvx_online.fit(T.values).transform(S.values)
 out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, ...)
 ```
 
-OnlnMtch is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
+CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
 when `self.online=True` and `T is not None`.
 
 Auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
