@@ -27,9 +27,41 @@ Yifei Ma, Ge Liu Anoop Deoras. Recurrent Intensity Modeling for User Recommendat
     ```
     ![online-ml-1m](figure/online-ml-1m.png)
 
-To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py).
+## Code Organization
+
+Here is the content of the `main` function:
+```
+D, V = prepare_some_dataset(...) # output instances of rime.dataset.base.Dataset
+self = rime.Experiemnt(D, V, ...)
+self.run()
+self.results.print_results()
+```
+
+Here is what `Experiment.run` basically does:
+```
+rnn = rime.models.rnn.RNN(**self.model_hyps["RNN"]).fit(D.training_data)
+hawkes = rime.models.hawkes.Hawkes(D.horizon).fit(D.training_data)
+S = rnn.transform(D) * hawkes.transform(D)  # output shape (D.user_in_test, D.item_in_test)
+self.metrics_update("RNN-Hawkes", S)
+```
+
+OnlnMtch does not allow leakage of `D.user_in_test`. Instead, CVX is calibrated by `V.user_in_test`:
+```
+T = rnn.transform(V) * hawkes.transform(V)
+T = T.reindex(D.item_in_test.index, axis=1, fill_value=0)
+                                            # output shape (V.user_in_test, D.item_in_test)
+cvx = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
+online_assignments = cvx.fit(T.values).transform(S.values)
+out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, ...)
+```
+
+OnlnMtch is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
+when `T is not None` and `self.online=True`.
+
 Auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
-The main functions are tested in [test](test)
+To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py).
+The main functions are tested in [test](test).
+
 
 ## Security
 
