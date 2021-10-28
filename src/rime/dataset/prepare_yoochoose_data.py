@@ -1,7 +1,7 @@
 import pandas as pd
 from datetime import datetime
 from ..util import extract_user_item, filter_min_len, split_by_user, sample_groupA
-from .base import Dataset
+from .base import create_dataset
 
 
 def prepare_yoochoose_data(
@@ -24,10 +24,10 @@ def prepare_yoochoose_data(
     print({"test_start_rel": test_start_rel, "horizon": horizon})
 
     train_df, valid_df = split_by_user(user_df, in_groupA, test_start_rel)
-    D = Dataset(event_df, train_df, item_df, horizon,
+    D = create_dataset(event_df, train_df, item_df, horizon,
         min_user_len=min_user_len, min_item_len=min_item_len)
     D.print_stats()
-    V = Dataset(event_df, valid_df, item_df, horizon,
+    V = create_dataset(event_df, valid_df, item_df, horizon,
         min_user_len=min_user_len, min_item_len=min_item_len)
     return (D, V)
 

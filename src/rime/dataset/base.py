@@ -80,7 +80,7 @@ def _augment_item_hist(item_df, event_df):
 
 
 @dataclasses.dataclass(eq=False)
-class _SelfSupervisedDataset:
+class TrainingData:
     """ a dataset with observed events and optional user histories and timestamps
     for self-supervised training
     """
@@ -100,52 +100,21 @@ class _SelfSupervisedDataset:
 
 
 @dataclasses.dataclass(eq=False)
-class Dataset(_SelfSupervisedDataset):
-    """ A labeled dataset from 3 related tables.
-
-    :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
-    :parameter user_df: [USER_ID (index), TEST_START_TIME]
-    :parameter item_df: [ITEM_ID (index)]
-
-    Infer target labels from TEST_START_TIME (per user) and horizon.
-    Filter test users/items by _hist_len.
-    """
+class Dataset:
+    target_df: "DataFrame(index=USER_ID, column=ITEM_ID)"
+    user_in_test: "DataFrame(index=USER_ID)"
+    item_in_test: "DataFrame(index=ITEM_ID)"
+    training_data: TrainingData
     horizon: float = float("inf")
-    min_user_len: int = 1
-    min_item_len: int = 1
-    _is_synthetic_data: bool = False
 
     def __post_init__(self):
-        _check_index(self.event_df, self.user_df, self.item_df)
-        _check_more_inputs(self.event_df, self.user_df, self.item_df)
+        assert (self.target_df.index == self.user_in_test.index).all(), \
+                        "user index mismatch with target index"
+        assert (self.target_df.columns == self.item_in_test.index).all(), \
+                        "item index mismatch with target columns"
 
-        print("augmenting and data tables")
-        self.event_df = _mark_holdout(self.event_df, self.user_df, self.horizon)
-        self.user_df = _augment_user_hist(self.user_df, self.event_df)
-        self.item_df = _augment_item_hist(self.item_df, self.event_df)
-
-        print("marking and cleaning test data")
-        self.user_in_test = self.user_df[
-            (self.user_df['_hist_len']>=self.min_user_len) &
-            (self.user_df['TEST_START_TIME']<float("inf")) # exclude Group-A users
-        ].copy()
-        self.item_in_test = self.item_df[
-            self.item_df['_hist_len']>=self.min_item_len
-        ].copy()
-        self.target_df = create_matrix(
-            self.event_df[self.event_df['_holdout']==1].copy(),
-            self.user_in_test.index, self.item_in_test.index, "df"
-        )
-        self.training_data = _SelfSupervisedDataset(
-            self.event_df[self.event_df['_holdout']==0].copy(),
-            self.user_df, self.item_df
-        )
-
-        print("inferring default parameters")
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
-
-        print("Dataset initialized!")
 
     def __hash__(self):
         return id(self)
@@ -154,7 +123,7 @@ class Dataset(_SelfSupervisedDataset):
         return {
             'user_df': {
                 '# warm users': len(self.user_in_test),
-                '# all users': len(self.user_df),
+                '# all users': len(self.training_data.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': self.user_in_test['_hist_span'].mean(),
                 'horizon': self.horizon,
@@ -162,12 +131,12 @@ class Dataset(_SelfSupervisedDataset):
             },
             'item_df': {
                 '# warm items': len(self.item_in_test),
-                '# all items': len(self.item_df),
+                '# all items': len(self.training_data.item_df),
                 'avg hist len': self.item_in_test['_hist_len'].mean(),
                 'avg target users': df_to_coo(self.target_df).sum(axis=0).mean(),
             },
             'event_df': {
-                '# train events': sum(self.event_df['_holdout']==0),
+                '# train events': len(self.training_data.event_df),
                 '# test events': df_to_coo(self.target_df).sum(),
                 'default_user_rec_top_c': self.default_user_rec_top_c,
                 'default_item_rec_top_k': self.default_item_rec_top_k,
@@ -179,13 +148,56 @@ class Dataset(_SelfSupervisedDataset):
     def print_stats(self, verbose=True):
         print(pd.DataFrame(self.get_stats()).T.stack().apply('{:.2f}'.format))
         if verbose:
-            print(self.user_df.sample().iloc[0])
-            print(self.item_df.sample().iloc[0])
+            print(self.user_in_test.sample().iloc[0])
+            print(self.item_in_test.sample().iloc[0])
 
-    @warn_nan_output
-    def transform(self, S, user_index=None, fill_value=float("nan")):
-        """ reindex the score matrix to match with test users and items """
-        if user_index is None:
-            user_index = self.user_in_test.index
-        return S.reindex(user_index, fill_value=fill_value) \
-                .reindex(self.item_in_test.index, fill_value=fill_value, axis=1)
+    def reindex(self, index, axis=1):
+        if axis==1:
+            user_in_test = self.user_in_test
+            item_in_test = self.item_in_test.reindex(index, fill_value=0)
+        else:
+            raise NotImplementedError("user reindexing requires nontrivial fill_value")
+
+        target_df = self.target_df.reindex(index, axis=axis, fill_value=0)
+        return self.__class__(target_df, user_in_test, item_in_test,
+            self.training_data, self.horizon)
+
+
+def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
+    min_user_len=1, min_item_len=1):
+    """ Create a labeled dataset from 3 related tables.
+
+    :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
+    :parameter user_df: [USER_ID (index), TEST_START_TIME]
+    :parameter item_df: [ITEM_ID (index)]
+
+    Infer target labels from TEST_START_TIME (per user) and horizon.
+    Filter test users/items by _hist_len.
+    """
+    _check_index(event_df, user_df, item_df)
+    _check_more_inputs(event_df, user_df, item_df)
+
+    print("augmenting and data tables")
+    event_df = _mark_holdout(event_df, user_df, horizon)
+    user_df = _augment_user_hist(user_df, event_df)
+    item_df = _augment_item_hist(item_df, event_df)
+
+    print("marking and cleaning test data")
+    user_in_test = user_df[
+        (user_df['_hist_len']>=min_user_len) &
+        (user_df['TEST_START_TIME']<float("inf")) # exclude Group-A users
+    ].copy()
+    item_in_test = item_df[
+        item_df['_hist_len']>=min_item_len
+    ].copy()
+    target_df = create_matrix(
+        event_df[event_df['_holdout']==1].copy(),
+        user_in_test.index, item_in_test.index, "df"
+    )
+    training_data = TrainingData(
+        event_df[event_df['_holdout']==0].copy(),
+        user_df, item_df
+    )
+    D = Dataset(target_df, user_in_test, item_in_test, training_data, horizon)
+    print("Dataset created!")
+    return D

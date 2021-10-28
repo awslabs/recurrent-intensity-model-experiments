@@ -8,7 +8,6 @@ import functools, collections, torch, dataclasses, warnings, json
 from typing import Dict, List
 from rime.models import *
 from rime.metrics import *
-from rime.dataset import Dataset
 from rime import dataset
 from rime.util import _argsort, cached_property, df_to_coo
 
@@ -114,11 +113,10 @@ class Experiment:
 
     def metrics_update(self, name, S, T=None):
         target_csr = df_to_coo(self.D.target_df)
-        score_mat = self.D.transform(S).values
+        score_mat = S.values
 
         if self.online:
-            # reindex by valid users and test items to keep dimensions consistent
-            valid_mat = self.D.transform(T, self.V.user_in_test.index, 0).values
+            valid_mat = T.values
         elif self.cvx:
             valid_mat = score_mat
         else:
@@ -174,16 +172,16 @@ class Experiment:
             return Rand().transform(D)
 
         if model == "Pop":
-            return Pop().transform(D)
+            return self._pop.transform(D)
 
         if model == "EMA":
-            return EMA(D.horizon).transform(D) * Pop(0, 1).transform(D)
+            return EMA(D.horizon).transform(D) * self._pop_item.transform(D)
 
         if model == "Hawkes":
-            return self._hawkes.transform(D) * Pop(0, 1).transform(D)
+            return self._hawkes.transform(D) * self._pop_item.transform(D)
 
         if model == "HP":
-            return self._hawkes_poisson.transform(D) * Pop(0, 1).transform(D)
+            return self._hawkes_poisson.transform(D) * self._pop_item.transform(D)
 
         if model == "RNN":
             return self._rnn.transform(D)
@@ -217,14 +215,27 @@ class Experiment:
         for model in self.models_to_run:
             print("running", model)
             S = self.transform(model, self.D)
-            T = self.transform(model, self.V) if self.online else None
+            if self.online:
+                V = self.V.reindex(self.D.item_in_test.index, axis=1)
+                T = self.transform(model, V)
+            else:
+                T = None
             self.metrics_update(model, S, T)
 
 
     @cached_property
+    def _pop(self):
+        return Pop().fit(self.D.training_data)
+
+    @cached_property
+    def _pop_item(self):
+        return Pop(user_rec=False, item_rec=True).fit(self.D.training_data)
+
+    @cached_property
     def _rnn(self):
-        fitted = RNN(self.D.item_df, **self.model_hyps.get("RNN", {})).fit(
-            self.D.training_data)
+        fitted = RNN(self.D.training_data.item_df,
+            **self.model_hyps.get("RNN", {})
+        ).fit(self.D.training_data)
         for name, param in fitted.model.named_parameters():
             print(name, param.data.shape)
         return fitted

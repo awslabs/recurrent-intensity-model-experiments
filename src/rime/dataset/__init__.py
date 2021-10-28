@@ -1,7 +1,7 @@
 import pandas as pd, numpy as np
 
 from ..util import extract_user_item, split_by_time, split_by_user
-from .base import Dataset
+from .base import create_dataset
 from .prepare_netflix_data import prepare_netflix_data
 from .prepare_ml_1m_data import prepare_ml_1m_data
 from .prepare_yoochoose_data import prepare_yoochoose_data
@@ -25,7 +25,8 @@ def prepare_synthetic_data(split_fn_name,
     else:
         raise ValueError(f"unknown {split_fn_name}")
 
-    D = Dataset(event_df, user_df, item_df, horizon=1, _is_synthetic_data=True)
+    D = create_dataset(event_df, user_df, item_df, horizon=1)
+    D._is_synthetic_data = True # for hawkes_poisson verification purposes
     D.print_stats()
-    V = Dataset(event_df, valid_df, item_df, horizon=1)
+    V = create_dataset(event_df, valid_df, item_df, horizon=1)
     return (D, V)

@@ -1,7 +1,7 @@
 import pandas as pd
 from datetime import datetime
 from ..util import extract_user_item, split_by_time
-from .base import Dataset
+from .base import create_dataset
 
 
 def prepare_netflix_data(
@@ -27,7 +27,7 @@ def prepare_netflix_data(
     user_df, item_df = extract_user_item(event_df)
     user_df, valid_df = split_by_time(user_df, test_start, valid_start)
 
-    D = Dataset(event_df, user_df, item_df, test_end-test_start)
+    D = create_dataset(event_df, user_df, item_df, test_end-test_start)
     D.print_stats()
-    V = Dataset(event_df, valid_df, item_df, test_start-valid_start)
+    V = create_dataset(event_df, valid_df, item_df, test_start-valid_start)
     return (D, V)

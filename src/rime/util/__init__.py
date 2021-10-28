@@ -148,6 +148,7 @@ def groupby_collect(series):
     last_i = None
     for i in series.index.values:
         if last_i is not None and last_i>i:
+            warnings.warn("unsorted input to groupby_collect may be inefficient")
             series = series.sort_index(kind='mergesort')
             break
         last_i = i
@@ -162,6 +163,7 @@ def groupby_collect(series):
 
 
 def create_matrix(event_df, user_index, item_index, return_type):
+    """ create matrix and prune unknown indices """
     user2ind = {k:i for i,k in enumerate(user_index)}
     item2ind = {k:i for i,k in enumerate(item_index)}
     event_df = event_df[
