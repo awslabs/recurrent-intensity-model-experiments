@@ -45,18 +45,35 @@ self.results.print_results()
 ```
 
 Here is what `Experiment.run` basically does:
+
+**Step 1. Predictions.**
+
+Let `x` be a user-time state and `y` be a unique item. Traditional top-k item-recommendation aims to predict `p(y|x)` for the next item given the user-state. However, we introduce symmetry via user-recommendation that allows for the comparisons across `x`. To this end, we novelly redefine the problem as the prediction of user-item engagement *intensities* in a unit time window in the immediate future, `λ(x,y)`, and utilize a marked temporal point process (MTPP) decomposition as `λ(x,y) = λ(x) p(y|x)`. Here is the code to do that:
 ```
 rnn = rime.models.rnn.RNN(**self.model_hyps["RNN"]).fit(D.training_data)
 hawkes = rime.models.hawkes.Hawkes(D.horizon).fit(D.training_data)
-S = rnn.transform(D) * hawkes.transform(D)  # output shape (D.user_in_test, D.item_in_test)
-self.metrics_update("RNN-Hawkes", S)
+S = rnn.transform(D) * hawkes.transform(D)
+```
+S is a low-rank dataframe-like object with shape `(len(D.user_in_test), len(D.item_in_test))`.
+
+**Step 2. Offline decisions.**
+
+Ranking of the users (or items) and then comparing with the ground-truth targets can be laborsome. Instead, we utilize the `scipy.sparse` library to easily calculate the recommendation `hit` rates through point-wise multiplication. The sparsity property allows the evaluations to scale to large numbers of user/item pairs.
+```
+assigned_csr = rime.util._assign_topk(score_mat.T, C, device='cuda').T
+metrics = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), assigned_csr, …)
 ```
 
-CVX-Online does not allow leakage of `D.user_in_test`. Instead, it is calibrated by `V.user_in_test`:
+**Step 3. Online generalization.**
+
+RIME contains an optional configuration *"CVX-Online"*, which simulates a scenario where we may not observe the full set of users ahead of time, but must make real-time decisions immediately and unregretfully as each user arrives one at a time.
+This scenario is useful in the case of multi-day marketing campaigns with budgets allocated for the long-term prospects.
+Our basic idea is to approximate a quantile threshold `v(y)` per item-y from an observable user sample and then generalize it to the testing set.
+We pick the user sample from a "validation" data split `V`.
+The item_in_test set must align between D and V because cvx also considers the competitions for limited user capacities from different items.
 ```
-T = rnn.transform(V) * hawkes.transform(V)
-T = T.reindex(D.item_in_test.index, axis=1, fill_value=0)
-                                            # output shape (V.user_in_test, D.item_in_test)
+V = V.reindex(D.item_in_test.index, axis=1) # align on the item_in_test set to generalize
+T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the predicted scores.
 cvx_online = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
 online_assignments = cvx_online.fit(T.values).transform(S.values)
 out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, ...)
@@ -65,7 +82,7 @@ out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments,
 CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
 when `self.online=True` and `T is not None`.
 
-Auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
+Finally, auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
 To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py).
 The main functions are tested in [test](test).
 
