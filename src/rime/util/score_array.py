@@ -137,10 +137,10 @@ class LazyScoreExpression:
 
     @classmethod
     def collate_fn(cls, batch):
-        self = batch[0]
-        op = self.op
+        first = batch[0]
+        op = first.op
         data = zip(*[b.children for b in batch])
-        children = [_auto_collate(c, D) for c, D in zip(self.children, data)]
+        children = [_auto_collate(c, D) for c, D in zip(first.children, data)]
         return cls(op, children)
 
 
