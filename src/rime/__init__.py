@@ -215,9 +215,16 @@ class Experiment:
         for model in self.models_to_run:
             print("running", model)
             S = self.transform(model, self.D)
+
+            if self.D.mask_df is not None:
+                S = S + self.D.mask_df
+
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
                 T = self.transform(model, V)
+
+                if self.V.mask_df is not None:
+                    T = T + self.V.mask_df
             else:
                 T = None
             self.metrics_update(model, S, T)

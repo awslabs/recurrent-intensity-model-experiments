@@ -3,7 +3,7 @@ import torch, itertools, os, warnings
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from ..util import empty_cache_on_exit, _LitValidated, get_batch_size
+from ..util import empty_cache_on_exit, _LitValidated, get_batch_size, score_op
 from ..util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
 
 
@@ -16,10 +16,10 @@ class CVX:
         alpha = topk / n_items
         beta = C / n_users
 
-        if hasattr(score_mat, "gpu_max"):
-            assert not score_mat.has_nan(), "score matrix has nan"
-            self.score_max = float(score_mat.gpu_max(device=device))
-            self.score_min = float(score_mat.gpu_min(device=device))
+        if hasattr(score_mat, "collate_fn"):
+            # assert not score_mat.has_nan(), "score matrix has nan"
+            self.score_max = float(score_op(score_mat, "max", device))
+            self.score_min = float(score_op(score_mat, "min", device))
         else:
             self.score_max = float(score_mat.max())
             self.score_min = float(score_mat.min())

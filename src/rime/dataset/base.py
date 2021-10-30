@@ -106,6 +106,7 @@ class Dataset:
     item_in_test: "DataFrame(index=ITEM_ID)"
     training_data: TrainingData
     horizon: float = float("inf")
+    mask_df: "DataFrame(index=USER_ID, column=ITEM_ID)" = None
 
     def __post_init__(self):
         assert (self.target_df.index == self.user_in_test.index).all(), \
@@ -164,7 +165,7 @@ class Dataset:
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
-    min_user_len=1, min_item_len=1):
+    min_user_len=1, min_item_len=1, exclude_train=False):
     """ Create a labeled dataset from 3 related tables.
 
     :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
@@ -198,6 +199,19 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         event_df[event_df['_holdout']==0].copy(),
         user_df, item_df
     )
-    D = Dataset(target_df, user_in_test, item_in_test, training_data, horizon)
+
+    if exclude_train:
+        print("optionally excluding training data from predictions and targets")
+        mask_df = create_matrix(
+            event_df[event_df['_holdout']==0].copy(),
+            user_df.index, item_df.index, "df"
+        ).reindex(user_in_test.index, fill_value=0) \
+        .reindex(item_in_test.index, axis=1, fill_value=0) * -1e100
+
+        target_df = (target_df + mask_df).clip(0, None)
+    else:
+        mask_df = None
+
+    D = Dataset(target_df, user_in_test, item_in_test, training_data, horizon, mask_df)
     print("Dataset created!")
     return D
