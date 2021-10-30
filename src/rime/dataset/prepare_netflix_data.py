@@ -12,7 +12,7 @@ def prepare_netflix_data(
     test_end = datetime(2005,6,29).timestamp(),
     user_mod = 10,
     item_mod = 1,
-    exclude_train = False,
+    mask_train_offset = 0,
     ):
     event_df = pd.read_parquet(data_path)
     print(event_df.head())
@@ -29,8 +29,8 @@ def prepare_netflix_data(
     user_df, valid_df = split_by_time(user_df, test_start, valid_start)
 
     D = create_dataset(event_df, user_df, item_df, test_end-test_start,
-        exclude_train=exclude_train)
+        mask_train_offset=mask_train_offset)
     D.print_stats()
     V = create_dataset(event_df, valid_df, item_df, test_start-valid_start,
-        exclude_train=exclude_train)
+        mask_train_offset=mask_train_offset)
     return (D, V)

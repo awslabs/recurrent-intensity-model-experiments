@@ -16,6 +16,7 @@ def get_batch_size(shape, frac=0.1):
     return int(np.ceil(n_users / n_batches))
 
 def df_to_coo(df):
+    """ fix pandas bug: https://github.com/pandas-dev/pandas/issues/25270 """
     try:
         return df.sparse.to_coo()
     except KeyError:
@@ -26,13 +27,14 @@ def df_to_coo(df):
         return df.sparse.to_coo()
 
 def sps_to_torch(x, device):
+    """ convert scipy.sparse to torch.sparse """
     coo = x.tocoo()
     values = coo.data
     indices = np.vstack((coo.row, coo.col))
     return torch.sparse_coo_tensor(indices, values, coo.shape, device=device)
 
 def _auto_eval(c, device):
-    if isinstance(c, ScoreExpression):
+    if isinstance(c, LazyScoreExpression):
         return c.eval(device)
     elif np.isscalar(c):
         return c
@@ -44,7 +46,7 @@ def _auto_eval(c, device):
         raise NotImplementedError(str(c))
 
 def _auto_values(c):
-    if isinstance(c, ScoreExpression):
+    if isinstance(c, LazyScoreExpression):
         return c.values
     elif np.isscalar(c) or sps.issparse(c):
         return c
@@ -54,7 +56,7 @@ def _auto_values(c):
         raise NotImplementedError(str(c))
 
 def _auto_getitem(c, key):
-    if isinstance(c, ScoreExpression) or sps.issparse(c):
+    if isinstance(c, LazyScoreExpression) or sps.issparse(c):
         return c[key]
     elif np.isscalar(c):
         return c
@@ -65,7 +67,7 @@ def _auto_getitem(c, key):
         raise NotImplementedError(str(c))
 
 def _auto_collate(c, D):
-    if isinstance(c, ScoreExpression):
+    if isinstance(c, LazyScoreExpression):
         return c.collate_fn(D)
     elif np.isscalar(c):
         return D[0]
@@ -78,10 +80,9 @@ def _auto_collate(c, D):
         raise NotImplementedError(str(c))
 
 
-class ScoreExpression:
-    """ Lazy evaluation for sparse and low-rank DataFrame by mini-batches.
-    The base class also serves as tree root node after "+" and "*" operations;
-    and interfaces with scalars and DataFrames during eval, slicing, and collate_fn.
+class LazyScoreExpression:
+    """ Base class is automatically created after a binary operation between its derived
+    subclass and a compatible matrix / scalar.
     """
     def __init__(self, op, children):
         self.op = op
@@ -111,20 +112,16 @@ class ScoreExpression:
         return get_batch_size(self.shape)
 
     def _check_index_columns(self, other):
-        if self.index is not None and hasattr(other, 'index'):
-            assert (self.index == other.index).all(), \
-                "please reindex index before binary operations"
-        if self.columns is not None and hasattr(other, 'columns'):
-            assert (self.columns == other.columns).all(), \
-                "please reindex columns before binary operations"
+        if not np.isscalar(other):
+            assert np.allclose(self.shape, other.shape), "shape must be compatible"
 
     def __add__(self, other):
         self._check_index_columns(other)
-        return ScoreExpression(operator.add, [self, other])
+        return LazyScoreExpression(operator.add, [self, other])
 
     def __mul__(self, other):
         self._check_index_columns(other)
-        return ScoreExpression(operator.mul, [self, other])
+        return LazyScoreExpression(operator.mul, [self, other])
 
     @property
     def T(self):
@@ -148,7 +145,7 @@ class ScoreExpression:
 
 
 @dataclasses.dataclass(repr=False)
-class LowRankDataFrame(ScoreExpression):
+class LowRankDataFrame(LazyScoreExpression):
     """ mimics a pandas dataframe with exponentiated low-rank structures
     """
     ind_logits: List[list]

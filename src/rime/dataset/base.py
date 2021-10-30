@@ -168,7 +168,7 @@ class Dataset:
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
-    min_user_len=1, min_item_len=1, exclude_train=False):
+    min_user_len=1, min_item_len=1, mask_train_offset=0):
     """ Create a labeled dataset from 3 related tables.
 
     :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
@@ -203,15 +203,14 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         user_df, item_df
     )
 
-    if exclude_train:
-        print("optionally excluding training data from predictions and targets")
+    if mask_train_offset:
+        print("optionally mask predictions on training user-item pairs "
+             f"with offset {mask_train_offset}; leave target_df untouched.")
         mask_df = create_matrix(
             event_df[event_df['_holdout']==0].copy(),
             user_df.index, item_df.index, "df"
         ).reindex(user_in_test.index, fill_value=0) \
-        .reindex(item_in_test.index, axis=1, fill_value=0) * -1e100
-
-        target_df = (target_df + mask_df).clip(0, None)
+        .reindex(item_in_test.index, axis=1, fill_value=0) * mask_train_offset
     else:
         mask_df = None
 
