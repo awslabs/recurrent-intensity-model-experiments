@@ -31,7 +31,7 @@ def sps_to_torch(x, device):
     indices = np.vstack((coo.row, coo.col))
     return torch.sparse_coo_tensor(indices, values, coo.shape, device=device)
 
-def auto_eval(c, device):
+def _auto_eval(c, device):
     if isinstance(c, ScoreExpression):
         return c.eval(device)
     elif np.isscalar(c):
@@ -39,11 +39,11 @@ def auto_eval(c, device):
     elif sps.issparse(c):
         return c.toarray() if device is None else sps_to_torch(c, device).to_dense()
     elif isinstance(c, pd.DataFrame):
-        return auto_eval(df_to_coo(c))
+        return _auto_eval(df_to_coo(c))
     else:
         raise NotImplementedError(str(c))
 
-def auto_values(c):
+def _auto_values(c):
     if isinstance(c, ScoreExpression):
         return c.values
     elif np.isscalar(c) or sps.issparse(c):
@@ -53,7 +53,7 @@ def auto_values(c):
     else:
         raise NotImplementedError(str(c))
 
-def auto_getitem(c, key):
+def _auto_getitem(c, key):
     if isinstance(c, ScoreExpression) or sps.issparse(c):
         return c[key]
     elif np.isscalar(c):
@@ -64,7 +64,7 @@ def auto_getitem(c, key):
     else:
         raise NotImplementedError(str(c))
 
-def auto_collate(c, D):
+def _auto_collate(c, D):
     if isinstance(c, ScoreExpression):
         return c.collate_fn(D)
     elif np.isscalar(c):
@@ -91,12 +91,12 @@ class ScoreExpression:
         self.shape = children[0].shape
 
     def eval(self, device=None):
-        children = [auto_eval(c, device) for c in self.children]
+        children = [_auto_eval(c, device) for c in self.children]
         return self.op(*children)
 
     @property
     def values(self):
-        children = [auto_values(c) for c in self.children]
+        children = [_auto_values(c) for c in self.children]
         return self.__class__(self.op, children)
 
     def __len__(self):
@@ -135,7 +135,7 @@ class ScoreExpression:
         """ used in pytorch dataloader. ignores index / columns """
         if np.isscalar(key):
             key = [key]
-        children = [auto_getitem(c, key) for c in self.children]
+        children = [_auto_getitem(c, key) for c in self.children]
         return self.__class__(self.op, children)
 
     @classmethod
@@ -143,7 +143,7 @@ class ScoreExpression:
         self = batch[0]
         op = self.op
         data = zip(*[b.children for b in batch])
-        children = [auto_collate(c, D) for c, D in zip(self.children, data)]
+        children = [_auto_collate(c, D) for c, D in zip(self.children, data)]
         return cls(op, children)
 
 
@@ -231,6 +231,7 @@ class LowRankDataFrame(ScoreExpression):
 
 
 def score_op(S, op, device=None):
+    """ aggregation operations (e.g., max, min) across entire matrix """
     out = None
     for batch in DataLoader(S, S.batch_size, collate_fn=S.collate_fn):
         val = batch.eval(device)

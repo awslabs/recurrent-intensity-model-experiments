@@ -81,7 +81,7 @@ def _augment_item_hist(item_df, event_df):
 
 @dataclasses.dataclass(eq=False)
 class TrainingData:
-    """ a dataset with observed events and optional user histories and timestamps
+    """ a training set with observed events and optional user histories and timestamps
     for self-supervised training
     """
     event_df: pd.DataFrame
@@ -101,12 +101,15 @@ class TrainingData:
 
 @dataclasses.dataclass(eq=False)
 class Dataset:
-    target_df: "DataFrame(index=USER_ID, column=ITEM_ID)"
-    user_in_test: "DataFrame(index=USER_ID)"
-    item_in_test: "DataFrame(index=ITEM_ID)"
+    """ a dataset with target_df from test users and items, reference to training data,
+    optional horizon and mask for evaluation purposes.
+    """
+    target_df: pd.DataFrame         # index=USER_ID, column=ITEM_ID
+    user_in_test: pd.DataFrame      # index=USER_ID
+    item_in_test: pd.DataFrame      # index=ITEM_ID
     training_data: TrainingData
     horizon: float = float("inf")
-    mask_df: "DataFrame(index=USER_ID, column=ITEM_ID)" = None
+    mask_df: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
 
     def __post_init__(self):
         assert (self.target_df.index == self.user_in_test.index).all(), \
