@@ -34,21 +34,22 @@ def sps_to_torch(x, device):
     return torch.sparse_coo_tensor(indices, values, coo.shape, device=device)
 
 def _auto_eval(c, device):
+    """ support LazyScoreExpression, scalar, scipy.sparse """
+    assert not isinstance(c, pd.DataFrame), "please call values property first"
     if isinstance(c, LazyScoreExpression):
         return c.eval(device)
     elif np.isscalar(c):
         return c
     elif sps.issparse(c):
         return c.toarray() if device is None else sps_to_torch(c, device).to_dense()
-    elif isinstance(c, pd.DataFrame):
-        return _auto_eval(df_to_coo(c))
     else:
         raise NotImplementedError(str(c))
 
 def _auto_values(c):
+    """ support LazyScoreExpression, scalar, pd.DataFrame """
     if isinstance(c, LazyScoreExpression):
         return c.values
-    elif np.isscalar(c) or sps.issparse(c):
+    elif np.isscalar(c):
         return c
     elif isinstance(c, pd.DataFrame):
         return df_to_coo(c).tocsr()
@@ -56,26 +57,22 @@ def _auto_values(c):
         raise NotImplementedError(str(c))
 
 def _auto_getitem(c, key):
-    if isinstance(c, LazyScoreExpression) or sps.issparse(c):
-        return c[key]
-    elif np.isscalar(c):
+    """ support LazyScoreExpression, scalar, scipy.sparse """
+    assert not isinstance(c, pd.DataFrame), "please call values property first"
+    if np.isscalar(c):
         return c
-    elif isinstance(c, pd.DataFrame):
-        warnings.warn("dataframe getitem is inefficient; plz call values property first.")
-        return c.iloc[key]
     else:
-        raise NotImplementedError(str(c))
+        return c[key]
 
 def _auto_collate(c, D):
+    """ support LazyScoreExpression, scalar, scipy.sparse """
+    assert not isinstance(c, pd.DataFrame), "please call values property first"
     if isinstance(c, LazyScoreExpression):
         return c.collate_fn(D)
     elif np.isscalar(c):
         return D[0]
     elif sps.issparse(c):
         return sps.vstack(D)
-    elif isinstance(c, pd.DataFrame):
-        warnings.warn('dataframe concat is inefficient; plz call values property first.')
-        return pd.concat(D)
     else:
         raise NotImplementedError(str(c))
 
@@ -122,6 +119,9 @@ class LazyScoreExpression:
     def __mul__(self, other):
         self._check_index_columns(other)
         return LazyScoreExpression(operator.mul, [self, other])
+
+    def clip(self, min, max):
+        return LazyScoreExpression(lambda x: x.clip(min, max), [self])
 
     @property
     def T(self):

@@ -4,7 +4,7 @@ from .base import create_dataset
 
 
 def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
-    seed=0, second_half_only=True, mask_train_offset=0):
+    seed=0, second_half_only=True, **kw):
 
     event_df = _load_sort_ml_1m_data(data_path, seed)
     if second_half_only:
@@ -19,11 +19,9 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
     print({"test_start_rel": test_start_rel, "horizon": horizon})
 
     train_df, valid_df = split_by_user(user_df, in_groupA, test_start_rel)
-    D = create_dataset(event_df, train_df, item_df, horizon,
-        mask_train_offset=mask_train_offset)
+    D = create_dataset(event_df, train_df, item_df, horizon, **kw)
     D.print_stats()
-    V = create_dataset(event_df, valid_df, item_df, horizon,
-        mask_train_offset=mask_train_offset)
+    V = create_dataset(event_df, valid_df, item_df, horizon, **kw)
     return D, V
 
 

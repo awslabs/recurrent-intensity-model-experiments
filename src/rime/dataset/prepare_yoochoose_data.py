@@ -8,8 +8,7 @@ def prepare_yoochoose_data(
     data_path = "data/yoochoose-data/yoochoose-combined.csv",
     seed=0, user_sample_frac=0.1, min_user_len=4, min_item_len=10,
     drop_duplicates=True,
-    mask_train_offset=0,
-    ):
+    **kw):
     event_df = pd.read_csv(data_path).sort_values('TIMESTAMP', kind="mergesort")
     if drop_duplicates:
         event_df = event_df.drop_duplicates(['USER_ID', 'ITEM_ID'])
@@ -26,12 +25,10 @@ def prepare_yoochoose_data(
 
     train_df, valid_df = split_by_user(user_df, in_groupA, test_start_rel)
     D = create_dataset(event_df, train_df, item_df, horizon,
-        min_user_len=min_user_len, min_item_len=min_item_len,
-        mask_train_offset=mask_train_offset)
+        min_user_len=min_user_len, min_item_len=min_item_len, **kw)
     D.print_stats()
     V = create_dataset(event_df, valid_df, item_df, horizon,
-        min_user_len=min_user_len, min_item_len=min_item_len,
-        mask_train_offset=mask_train_offset)
+        min_user_len=min_user_len, min_item_len=min_item_len, **kw)
     return (D, V)
 
 

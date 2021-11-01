@@ -27,8 +27,8 @@ def test_synthetic_cvx_online(online):
     do_synthetic_common("split_by_user", cvx=True, online=online, max_epochs=2)
 
 
-def test_synthetic_mask_train_offset():
-    do_synthetic_common("split_by_user", -1e20)
+def test_synthetic_exclude_train():
+    do_synthetic_common("split_by_user", True)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="skip in auto-tests")

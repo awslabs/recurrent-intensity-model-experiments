@@ -1,11 +1,11 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, warnings, dataclasses
 from ..util import create_matrix, cached_property, perplexity, \
-                   timed, groupby_collect, df_to_coo
+                   timed, groupby_collect, df_to_coo, get_batch_size
 
 
 def _check_index(event_df, user_df, item_df):
-    assert not user_df.index.has_duplicates, "assume one test window per user for simplicity"
+    assert not user_df.index.has_duplicates, "simplify to one test window per user"
     assert not item_df.index.has_duplicates, "assume one entry per item"
     assert event_df['USER_ID'].isin(user_df.index).all(), \
                                 "user_df must include all users in event_df"
@@ -109,13 +109,17 @@ class Dataset:
     item_in_test: pd.DataFrame      # index=ITEM_ID
     training_data: TrainingData
     horizon: float = float("inf")
-    mask_df: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
+    prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
+    _fill_prior_value: float = 0
 
     def __post_init__(self):
         assert (self.target_df.index == self.user_in_test.index).all(), \
-                        "user index mismatch with target index"
+                        "target index must match with user index"
         assert (self.target_df.columns == self.item_in_test.index).all(), \
-                        "item index mismatch with target columns"
+                        "target columns must match with item index"
+        if self.prior_score is not None:
+            assert (self.prior_score.shape == self.target_df.shape), \
+                        "prior_score shape must match with test target_df"
 
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
@@ -160,20 +164,30 @@ class Dataset:
             user_in_test = self.user_in_test
             item_in_test = self.item_in_test.reindex(index, fill_value=0)
         else:
-            raise NotImplementedError("user reindexing requires nontrivial fill_value")
+            raise NotImplementedError("user reindexing is not used in cvx-online")
 
         target_df = self.target_df.reindex(index, axis=axis, fill_value=0)
+
+        prior_score = None if self.prior_score is None else \
+            self.prior_score.reindex(index, axis=axis, fill_value=_fill_prior_value)
+
         return self.__class__(target_df, user_in_test, item_in_test,
-            self.training_data, self.horizon)
+            self.training_data, self.horizon, prior_score, self._fill_prior_value)
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
-    min_user_len=1, min_item_len=1, mask_train_offset=0):
-    """ Create a labeled dataset from 3 related tables.
+    min_user_len=1, min_item_len=1, prior_score=None, exclude_train=False):
+    """ Create a labeled dataset from 3 related tables and additional configurations.
 
     :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
     :parameter user_df: [USER_ID (index), TEST_START_TIME]
     :parameter item_df: [ITEM_ID (index)]
+    :parameter horizon: extract test window from TIMESTAMP, TEST_START_TIME, and horizon
+    :parameter min_user_len: filter out test users with empty histories to avoid biases
+    :parameter min_item_len: filter out test items with empty histories to avoid biases
+    :parameter prior_score: add a prior score to boost/penalize certain user-item pairs
+        in prediction
+    :parameter exclude_train: exclude training events from predictions and targets
 
     Infer target labels from TEST_START_TIME (per user) and horizon.
     Filter test users/items by _hist_len.
@@ -203,17 +217,21 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         user_df, item_df
     )
 
-    if mask_train_offset:
-        print("optionally mask predictions on training user-item pairs "
-             f"with offset {mask_train_offset}; leave target_df untouched.")
-        mask_df = create_matrix(
-            event_df[event_df['_holdout']==0].copy(),
-            user_df.index, item_df.index, "df"
-        ).reindex(user_in_test.index, fill_value=0) \
-        .reindex(item_in_test.index, axis=1, fill_value=0) * mask_train_offset
-    else:
-        mask_df = None
+    if exclude_train:
+        print("optionally excluding training events in predictions and targets")
+        assert prior_score is None, "double configuration for prior score"
 
-    D = Dataset(target_df, user_in_test, item_in_test, training_data, horizon, mask_df)
+        exclude_df = create_matrix(
+            event_df[event_df['_holdout']==0].copy(),
+            user_in_test.index, item_in_test.index, "df"
+        ).astype(bool)
+        prior_score = exclude_df * float("-inf")    # sparse 0 * -inf = -inf
+
+        mask_csr = df_to_coo(target_df).astype(bool) > df_to_coo(exclude_df).astype(bool)
+        target_df = pd.DataFrame.sparse.from_spmatrix(
+            df_to_coo(target_df).multiply(mask_csr), target_df.index, target_df.columns)
+
+    D = Dataset(target_df, user_in_test, item_in_test, training_data,
+        horizon, prior_score)
     print("Dataset created!")
     return D

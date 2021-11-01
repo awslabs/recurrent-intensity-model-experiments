@@ -216,15 +216,15 @@ class Experiment:
             print("running", model)
             S = self.transform(model, self.D)
 
-            if self.D.mask_df is not None:
-                S = S + self.D.mask_df
+            if self.D.prior_score is not None:
+                S = (S + self.D.prior_score).clip(-1e10, None)
 
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
                 T = self.transform(model, V)
 
-                if self.V.mask_df is not None:
-                    T = T + self.V.mask_df
+                if self.V.prior_score is not None:
+                    T = (T + self.V.prior_score).clip(-1e10, None)
             else:
                 T = None
             self.metrics_update(model, S, T)
