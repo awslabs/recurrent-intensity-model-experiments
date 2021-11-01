@@ -1,7 +1,7 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, warnings, dataclasses
 from ..util import create_matrix, cached_property, perplexity, \
-                   timed, groupby_collect, df_to_coo, get_batch_size
+                   timed, groupby_collect, df_to_coo, pd_sparse_reindex, get_batch_size
 
 
 def _check_index(event_df, user_df, item_df):
@@ -110,7 +110,6 @@ class Dataset:
     training_data: TrainingData
     horizon: float = float("inf")
     prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
-    _fill_prior_value: float = 0
 
     def __post_init__(self):
         assert (self.target_df.index == self.user_in_test.index).all(), \
@@ -168,11 +167,13 @@ class Dataset:
 
         target_df = self.target_df.reindex(index, axis=axis, fill_value=0)
 
-        prior_score = None if self.prior_score is None else \
-            self.prior_score.reindex(index, axis=axis, fill_value=_fill_prior_value)
+        if self.prior_score is None:
+            prior_score = None
+        else:
+            prior_score = pd_sparse_reindex(self.prior_score, index, axis, fill_value=0)
 
         return self.__class__(target_df, user_in_test, item_in_test,
-            self.training_data, self.horizon, prior_score, self._fill_prior_value)
+            self.training_data, self.horizon, prior_score)
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
@@ -225,7 +226,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
             event_df[event_df['_holdout']==0].copy(),
             user_in_test.index, item_in_test.index, "df"
         ).astype(bool)
-        prior_score = exclude_df * float("-inf")    # sparse 0 * -inf = -inf
+        prior_score = exclude_df * -1e10    # clipped -inf to avoid nan
 
         mask_csr = df_to_coo(target_df).astype(bool) > df_to_coo(exclude_df).astype(bool)
         target_df = pd.DataFrame.sparse.from_spmatrix(

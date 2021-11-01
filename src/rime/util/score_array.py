@@ -20,11 +20,23 @@ def df_to_coo(df):
     try:
         return df.sparse.to_coo()
     except KeyError:
-        warnings.warn("pandas bug: https://github.com/pandas-dev/pandas/issues/25270")
         df = df.copy()
         df.index = list(range(len(df.index)))
         df.columns = list(range(len(df.columns)))
         return df.sparse.to_coo()
+
+def pd_sparse_reindex(df, index, axis, fill_value=0):
+    """ fix pandas bug: reindex silently drops sparsity when the index length > 36 """
+    if axis==1:
+        return pd_sparse_reindex(df.T, index, 0, fill_value).T.copy()
+    csr = df_to_coo(df).tocsr().copy()
+    csr.resize((csr.shape[0]+1, csr.shape[1]))
+    csr[-1, :] = fill_value
+    csr.eliminate_zeros()
+    new_ind = pd.Series(
+            np.arange(df.shape[0]), index=df.index
+            ).reindex(index, fill_value=-1).values
+    return pd.DataFrame.sparse.from_spmatrix(csr[new_ind], index, df.columns)
 
 def sps_to_torch(x, device):
     """ convert scipy.sparse to torch.sparse """
