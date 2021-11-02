@@ -18,6 +18,6 @@ setup(
         # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu -y
         "backports.cached-property",
     ],
-    use_scm_version=True,
+    use_scm_version={'write_to': 'src/rime/_version.py'},
     setup_requires=['setuptools_scm'],
 )
