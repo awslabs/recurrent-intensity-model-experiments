@@ -51,7 +51,9 @@ class RNN:
 
         batches = self.trainer.predict(self.model,
             dataloaders=DataLoader(dataset, 1000, collate_fn=collate_fn))
-        delattr(self.model, "predict_dataloader")
+
+        if hasattr(self.model, "predict_dataloader"): # pytorch-lightning < 1.5
+            delattr(self.model, "predict_dataloader")
 
         user_hidden, user_log_bias = [np.concatenate(x) for x in zip(*batches)]
         ind_logits = np.hstack([
@@ -85,8 +87,10 @@ class RNN:
             DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
         print("val_loss", self.model.val_loss)
 
-        delattr(self.model, 'train_dataloader')
-        delattr(self.model, 'val_dataloader')
+        if hasattr(self.model, 'train_dataloader'): # pytorch-lightning < 1.5
+            delattr(self.model, 'train_dataloader')
+        if hasattr(self.model, 'val_dataloader'): # pytorch-lightning < 1.5
+            delattr(self.model, 'val_dataloader')
         return self
 
 

@@ -18,3 +18,4 @@ dependencies:
   - implicit
   - dataclasses # backport from python3.7
   - backports.cached-property
+  - setuptools_scm
