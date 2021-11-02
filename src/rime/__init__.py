@@ -1,3 +1,10 @@
+from pkg_resources import get_distribution, DistributionNotFound
+try:
+    __version__ = get_distribution("recurrent-intensity-model-experiments").version
+    print(f"rime.__version__={__version__}")
+except DistributionNotFound:
+    pass
+
 try:
     import matplotlib.pyplot as plt
     plt.plot(); plt.show() # tick behaves weirdly with matplotlib
@@ -10,7 +17,6 @@ from rime.models import *
 from rime.metrics import *
 from rime import dataset
 from rime.util import _argsort, cached_property, df_to_coo
-
 
 @dataclasses.dataclass
 class ExperimentResult:

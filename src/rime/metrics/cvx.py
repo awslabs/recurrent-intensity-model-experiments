@@ -65,7 +65,8 @@ class CVX:
         trainer.fit(model,
             DataLoader(score_mat, model.batch_size, True, collate_fn=collate_fn),
             )
-        print('v', model.v.detach().cpu().numpy())
+        v = model.v.detach().cpu().numpy()
+        print('v', pd.Series(v.ravel()).describe().to_dict())
 
         self.model = _LitCVX(*self._model_args,
             v=model.v, epsilon=model.epsilon)

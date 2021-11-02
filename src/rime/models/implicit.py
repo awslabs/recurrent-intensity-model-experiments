@@ -4,7 +4,8 @@ try:
     from implicit.als import AlternatingLeastSquares
     from implicit.lmf import LogisticMatrixFactorization
 except ImportError:
-    warnings.warn("package `implicit` import error")
+    warnings.warn("package `implicit` import error; to install: "
+        "`conda install -c conda-forge implicit implicit-proc=*=gpu -y`")
 
 _to_numpy = lambda x: x.to_numpy() if hasattr(x, 'to_numpy') else x
 

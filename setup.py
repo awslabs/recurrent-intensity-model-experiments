@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="recurrent-intensity-model-experiments",
-    version="1.0",
+    version="1.0",    # will be overwritten by use_scm_version
     packages=find_packages(where="src", exclude=("test",)),
     package_dir={"": "src"},
 
@@ -18,4 +18,6 @@ setup(
         # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu -y
         "backports.cached-property",
     ],
+    use_scm_version=True,
+    setup_requires=['setuptools_scm'],
 )
