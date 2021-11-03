@@ -46,7 +46,7 @@ def sps_to_torch(x, device):
     return torch.sparse_coo_tensor(indices, values, coo.shape, device=device)
 
 def _auto_eval(c, device):
-    """ support LazyScoreExpression, scalar, scipy.sparse """
+    """ support LazyScoreExpression, scalar, scipy.sparse, 2d array """
     assert not isinstance(c, pd.DataFrame), "please call values property first"
     if isinstance(c, LazyScoreExpression):
         return c.eval(device)
@@ -54,6 +54,8 @@ def _auto_eval(c, device):
         return c
     elif sps.issparse(c):
         return c.toarray() if device is None else sps_to_torch(c, device).to_dense()
+    elif np.ndim(c) == 2:
+        return np.asarray(c) if device is None else torch.as_tensor(c, device=device)
     else:
         raise NotImplementedError(str(c))
 
@@ -64,12 +66,12 @@ def _auto_values(c):
     elif np.isscalar(c):
         return c
     elif isinstance(c, pd.DataFrame):
-        return df_to_coo(c).tocsr()
+        return df_to_coo(c).tocsr() if hasattr(c, 'sparse') else c.values
     else:
         raise NotImplementedError(str(c))
 
 def _auto_getitem(c, key):
-    """ support LazyScoreExpression, scalar, scipy.sparse """
+    """ support LazyScoreExpression, scalar, scipy.sparse, 2d array """
     assert not isinstance(c, pd.DataFrame), "please call values property first"
     if np.isscalar(c):
         return c
@@ -77,7 +79,7 @@ def _auto_getitem(c, key):
         return c[key]
 
 def _auto_collate(c, D):
-    """ support LazyScoreExpression, scalar, scipy.sparse """
+    """ support LazyScoreExpression, scalar, scipy.sparse, 2d array """
     assert not isinstance(c, pd.DataFrame), "please call values property first"
     if isinstance(c, LazyScoreExpression):
         return c.collate_fn(D)
@@ -85,6 +87,8 @@ def _auto_collate(c, D):
         return D[0]
     elif sps.issparse(c):
         return sps.vstack(D)
+    elif np.ndim(c) == 2:
+        return np.vstack(D)
     else:
         raise NotImplementedError(str(c))
 

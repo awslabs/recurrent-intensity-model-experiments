@@ -36,7 +36,7 @@ class Pop:
         user_scores = np.fmax(0.01, D.user_in_test['_hist_len']) \
             if self.user_rec else np.ones(len(D.user_in_test))
 
-        item_scores = self.item_scores.reindex(D.item_in_test.index, fill_value=0) \
+        item_scores = self.item_scores.reindex(D.item_in_test.index, fill_value=0.01) \
             if self.item_rec else np.ones(len(D.item_in_test))
 
         ind_logits = np.vstack([np.log(user_scores), np.ones(len(user_scores))]).T

@@ -129,16 +129,16 @@ class Dataset:
     def get_stats(self):
         return {
             'user_df': {
-                '# warm users': len(self.user_in_test),
-                '# all users': len(self.training_data.user_df),
+                '# test users': len(self.user_in_test),
+                '# train users': len(self.training_data.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': self.user_in_test['_hist_span'].mean(),
                 'horizon': self.horizon,
                 'avg target items': df_to_coo(self.target_df).sum(axis=1).mean(),
             },
             'item_df': {
-                '# warm items': len(self.item_in_test),
-                '# all items': len(self.training_data.item_df),
+                '# test items': len(self.item_in_test),
+                '# train items': len(self.training_data.item_df),
                 'avg hist len': self.item_in_test['_hist_len'].mean(),
                 'avg target users': df_to_coo(self.target_df).sum(axis=0).mean(),
             },

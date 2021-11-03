@@ -18,7 +18,7 @@ Repository to reproduce the experiments in the paper:
 
 ## Getting Started
 
-1. Download and install via `pip install -e .` If direct installation fails, some dependencies might be more easily installed by conda: `conda env update --file environment.yml --name target-env-to-update`
+1. Download and install via `pip install -e .` If direct installation fails, some dependencies might be more easily installed by conda: `conda env update --file environment.yml --name target-env-to-update` (Notice: the yml file may overwrite python version)
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run experiment as
     ```
