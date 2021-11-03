@@ -11,10 +11,11 @@ from rime.metrics import *
 from rime import dataset
 from rime.util import _argsort, cached_property, df_to_coo
 
+from pkg_resources import get_distribution, DistributionNotFound
 try:
-    from rime._version import __version__
-    print(f"rime.__version__={__version__}")
-except ImportError:
+    __version__ = get_distribution("recurrent-intensity-model-experiments").version
+    print("recurrent-intensity-model-experiments (rime)", __version__)
+except DistributionNotFound:
     warnings.warn("rime version configuration issues in setuptools_scm")
 
 @dataclasses.dataclass

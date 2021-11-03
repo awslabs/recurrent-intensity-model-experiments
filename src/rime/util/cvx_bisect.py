@@ -74,7 +74,7 @@ def _subgradient(alpha, pi):
 
 
 @torch.no_grad()
-def dual_solve_u(v, s, alpha, eps, verbose=False):
+def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
     """
     min_{u>=0} max_pi L(pi, u, v)
         = E_xy [ u(x)alpha(x) + v(y)beta(y) + Softplus(1/eps)(s-u-v) ],
@@ -106,10 +106,12 @@ def dual_solve_u(v, s, alpha, eps, verbose=False):
     assert (grad_u(u_min, v, s, alpha, eps) <= 0).all()
     assert (grad_u(u_max, v, s, alpha, eps) >= 0).all()
 
-    for i in range(50):
+    for i in range(n_iters):
         u = (u_min + u_max) / 2
         g = grad_u(u, v, s, alpha, eps)
         assert not u.isnan().any()
+        if g.abs().max() < gtol:
+            break
         u_min = torch.where(g<0, u, u_min)
         u_max = torch.where(g>0, u, u_max)
 

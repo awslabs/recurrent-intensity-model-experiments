@@ -28,7 +28,7 @@ class CVX:
         self.device = device
 
         self._model_args = (
-            n_users, n_items, alpha, beta, constraint_type,
+            n_users, n_items, alpha, beta, constraint_type, 0.1 / max(score_mat.shape),
             max_epochs, min_epsilon)
 
         tb_logger = loggers.TensorBoardLogger(
@@ -74,13 +74,14 @@ class CVX:
 
 
 class _LitCVX(LightningModule):
-    def __init__(self, n_users, n_items, alpha, beta, constraint_type,
+    def __init__(self, n_users, n_items, alpha, beta, constraint_type, gtol,
         max_epochs=100, min_epsilon=1e-10, v=None, epsilon=1):
 
         super().__init__()
         self.alpha = alpha
         self.beta = beta
         self.constraint_type = constraint_type
+        self.gtol = gtol
 
         self.batch_size = get_batch_size((n_users, n_items)) #, frac=0.05)
         n_batches = n_users / self.batch_size
@@ -119,7 +120,7 @@ class _LitCVX(LightningModule):
         if epsilon is None:
             epsilon = self.epsilon
 
-        u = dual_solve_u(v, batch, self.alpha, epsilon)
+        u = dual_solve_u(v, batch, self.alpha, epsilon, gtol=self.gtol)
         u = dual_clip(u, "ub")
         pi = primal_solution(u, v, batch, epsilon)
         return pi.cpu().numpy()
@@ -131,9 +132,9 @@ class _LitCVX(LightningModule):
         else:
             batch = torch.as_tensor(batch)
 
-        u = dual_solve_u(self.v.detach(), batch, self.alpha, self.epsilon)
+        u = dual_solve_u(self.v.detach(), batch, self.alpha, self.epsilon, gtol=self.gtol)
         u = dual_clip(u, "ub")
-        v = dual_solve_u(u, batch.T, self.beta, self.epsilon)
+        v = dual_solve_u(u, batch.T, self.beta, self.epsilon, gtol=self.gtol)
         v = dual_clip(v, self.constraint_type)
 
         loss = ((self.v - v)**2).mean() / 2
