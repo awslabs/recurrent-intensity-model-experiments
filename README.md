@@ -9,10 +9,10 @@ Repository to reproduce the experiments in the paper:
 
 ```
 @inproceedings{ma2021recurrent,
-	Author = {Ma, Yifei and Liu, Ge and Deoras, Anoop},
-	Booktitle = {ICML Time Series Workshop},
-	Title = {Recurrent Intensity Modeling for User Recommendation and Online Matching},
-	Year = {2021}
+    Author = {Ma, Yifei and Liu, Ge and Deoras, Anoop},
+    Booktitle = {ICML Time Series Workshop},
+    Title = {Recurrent Intensity Modeling for User Recommendation and Online Matching},
+    Year = {2021}
 }
 ```
 
@@ -117,8 +117,15 @@ CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
 when `self.online=True` and `T is not None`.
 
 More information may be found in auto-generated documentation at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
-To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py).
-The main functions are covered in unit-[test](test).
+To extend to other datasets, one may mock the Dataset class as
+```
+D = argparse.Namespace(
+    target_df=..., user_in_test=..., item_in_test=...,
+    training_data=argparse.Namespace(event_df=..., user_df=..., item_df=...),
+    ...)
+```
+See more examples in [prepare_synthetic_data](src/rime/dataset/__init__.py).
+The main functions are covered in [test](test).
 
 
 ## Security

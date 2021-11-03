@@ -1,5 +1,5 @@
 import pandas as pd, numpy as np, scipy as sp
-import functools, collections, warnings, dataclasses
+import functools, collections, warnings, dataclasses, argparse
 from ..util import create_matrix, cached_property, perplexity, \
                    timed, groupby_collect, df_to_coo, pd_sparse_reindex, get_batch_size
 
@@ -80,34 +80,21 @@ def _augment_item_hist(item_df, event_df):
 
 
 @dataclasses.dataclass(eq=False)
-class TrainingData:
-    """ a training set with observed events and optional user histories and timestamps
-    for self-supervised training
-    """
-    event_df: pd.DataFrame
-    user_df: pd.DataFrame
-    item_df: pd.DataFrame
-
-    def __post_init__(self):
-        _check_index(self.event_df, self.user_df, self.item_df)
-        if "_hist_items" not in self.user_df:
-            warnings.warn(f"{self} not applicable for sequence models.")
-        if "_timestamps" not in self.user_df:
-            warnings.warn(f"{self} not applicable for temporal models.")
-
-    def __hash__(self):
-        return id(self)
-
-
-@dataclasses.dataclass(eq=False)
 class Dataset:
     """ a dataset with target_df from test users and items, reference to training data,
     optional horizon and mask for evaluation purposes.
+    The class can be mocked as:
+    ```
+    D = argparse.Namespace(
+        target_df=..., user_in_test=..., item_in_test=...,
+        training_data=argparse.Namespace(event_df=..., user_df=..., item_df=...),
+        ...)
+    ```
     """
     target_df: pd.DataFrame         # index=USER_ID, column=ITEM_ID
     user_in_test: pd.DataFrame      # index=USER_ID
     item_in_test: pd.DataFrame      # index=ITEM_ID
-    training_data: TrainingData
+    training_data: argparse.Namespace # mock this class with the first four attributes
     horizon: float = float("inf")
     prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
 
@@ -214,9 +201,9 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         event_df[event_df['_holdout']==1].copy(),
         user_in_test.index, item_in_test.index, "df"
     )
-    training_data = TrainingData(
-        event_df[event_df['_holdout']==0].copy(),
-        user_df, item_df
+    training_data = argparse.Namespace(
+        event_df=event_df[event_df['_holdout']==0].copy(),
+        user_df=user_df, item_df=item_df
     )
 
     if exclude_train:
