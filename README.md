@@ -52,7 +52,7 @@ fig = plot_results(cvx_online)
 ```
 ![online-ml-1m](figure/online-ml-1m.png)
 
-Optional configuration that excludes training user-item pairs from reappearing in predictions and targets. For other types of filtering needs, please provide a different `prior_score` input to `Dataset` constructor following the source code of this example.
+Optional configuration that excludes training user-item pairs from reappearing in predictions and targets by a large penalization prior. For other types of filtering needs, please provide a different `prior_score` input to `Dataset` constructor following the source code of this example.
 ```
 D, V = prepare_ml_1m_data(exclude_train=True)
 self = Experiment(D, V)
@@ -60,6 +60,9 @@ self.run()
 self.print_results()
 ```
 
+With the `exclude-train` option, the performances of ALS, BPR, and LogisticMF improve significantly. (Plot generated from modified scripts/everything_ml_1m.py)
+
+![exclude-train-ml-1m](figure/exclude-train-ml-1m.png)
 
 ## Code Organization
 

@@ -171,8 +171,8 @@ def create_matrix(event_df, user_index, item_index, return_type):
     user2ind = {k:i for i,k in enumerate(user_index)}
     item2ind = {k:i for i,k in enumerate(item_index)}
     event_df = event_df[
-        event_df['USER_ID'].isin(user_index) &
-        event_df['ITEM_ID'].isin(item_index)
+        event_df['USER_ID'].isin(set(user_index)) &
+        event_df['ITEM_ID'].isin(set(item_index))
     ]
     data = np.ones(len(event_df))
     i = [user2ind[k] for k in event_df['USER_ID']]
