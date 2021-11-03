@@ -85,10 +85,12 @@ S is a low-rank dataframe-like object with shape `(len(D.user_in_test), len(D.it
 
 **Step 2. Offline decisions.**
 
-Ranking of the users (or items) and then comparing with the ground-truth targets can be laborsome. Instead, we utilize the `scipy.sparse` library to easily calculate the recommendation `hit` rates through point-wise multiplication. The sparsity property allows the evaluations to scale to large numbers of user-item pairs.
+Ranking of the items (or users) and then comparing with the ground-truth targets can be laborsome. Instead, we utilize the `scipy.sparse` library to easily calculate the recommendation `hit` rates through point-wise multiplication. The sparsity property allows the evaluations to scale to large numbers of user-item pairs.
 ```
-assigned_csr = rime.util._assign_topk(score_mat.T, C, device='cuda').T
-metrics = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), assigned_csr, …)
+item_rec_assignments = rime.util._assign_topk(score_mat, topk, device='cuda')
+item_rec_metrics = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), item_rec_assignments, axis=1)
+user_rec_assignments = rime.util._assign_topk(score_mat.T, C, device='cuda').T
+user_rec_metrics = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), user_rec_assignments, axis=0)
 ```
 
 **Step 3. Online generalization.**
@@ -103,7 +105,7 @@ V = V.reindex(D.item_in_test.index, axis=1) # align on the item_in_test to gener
 T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the predicted scores.
 cvx_online = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
 online_assignments = cvx_online.fit(T.values).transform(S.values)
-out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, ...)
+out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, axis=0)
 ```
 
 CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
