@@ -18,7 +18,9 @@ Repository to reproduce the experiments in the paper:
 
 ## Getting Started
 
-1. Download and install via `pip install -e .` If direct installation fails, some dependencies might be more easily installed by conda: `conda env update --file environment.yml --name target-env-to-update` (Notice: the yml file may overwrite python version)
+1. Download and install via `pip install -e .`
+    - If direct installation fails, some dependencies might be more easily installed by conda: `conda env update --file environment.yml --name target-env-to-update`
+    - Notice: conda env update may overwrite the current python version and it is recommended to manually fix that in the yml file.
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run experiment as
     ```
@@ -52,7 +54,7 @@ fig = plot_results(cvx_online)
 ```
 ![online-ml-1m](figure/online-ml-1m.png)
 
-Optional configuration that excludes training user-item pairs from reappearing in predictions and targets by a large penalization prior. For other types of filtering needs, please provide a different `prior_score` input to `Dataset` constructor following the source code of this example.
+Optional configuration that excludes training user-item pairs from reappearing in predictions and targets by a large penalization prior. For other types of block (or approval) lists, please provide a negative (or positive) `prior_score` input to `Dataset` constructor following the source code of this example.
 ```
 D, V = prepare_ml_1m_data(exclude_train=True)
 self = Experiment(D, V)
