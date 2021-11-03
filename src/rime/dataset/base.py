@@ -163,7 +163,8 @@ class Dataset:
             user_in_test = self.user_in_test
             item_in_test = self.item_in_test.reindex(index, fill_value=0)
         else:
-            raise NotImplementedError("user reindexing is not used in cvx-online")
+            raise NotImplementedError("user reindexing is not used in cvx-online; "
+                "also needs extra work to achieve fill_value=[]")
 
         target_df = self.target_df.reindex(index, axis=axis, fill_value=0)
 
