@@ -31,8 +31,8 @@ class HawkesPoisson:
             print(f"transform loss {loss(self.coeffs.x, X, Y, 0)}")
 
         return LowRankDataFrame(
-            np.log(intensity)[:, None], np.ones(len(D.item_df))[:, None],
-            index=H.index, columns=D.item_df.index, act='exp')
+            np.log(intensity)[:, None], np.ones(len(D.item_in_test))[:, None],
+            index=H.index, columns=D.item_in_test.index, act='exp')
 
 
 def loss(x, H, Y, alpha=1e-3):

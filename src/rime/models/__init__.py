@@ -16,10 +16,10 @@ from rime.util import LowRankDataFrame
 class Rand:
     def transform(self, D):
         """ return a constant of one """
-        shape = (len(D.user_in_test), len(D.item_df))
+        shape = (len(D.user_in_test), len(D.item_in_test))
         return LowRankDataFrame(
             np.zeros(shape[0])[:, None], np.zeros(shape[1])[:, None],
-            index=D.user_in_test.index, columns=D.item_df.index, act='exp')
+            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
 
 
 class Pop:
@@ -27,20 +27,24 @@ class Pop:
         self.user_rec = user_rec
         self.item_rec = item_rec
 
+    def fit(self, D):
+        self.item_scores = np.fmax(0.01, D.item_df['_hist_len'])
+        return self
+
     def transform(self, D):
         """ user_score * item_score = (user_log_bias + item_log_bias).exp() """
         user_scores = np.fmax(0.01, D.user_in_test['_hist_len']) \
             if self.user_rec else np.ones(len(D.user_in_test))
 
-        item_scores = np.fmax(0.01, D.item_df['_hist_len']) \
-            if self.item_rec else np.ones(len(D.item_df))
+        item_scores = self.item_scores.reindex(D.item_in_test.index, fill_value=0.01) \
+            if self.item_rec else np.ones(len(D.item_in_test))
 
         ind_logits = np.vstack([np.log(user_scores), np.ones(len(user_scores))]).T
         col_logits = np.vstack([np.ones(len(item_scores)), np.log(item_scores)]).T
 
         return LowRankDataFrame(
             ind_logits, col_logits,
-            index=D.user_in_test.index, columns=D.item_df.index, act='exp')
+            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
 
 
 class EMA:
@@ -52,5 +56,5 @@ class EMA:
         user_scores = list(map(fn, D.user_in_test['_timestamps'].values))
 
         return LowRankDataFrame(
-            np.log(user_scores)[:, None], np.ones(len(D.item_df))[:, None],
-            index=D.user_in_test.index, columns=D.item_df.index, act='exp')
+            np.log(user_scores)[:, None], np.ones(len(D.item_in_test))[:, None],
+            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')

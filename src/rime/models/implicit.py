@@ -4,7 +4,8 @@ try:
     from implicit.als import AlternatingLeastSquares
     from implicit.lmf import LogisticMatrixFactorization
 except ImportError:
-    warnings.warn("implicit import error")
+    warnings.warn("package `implicit` import error; to install: "
+        "`conda install -c conda-forge implicit implicit-proc=*=gpu -y`")
 
 _to_numpy = lambda x: x.to_numpy() if hasattr(x, 'to_numpy') else x
 
@@ -39,7 +40,9 @@ class ALS:
 
         return LowRankDataFrame(
             self.ind_logits, self.col_logits,
-            self.D.user_df.index, self.D.item_df.index, 'sigmoid')
+            self.D.user_df.index, self.D.item_df.index, 'sigmoid') \
+            .reindex(D.user_in_test.index, fill_value=0) \
+            .reindex(D.item_in_test.index, axis=1, fill_value=0)
 
 
 class LogisticMF:
@@ -71,4 +74,6 @@ class LogisticMF:
 
         return LowRankDataFrame(
             _to_numpy(ind_logits), _to_numpy(col_logits),
-            self.D.user_df.index, self.D.item_df.index, 'sigmoid')
+            self.D.user_df.index, self.D.item_df.index, 'sigmoid') \
+            .reindex(D.user_in_test.index, fill_value=0) \
+            .reindex(D.item_in_test.index, axis=1, fill_value=0)

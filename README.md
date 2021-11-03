@@ -18,21 +18,53 @@ Repository to reproduce the experiments in the paper:
 
 ## Getting Started
 
-1. Download and install via `pip install -e .` Additional conda dependencies may be found at [environment.yml](environment.yml)
+1. Download and install via `pip install -e .`
+    - If direct installation fails, some dependencies might be more easily installed by conda: `conda env update --file environment.yml --name target-env-to-update`
+    - Notice: conda env update may overwrite the current python version and it is recommended to manually fix that in the yml file.
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run experiment as
     ```
     from rime import main, plot_results
-    mult=[0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100]
-    self = main("prepare_ml_1m_data", mult=mult)
-    fig = plot_results(self)
+    self = main("prepare_ml_1m_data")
+    # print out item_rec and user_rec metrics for all included methods
     ```
-    ![greedy-ml-1m](figure/greedy-ml-1m.png)
-    ```
-    cvx_online = main("prepare_ml_1m_data", mult=mult, cvx=True, online=True)
-    fig = plot_results(cvx_online)
-    ```
-    ![online-ml-1m](figure/online-ml-1m.png)
+4. Run `pytest -s -x --pdb` for unit tests including the end-to-end workflow.
+
+## More Examples
+
+Some imports
+
+```
+from rime import main, plot_results, Experiment
+from rime.dataset import prepare_ml_1m_data
+```
+
+Perform Offline-Greedy optimization for diversity-relevance trade-offs
+```
+mult=[0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100]
+self = main("prepare_ml_1m_data", mult=mult)
+fig = plot_results(self)
+```
+![greedy-ml-1m](figure/greedy-ml-1m.png)
+
+Perform CVX-Online allocation for diversity-relevance trade-offs
+```
+cvx_online = main("prepare_ml_1m_data", mult=mult, cvx=True, online=True)
+fig = plot_results(cvx_online)
+```
+![online-ml-1m](figure/online-ml-1m.png)
+
+Optional configuration that excludes training user-item pairs from reappearing in predictions and targets by a large penalization prior. For other types of block (or approval) lists, please provide a negative (or positive) `prior_score` input to `Dataset` constructor following the source code of this example.
+```
+D, V = prepare_ml_1m_data(exclude_train=True)
+self = Experiment(D, V)
+self.run()
+self.print_results()
+```
+
+With the `exclude-train` option, the performances of ALS, BPR, and LogisticMF improve significantly. (Plot generated from modified scripts/everything_ml_1m.py)
+
+![exclude-train-ml-1m](figure/exclude-train-ml-1m.png)
 
 ## Code Organization
 
@@ -45,29 +77,48 @@ self.results.print_results()
 ```
 
 Here is what `Experiment.run` basically does:
+
+**Step 1. Predictions.**
+
+Let `x` be a user-time state and `y` be a unique item. Traditional top-k item-recommendation aims to predict `p(y|x)` for the next item given the current user-state. On the other hand, we introduce symmetry via user-recommendation that allows for the comparisons across `x`. To this end, we novelly redefine the problem as the prediction of user-item engagement *intensities* in a unit time window in the immediate future, `λ(x,y)`, and utilize a marked temporal point process (MTPP) decomposition as `λ(x,y) = λ(x) p(y|x)`. Here is the code to do that:
 ```
 rnn = rime.models.rnn.RNN(**self.model_hyps["RNN"]).fit(D.training_data)
 hawkes = rime.models.hawkes.Hawkes(D.horizon).fit(D.training_data)
-S = rnn.transform(D) * hawkes.transform(D)  # output shape (D.user_in_test, D.item_in_test)
-self.metrics_update("RNN-Hawkes", S)
+S = rnn.transform(D) * hawkes.transform(D)
+```
+S is a low-rank dataframe-like object with shape `(len(D.user_in_test), len(D.item_in_test))`.
+
+**Step 2. Offline decisions.**
+
+Ranking of the items (or users) and then comparing with the ground-truth targets can be laborsome. Instead, we utilize the `scipy.sparse` library to easily calculate the recommendation `hit` rates through point-wise multiplication. The sparsity property allows the evaluations to scale to large numbers of user-item pairs.
+```
+item_rec_assignments = rime.util._assign_topk(score_mat, topk, device='cuda')
+item_rec_metrics = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), item_rec_assignments, axis=1)
+user_rec_assignments = rime.util._assign_topk(score_mat.T, C, device='cuda').T
+user_rec_metrics = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), user_rec_assignments, axis=0)
 ```
 
-CVX-Online does not allow leakage of `D.user_in_test`. Instead, it is calibrated by `V.user_in_test`:
+**Step 3. Online generalization.**
+
+RIME contains an optional configuration *"CVX-Online"*, which simulates a scenario where we may not observe the full set of users ahead of time, but must make real-time decisions immediately and unregretfully as each user arrives one at a time.
+This scenario is useful in the case of multi-day marketing campaigns with budgets allocated for the long-term prospects.
+Our basic idea is to approximate a quantile threshold `v(y)` per item-y from an observable user sample and then generalize it to the testing set.
+We pick the user sample from a "validation" data split `V`.
+Additionally, we align the item_in_test between D and V, because cvx also considers the competitions for the limited user capacities from different items.
 ```
-T = rnn.transform(V) * hawkes.transform(V)
-T = T.reindex(D.item_in_test.index, axis=1, fill_value=0)
-                                            # output shape (V.user_in_test, D.item_in_test)
+V = V.reindex(D.item_in_test.index, axis=1) # align on the item_in_test to generalize
+T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the predicted scores.
 cvx_online = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
 online_assignments = cvx_online.fit(T.values).transform(S.values)
-out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, ...)
+out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, axis=0)
 ```
 
 CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
 when `self.online=True` and `T is not None`.
 
-Auto-generated documentation may be found at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
+More information may be found in auto-generated documentation at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
 To extend to other datasets, see example in [prepare_synthetic_data](src/rime/dataset/__init__.py).
-The main functions are tested in [test](test).
+The main functions are covered in unit-[test](test).
 
 
 ## Security

@@ -47,8 +47,8 @@ class Hawkes:
             if hasattr(D, '_is_synthetic_data') and D._is_synthetic_data:
                 _verify_estimated_intensity(self.model, X, user_intensities)
             return LowRankDataFrame(
-                np.log(user_intensities)[:, None], np.ones(len(D.item_df))[:, None],
-                index=D.user_in_test.index, columns=D.item_df.index, act='exp')
+                np.log(user_intensities)[:, None], np.ones(len(D.item_in_test))[:, None],
+                index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
 
 
 def _input_fn(raw_ts, horizon, training, training_eps, hetero):

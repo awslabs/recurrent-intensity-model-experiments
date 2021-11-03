@@ -1,5 +1,6 @@
 import numpy as np, pandas as pd, scipy as sp, warnings
 from scipy.sparse import issparse
+from torch.utils.data import DataLoader
 from ..util import perplexity, _assign_topk
 from .matching import assign_mtch
 from .cvx import CVX
@@ -7,6 +8,14 @@ from .cvx import CVX
 
 def _multiply(x, y):
     return x.multiply(y) if issparse(x) else y.multiply(x) if issparse(y) else x*y
+
+
+def _multiply_sum_by_batches(x, s):
+    bsz = s.batch_size
+    return np.sum([
+        _multiply(x[i*bsz : min((i+1)*bsz, x.shape[0])], batch.eval()).sum()
+        for i, batch in enumerate(DataLoader(s, bsz, collate_fn=s.collate_fn))
+        ])
 
 
 def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
@@ -24,11 +33,8 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
     }
 
     if score_mat is not None:
-        if hasattr(score_mat, "iter_batches"):
-            obj_sum = np.sum([
-                _multiply(assigned_csr[key], s.eval()).sum()
-                for key, s in score_mat.iter_batches()
-                ])
+        if hasattr(score_mat, "collate_fn"):
+            obj_sum = _multiply_sum_by_batches(assigned_csr, score_mat)
         else:
             obj_sum = _multiply(assigned_csr, score_mat).sum()
 

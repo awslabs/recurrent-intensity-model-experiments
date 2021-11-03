@@ -1,5 +1,6 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, time, contextlib, os, torch, gc, warnings
+from torch.utils.data import DataLoader
 from datetime import datetime
 from pytorch_lightning import LightningModule
 from backports.cached_property import cached_property
@@ -84,8 +85,11 @@ def perplexity(x):
 @empty_cache_on_exit
 def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
     indices = []
-    batches = S.iter_batches() if hasattr(S, "iter_batches") else [(None, S)]
-    for _, s in batches:
+    if hasattr(S, "collate_fn"):
+        batches = DataLoader(S, batch_size=S.batch_size, collate_fn=S.collate_fn)
+    else:
+        batches = [S]
+    for s in batches:
         if hasattr(s, "eval"):
             s = s.eval(device)
         else:
@@ -148,6 +152,7 @@ def groupby_collect(series):
     last_i = None
     for i in series.index.values:
         if last_i is not None and last_i>i:
+            warnings.warn("unsorted input to groupby_collect may be inefficient")
             series = series.sort_index(kind='mergesort')
             break
         last_i = i
@@ -162,11 +167,12 @@ def groupby_collect(series):
 
 
 def create_matrix(event_df, user_index, item_index, return_type):
+    """ create matrix and prune unknown indices """
     user2ind = {k:i for i,k in enumerate(user_index)}
     item2ind = {k:i for i,k in enumerate(item_index)}
     event_df = event_df[
-        event_df['USER_ID'].isin(user_index) &
-        event_df['ITEM_ID'].isin(item_index)
+        event_df['USER_ID'].isin(set(user_index)) &
+        event_df['ITEM_ID'].isin(set(item_index))
     ]
     data = np.ones(len(event_df))
     i = [user2ind[k] for k in event_df['USER_ID']]
@@ -177,17 +183,6 @@ def create_matrix(event_df, user_index, item_index, return_type):
         return csr
     elif return_type == 'df':
         return pd.DataFrame.sparse.from_spmatrix(csr, user_index, item_index)
-
-
-def df_to_coo(df):
-    try:
-        return df.sparse.to_coo()
-    except KeyError:
-        warnings.warn("pandas bug: https://github.com/pandas-dev/pandas/issues/25270")
-        df = df.copy()
-        df.index = list(range(len(df.index)))
-        df.columns = list(range(len(df.columns)))
-        return df.sparse.to_coo()
 
 
 def split_by_time(user_df, test_start, valid_start):

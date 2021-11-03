@@ -15,7 +15,7 @@ from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame
 class RNN:
     def __init__(self, item_df,
         num_hidden=128, nlayers=2, max_epochs=5, gpus=int(torch.cuda.is_available()),
-        truncated_input_steps=256, truncated_bptt_steps=32,
+        truncated_input_steps=256, truncated_bptt_steps=32, batch_size=64,
         load_from_checkpoint=None):
 
         self._padded_item_list = [None] + item_df.index.tolist()
@@ -36,6 +36,7 @@ class RNN:
         self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus,
             callbacks=[EarlyStopping(monitor='val_loss')])
         print("trainer log at:", self.trainer.logger.log_dir)
+        self.batch_size = batch_size
 
     @functools.lru_cache(2)
     @empty_cache_on_exit
@@ -65,7 +66,8 @@ class RNN:
 
         return LowRankDataFrame(
             ind_logits, col_logits, D.user_in_test.index,
-            self._padded_item_list, act='exp')
+            self._padded_item_list, act='exp'
+            ).reindex(D.item_in_test.index, axis=1, fill_value=0)
 
 
     @empty_cache_on_exit
@@ -79,8 +81,8 @@ class RNN:
 
         train_set, valid_set = random_split(dataset, [m*4//5, (m - m*4//5)])
         self.trainer.fit(self.model,
-            DataLoader(train_set, 64, collate_fn=collate_fn, shuffle=True),
-            DataLoader(valid_set, 64, collate_fn=collate_fn),)
+            DataLoader(train_set, self.batch_size, collate_fn=collate_fn, shuffle=True),
+            DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
         print("val_loss", self.model.val_loss)
 
         delattr(self.model, 'train_dataloader')

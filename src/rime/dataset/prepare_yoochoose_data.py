@@ -1,14 +1,14 @@
 import pandas as pd
 from datetime import datetime
 from ..util import extract_user_item, filter_min_len, split_by_user, sample_groupA
-from .base import Dataset
+from .base import create_dataset
 
 
 def prepare_yoochoose_data(
     data_path = "data/yoochoose-data/yoochoose-combined.csv",
     seed=0, user_sample_frac=0.1, min_user_len=4, min_item_len=10,
     drop_duplicates=True,
-    ):
+    **kw):
     event_df = pd.read_csv(data_path).sort_values('TIMESTAMP', kind="mergesort")
     if drop_duplicates:
         event_df = event_df.drop_duplicates(['USER_ID', 'ITEM_ID'])
@@ -24,11 +24,11 @@ def prepare_yoochoose_data(
     print({"test_start_rel": test_start_rel, "horizon": horizon})
 
     train_df, valid_df = split_by_user(user_df, in_groupA, test_start_rel)
-    D = Dataset(event_df, train_df, item_df, horizon,
-        min_user_len=min_user_len, min_item_len=min_item_len)
+    D = create_dataset(event_df, train_df, item_df, horizon,
+        min_user_len=min_user_len, min_item_len=min_item_len, **kw)
     D.print_stats()
-    V = Dataset(event_df, valid_df, item_df, horizon,
-        min_user_len=min_user_len, min_item_len=min_item_len)
+    V = create_dataset(event_df, valid_df, item_df, horizon,
+        min_user_len=min_user_len, min_item_len=min_item_len, **kw)
     return (D, V)
 
 
