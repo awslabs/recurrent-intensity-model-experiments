@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd
-import torch, dataclasses, functools, warnings, operator, builtins
+import torch, dataclasses, functools, warnings, operator, builtins, numbers
 from typing import Dict, List
 from torch.utils.data import DataLoader
 import scipy.sparse as sps
@@ -45,73 +45,79 @@ def sps_to_torch(x, device):
     indices = np.vstack((coo.row, coo.col))
     return torch.sparse_coo_tensor(indices, values, coo.shape, device=device)
 
-def _auto_eval(c, device):
-    """ support LazyScoreExpression, scalar, scipy.sparse, 2d array """
-    assert not isinstance(c, pd.DataFrame), "please call values property first"
-    if isinstance(c, LazyScoreExpression):
-        return c.eval(device)
-    elif np.isscalar(c):
-        return c
-    elif sps.issparse(c):
-        return c.toarray() if device is None else sps_to_torch(c, device).to_dense()
-    elif np.ndim(c) == 2:
-        return np.asarray(c) if device is None else torch.as_tensor(c, device=device)
-    else:
-        raise NotImplementedError(str(c))
 
-def _auto_values(c):
-    """ support LazyScoreExpression, scalar, pd.DataFrame """
-    if isinstance(c, LazyScoreExpression):
-        return c.values
-    elif np.isscalar(c):
-        return c
-    elif isinstance(c, pd.DataFrame):
-        return df_to_coo(c).tocsr() if hasattr(c, 'sparse') else c.values
-    else:
-        raise NotImplementedError(str(c))
-
-def _auto_getitem(c, key):
-    """ support LazyScoreExpression, scalar, scipy.sparse, 2d array """
-    assert not isinstance(c, pd.DataFrame), "please call values property first"
-    if np.isscalar(c):
-        return c
-    else:
-        return c[key]
-
-def _auto_collate(c, D):
-    """ support LazyScoreExpression, scalar, scipy.sparse, 2d array """
-    assert not isinstance(c, pd.DataFrame), "please call values property first"
-    if isinstance(c, LazyScoreExpression):
-        return c.collate_fn(D)
-    elif np.isscalar(c):
-        return D[0]
-    elif sps.issparse(c):
-        return sps.vstack(D)
-    elif np.ndim(c) == 2:
-        return np.vstack(D)
-    else:
-        raise NotImplementedError(str(c))
-
-
-class LazyScoreExpression:
-    """ Base class is automatically created after a binary operation between its derived
-    subclass and a compatible matrix / scalar.
+class LazyScoreBase:
+    """ Base class wraps over scalar, pandas, sparse, and dense.
+    Methods to overload include: eval, values, T, __getitem__, collate_fn.
+    Method reindex is only supported on a derived LowRankDataFrame subclass.
     """
-    def __init__(self, op, children):
-        self.op = op
-        self.children = children
-        self.index = children[0].index
-        self.columns = children[0].columns
-        self.shape = children[0].shape
 
-    def eval(self, device=None):
-        children = [_auto_eval(c, device) for c in self.children]
-        return self.op(*children)
+    def __init__(self, c):
+        self.c = c
+        self._type = 'scalar' if isinstance(c, numbers.Number) else \
+                     'pandas' if isinstance(c, pd.DataFrame) else \
+                     'sparse' if sps.issparse(c) else \
+                     'dense' if np.ndim(c) == 2 else \
+                     None
+        assert self._type is not None, f"type {type(c)} is not supported"
+        self.shape = c.shape if self._type != 'scalar' else None
+
+    # methods to overload
+
+    def eval(self, device):
+        """ LazyScoreBase -> scalar, numpy (device is None), or torch (device) """
+        if self._type == 'scalar':
+            return self.c
+        elif self._type == 'pandas':
+            return NotImplementedError("please call values property first")
+        elif self._type == 'sparse':
+            return self.c.toarray() if device is None else \
+                   sps_to_torch(self.c, device).to_dense()
+        elif self._type == 'dense':
+            return np.asarray(self.c) if device is None else \
+                   torch.as_tensor(self.c, device=device)
 
     @property
     def values(self):
-        children = [_auto_values(c) for c in self.children]
-        return self.__class__(self.op, children)
+        """ LazyScoreBase(pandas) -> LazyScoreBase(sparse or dense) """
+        if self._type == 'pandas':
+            values = df_to_coo(self.c).tocsr() if hasattr(self.c, 'sparse') else \
+                     self.c.values
+            return self.__class__(values)
+        else:
+            return self
+
+    @property
+    def T(self):
+        """ LazyScoreBase -> LazyScoreBase(transposed) """
+        cT = self.c if self._type == 'scalar' else self.c.T
+        return self.__class__(cT)
+
+    def __getitem__(self, key):
+        """ LazyScoreBase -> LazyScoreBase(sub-rows) """
+        if np.isscalar(key):
+            key = [key]
+
+        if self._type == 'scalar':
+            return self.__class__(self.c)
+        elif self._type == 'pandas':
+            raise NotImplementedError("please call values property first")
+        else:
+            return self.__class__(self.c[key])
+
+    def collate_fn(self, D):
+        """ List[LazyScoreBase] -> LazyScoreBase """
+        C = [d.c for d in D]
+        if self._type == 'scalar':
+            return self.__class__(C[0])
+        elif self._type == 'pandas':
+            return NotImplementedError("please call values property first")
+        elif self._type == 'sparse':
+            return self.__class__(sps.vstack(C))
+        elif self._type == 'dense':
+            return self.__class__(np.vstack(C))
+
+    # methods to inherit
 
     def __len__(self):
         return self.shape[0]
@@ -124,31 +130,48 @@ class LazyScoreExpression:
     def batch_size(self):
         return get_batch_size(self.shape)
 
-    def _check_index_columns(self, other):
-        if not np.isscalar(other):
+    def _wrap_and_check(self, other):
+        if not isinstance(other, LazyScoreBase):
+            other = LazyScoreBase(other)
+        if self.shape is not None and other.shape is not None:
             assert np.allclose(self.shape, other.shape), "shape must be compatible"
+        return other
 
     def __add__(self, other):
-        self._check_index_columns(other)
+        other = self._wrap_and_check(other)
         return LazyScoreExpression(operator.add, [self, other])
 
     def __mul__(self, other):
-        self._check_index_columns(other)
+        other = self._wrap_and_check(other)
         return LazyScoreExpression(operator.mul, [self, other])
 
-    def clip(self, min, max):
-        return LazyScoreExpression(lambda x: x.clip(min, max), [self])
+
+class LazyScoreExpression(LazyScoreBase):
+    """ Tree representation of score expression until final eval """
+    def __init__(self, op, children):
+        self.op = op
+        self.children = children
+        self.index = children[0].index
+        self.columns = children[0].columns
+        self.shape = children[0].shape
+
+    def eval(self, device=None):
+        children = [c.eval(device) for c in self.children]
+        return self.op(*children)
+
+    @property
+    def values(self):
+        children = [c.values for c in self.children]
+        return self.__class__(self.op, children)
 
     @property
     def T(self):
-        children = [c if np.isscalar(c) else c.T for c in self.children]
+        children = [c.T for c in self.children]
         return self.__class__(self.op, children)
 
     def __getitem__(self, key):
         """ used in pytorch dataloader. ignores index / columns """
-        if np.isscalar(key):
-            key = [key]
-        children = [_auto_getitem(c, key) for c in self.children]
+        children = [c[key] for c in self.children]
         return self.__class__(self.op, children)
 
     @classmethod
@@ -156,12 +179,12 @@ class LazyScoreExpression:
         first = batch[0]
         op = first.op
         data = zip(*[b.children for b in batch])
-        children = [_auto_collate(c, D) for c, D in zip(first.children, data)]
+        children = [c.collate_fn(D) for c, D in zip(first.children, data)]
         return cls(op, children)
 
 
 @dataclasses.dataclass(repr=False)
-class LowRankDataFrame(LazyScoreExpression):
+class LowRankDataFrame(LazyScoreBase):
     """ mimics a pandas dataframe with exponentiated low-rank structures
     """
     ind_logits: List[list]
@@ -193,6 +216,7 @@ class LowRankDataFrame(LazyScoreExpression):
                 return z.exp()
             elif self.act == 'sigmoid':
                 return z.sigmoid()
+
     @property
     def values(self):
         return self
@@ -225,6 +249,8 @@ class LowRankDataFrame(LazyScoreExpression):
             index.extend(elm.index)
 
         return cls(np.vstack(ind_logits), col_logits, index, columns, act)
+
+    # new method only for this class
 
     def reindex(self, index, axis=0, fill_value=float("nan")):
         if axis==1:
