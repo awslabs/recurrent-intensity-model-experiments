@@ -81,9 +81,10 @@ def _augment_item_hist(item_df, event_df):
 
 @dataclasses.dataclass(eq=False)
 class Dataset:
-    """ a dataset with target_df from test users and items, reference to training data,
+    """ A dataset with target_df from test users and items, reference to training data,
     optional horizon and mask for evaluation purposes.
     The class can be mocked as:
+
     ```
     D = argparse.Namespace(
         target_df=..., user_in_test=..., item_in_test=...,
