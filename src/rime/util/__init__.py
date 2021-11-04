@@ -84,6 +84,12 @@ def perplexity(x):
 
 @empty_cache_on_exit
 def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
+    """ Return a sparse matrix where each row contains k non-zero values.
+
+    Used for both ItemRec (if S is user-by-item) and UserRec (if S is transposed).
+    Expect the shape to align with (len(D.user_in_test), len(D.item_in_test))
+    or its transpose.
+    """
     indices = []
     if hasattr(S, "collate_fn"):
         batches = DataLoader(S, batch_size=S.batch_size, collate_fn=S.collate_fn)
@@ -105,6 +111,9 @@ def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
         np.ravel(indices),
         np.arange(0, indices.size+1, indices.shape[1]),
     ), shape=S.shape)
+
+
+assign_topk = _assign_topk
 
 
 @empty_cache_on_exit
@@ -166,7 +175,7 @@ def groupby_collect(series):
         index=series.index.values[np.hstack([[0], splits])])
 
 
-def create_matrix(event_df, user_index, item_index, return_type):
+def create_matrix(event_df, user_index, item_index, return_type='csr'):
     """ create matrix and prune unknown indices """
     user2ind = {k:i for i,k in enumerate(user_index)}
     item2ind = {k:i for i,k in enumerate(item_index)}

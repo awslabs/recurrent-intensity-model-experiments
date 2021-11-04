@@ -12,7 +12,7 @@ class HawkesPoisson:
         self.V = V
         H = self.hawkes_model.transform(V, state_only=True)
         X = np.vstack(H.values)
-        Y = V.target_df.sum(axis=1).reindex(H.index).values
+        Y = np.ravel(V.target_csr.sum(axis=1))
 
         self.coeffs = scipy.optimize.minimize(
             loss, np.zeros(X.shape[1]), (X, Y), options={"disp": True}
@@ -26,8 +26,8 @@ class HawkesPoisson:
         X = np.vstack(H.values)
         intensity = np.vstack(H.values) @ np.log(1 + np.exp(self.coeffs.x))
 
-        if hasattr(D, "target_df"):
-            Y = D.target_df.sum(axis=1).reindex(H.index).values
+        if hasattr(D, "target_csr"):
+            Y = np.ravel(D.target_csr.sum(axis=1))
             print(f"transform loss {loss(self.coeffs.x, X, Y, 0)}")
 
         return LowRankDataFrame(
