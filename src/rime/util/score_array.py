@@ -92,7 +92,8 @@ class LazyScoreBase:
     @property
     def T(self):
         """ LazyScoreBase -> LazyScoreBase(transposed) """
-        return self if self._type == 'scalar' else self.__class__(self.c.T)
+        cT = self.c if self._type == 'scalar' else self.c.T
+        return self.__class__(cT)
 
     def __getitem__(self, key):
         """ LazyScoreBase -> LazyScoreBase(sub-rows) """
@@ -100,7 +101,7 @@ class LazyScoreBase:
             key = [key]
 
         if self._type == 'scalar':
-            return self
+            return self.__class__(self.c)
         elif self._type == 'pandas':
             raise NotImplementedError("please call values property first")
         else:
@@ -152,6 +153,8 @@ class LazyScoreExpression(LazyScoreBase):
     def __init__(self, op, children):
         self.op = op
         self.children = children
+        for c in children:
+            assert isinstance(c, LazyScoreBase), f"please wrap {c} in LazyScoreBase"
         self.index = children[0].index
         self.columns = children[0].columns
         self.shape = children[0].shape
