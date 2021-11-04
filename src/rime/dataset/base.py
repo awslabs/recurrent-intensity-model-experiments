@@ -83,14 +83,12 @@ def _augment_item_hist(item_df, event_df):
 class Dataset:
     """ A dataset with target_df from test users and items, reference to training data,
     optional horizon and mask for evaluation purposes.
-    The class can be mocked as:
+    The class can be mocked as::
 
-    ```
-    D = argparse.Namespace(
-        target_df=..., user_in_test=..., item_in_test=...,
-        training_data=argparse.Namespace(event_df=..., user_df=..., item_df=...),
-        ...)
-    ```
+        D = argparse.Namespace(
+            target_df=..., user_in_test=..., item_in_test=...,
+            training_data=argparse.Namespace(event_df=..., user_df=..., item_df=...),
+            ...)
     """
     target_df: pd.DataFrame         # index=USER_ID, column=ITEM_ID
     user_in_test: pd.DataFrame      # index=USER_ID
@@ -106,6 +104,10 @@ class Dataset:
                         "target columns must match with item index"
         _check_index(self.training_data.event_df,
             self.training_data.user_df, self.training_data.item_df)
+        if "_hist_items" not in self.user_in_test:
+            warnings.warn(f"{self} not applicable for sequence models.")
+        if "_timestamps" not in self.user_in_test:
+            warnings.warn(f"{self} not applicable for temporal models.")
 
         if self.prior_score is not None:
             assert (self.prior_score.shape == self.target_df.shape), \

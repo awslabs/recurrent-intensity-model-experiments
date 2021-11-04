@@ -47,9 +47,11 @@ def sps_to_torch(x, device):
 
 
 class LazyScoreBase:
-    """ Base class wraps over scalar, pandas, sparse, and dense.
+    """ Lazy element-wise A*B+C for sparse and low-rank dataframes / matrices.
+
+    The base class wraps over scalar, pandas, sparse, and dense.
     Methods to overload include: eval, values, T, __getitem__, collate_fn.
-    Method reindex is only supported on a derived LowRankDataFrame subclass.
+    Method reindex is only supported on the derived LowRankDataFrame subclass.
     """
 
     def __init__(self, c):
@@ -90,8 +92,7 @@ class LazyScoreBase:
     @property
     def T(self):
         """ LazyScoreBase -> LazyScoreBase(transposed) """
-        cT = self.c if self._type == 'scalar' else self.c.T
-        return self.__class__(cT)
+        return self if self._type == 'scalar' else self.__class__(self.c.T)
 
     def __getitem__(self, key):
         """ LazyScoreBase -> LazyScoreBase(sub-rows) """
@@ -99,7 +100,7 @@ class LazyScoreBase:
             key = [key]
 
         if self._type == 'scalar':
-            return self.__class__(self.c)
+            return self
         elif self._type == 'pandas':
             raise NotImplementedError("please call values property first")
         else:

@@ -24,20 +24,13 @@ Repository to reproduce the experiments in the paper:
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run experiment as
     ```
-    from rime import main, plot_results
+    from rime import main, plot_results, Experiment, evaluate_assigned, df_to_coo
     self = main("prepare_ml_1m_data")
     # print out item_rec and user_rec metrics for all included methods
     ```
 4. Run `pytest -s -x --pdb` for unit tests including the end-to-end workflow.
 
 ## More Examples
-
-Some imports
-
-```
-from rime import main, plot_results, Experiment
-from rime.dataset import prepare_ml_1m_data
-```
 
 Perform Offline-Greedy optimization for diversity-relevance trade-offs
 ```
@@ -56,7 +49,7 @@ fig = plot_results(cvx_online)
 
 Optional configuration that excludes training user-item pairs from reappearing in predictions and targets by a large penalization prior. For other types of block (or approval) lists, please provide a negative (or positive) `prior_score` input to `Dataset` constructor following the source code of this example.
 ```
-D, V = prepare_ml_1m_data(exclude_train=True)
+D, V = rime.dataset.prepare_ml_1m_data(exclude_train=True)
 self = Experiment(D, V)
 self.run()
 self.print_results()
@@ -93,9 +86,9 @@ S is a low-rank dataframe-like object with shape `(len(D.user_in_test), len(D.it
 Ranking of the items (or users) and then comparing with the ground-truth targets can be laborsome. Instead, we utilize the `scipy.sparse` library to easily calculate the recommendation `hit` rates through point-wise multiplication. The sparsity property allows the evaluations to scale to large numbers of user-item pairs.
 ```
 item_rec_assignments = rime.util._assign_topk(score_mat, topk, device='cuda')
-item_rec_metrics = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), item_rec_assignments, axis=1)
+item_rec_metrics = evaluate_assigned(df_to_coo(D.target_df), item_rec_assignments, axis=1)
 user_rec_assignments = rime.util._assign_topk(score_mat.T, C, device='cuda').T
-user_rec_metrics = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), user_rec_assignments, axis=0)
+user_rec_metrics = evaluate_assigned(df_to_coo(D.target_df), user_rec_assignments, axis=0)
 ```
 
 **Step 3. Online generalization.**
@@ -110,7 +103,7 @@ V = V.reindex(D.item_in_test.index, axis=1) # align on the item_in_test to gener
 T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the predicted scores.
 cvx_online = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
 online_assignments = cvx_online.fit(T.values).transform(S.values)
-out = rime.metrics.evaluate_assigned(df_to_coo(D.target_df), online_assignments, axis=0)
+out = evaluate_assigned(df_to_coo(D.target_df), online_assignments, axis=0)
 ```
 
 CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
