@@ -91,7 +91,7 @@ user_rec_assignments = rime.util._assign_topk(score_mat.T, user_rec_C, device='c
 user_rec_metrics = evaluate_assigned(D.target_csr, user_rec_assignments, axis=0)
 ```
 
-**Step 3. Online generalization.**
+**Step 3. Online simulation.**
 
 RIME contains an optional configuration *"CVX-Online"*, which simulates a scenario where we may not observe the full set of users ahead of time, but must make real-time decisions immediately and unregretfully as each user arrives one at a time.
 This scenario is useful in the case of multi-day marketing campaigns with budgets allocated for the long-term prospects.

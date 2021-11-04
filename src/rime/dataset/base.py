@@ -202,7 +202,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     print("marking and cleaning test data")
     user_in_test = user_df[
         (user_df['_hist_len']>=min_user_len) &
-        (user_df['TEST_START_TIME']<float("inf")) # exclude Group-A users
+        (user_df['TEST_START_TIME']<float("inf")) # training-only users have inf start time
     ].copy()
     item_in_test = item_df[
         item_df['_hist_len']>=min_item_len
