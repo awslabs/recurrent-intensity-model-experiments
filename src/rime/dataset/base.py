@@ -103,6 +103,9 @@ class Dataset:
                         "target index must match with user index"
         assert (self.target_df.columns == self.item_in_test.index).all(), \
                         "target columns must match with item index"
+        _check_index(self.training_data.event_df,
+            self.training_data.user_df, self.training_data.item_df)
+
         if self.prior_score is not None:
             assert (self.prior_score.shape == self.target_df.shape), \
                         "prior_score shape must match with test target_df"
