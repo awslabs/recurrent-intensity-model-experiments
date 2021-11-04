@@ -166,7 +166,7 @@ def groupby_collect(series):
         index=series.index.values[np.hstack([[0], splits])])
 
 
-def create_matrix(event_df, user_index, item_index, return_type):
+def create_matrix(event_df, user_index, item_index, return_type='csr'):
     """ create matrix and prune unknown indices """
     user2ind = {k:i for i,k in enumerate(user_index)}
     item2ind = {k:i for i,k in enumerate(item_index)}

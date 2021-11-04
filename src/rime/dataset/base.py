@@ -1,7 +1,8 @@
 import pandas as pd, numpy as np, scipy as sp
+import scipy.sparse as sps
 import functools, collections, warnings, dataclasses, argparse
 from ..util import create_matrix, cached_property, perplexity, \
-                   timed, groupby_collect, df_to_coo, pd_sparse_reindex, get_batch_size
+                   timed, groupby_collect, matrix_reindex, get_batch_size
 
 
 def _check_index(event_df, user_df, item_df):
@@ -81,16 +82,16 @@ def _augment_item_hist(item_df, event_df):
 
 @dataclasses.dataclass(eq=False)
 class Dataset:
-    """ A dataset with target_df from test users and items, reference to training data,
+    """ A dataset with target_csr from test users and items, reference to training data,
     optional horizon and mask for evaluation purposes.
     The class can be mocked as::
 
         D = argparse.Namespace(
-            target_df=..., user_in_test=..., item_in_test=...,
+            target_csr=..., user_in_test=..., item_in_test=...,
             training_data=argparse.Namespace(event_df=..., user_df=..., item_df=...),
             ...)
     """
-    target_df: pd.DataFrame         # index=USER_ID, column=ITEM_ID
+    target_csr: sps.spmatrix        # index=USER_ID, column=ITEM_ID
     user_in_test: pd.DataFrame      # index=USER_ID
     item_in_test: pd.DataFrame      # index=ITEM_ID
     training_data: argparse.Namespace # mock this class with the first four attributes
@@ -98,20 +99,20 @@ class Dataset:
     prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
 
     def __post_init__(self):
-        assert (self.target_df.index == self.user_in_test.index).all(), \
-                        "target index must match with user index"
-        assert (self.target_df.columns == self.item_in_test.index).all(), \
-                        "target columns must match with item index"
-        _check_index(self.training_data.event_df,
-            self.training_data.user_df, self.training_data.item_df)
+        assert self.target_csr.shape == (len(self.user_in_test), len(self.item_in_test)), \
+            "target shape must match with test user/item lengths"
+
         if "_hist_items" not in self.user_in_test:
             warnings.warn(f"{self} not applicable for sequence models.")
         if "_timestamps" not in self.user_in_test:
             warnings.warn(f"{self} not applicable for temporal models.")
 
+        _check_index(self.training_data.event_df,
+            self.training_data.user_df, self.training_data.item_df)
+
         if self.prior_score is not None:
-            assert (self.prior_score.shape == self.target_df.shape), \
-                        "prior_score shape must match with test target_df"
+            assert (self.prior_score.shape == self.target_csr.shape), \
+                        "prior_score shape must match with test target_csr"
 
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
@@ -127,17 +128,17 @@ class Dataset:
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': self.user_in_test['_hist_span'].mean(),
                 'horizon': self.horizon,
-                'avg target items': df_to_coo(self.target_df).sum(axis=1).mean(),
+                'avg target items': self.target_csr.sum(axis=1).mean(),
             },
             'item_df': {
                 '# test items': len(self.item_in_test),
                 '# train items': len(self.training_data.item_df),
                 'avg hist len': self.item_in_test['_hist_len'].mean(),
-                'avg target users': df_to_coo(self.target_df).sum(axis=0).mean(),
+                'avg target users': self.target_csr.sum(axis=0).mean(),
             },
             'event_df': {
                 '# train events': len(self.training_data.event_df),
-                '# test events': df_to_coo(self.target_df).sum(),
+                '# test events': self.target_csr.sum(),
                 'default_user_rec_top_c': self.default_user_rec_top_c,
                 'default_item_rec_top_k': self.default_item_rec_top_k,
                 "user_ppl": perplexity(self.user_in_test['_hist_len']),
@@ -159,14 +160,17 @@ class Dataset:
             raise NotImplementedError("user reindexing is not used in cvx-online; "
                 "also needs extra work to achieve fill_value=[]")
 
-        target_df = self.target_df.reindex(index, axis=axis, fill_value=0)
+        old_index = self.user_in_test.index if axis==0 else self.item_in_test.index
+        target_csr = matrix_reindex(
+            self.target_csr, old_index, index, axis, fill_value=0)
 
         if self.prior_score is None:
             prior_score = None
         else:
-            prior_score = pd_sparse_reindex(self.prior_score, index, axis, fill_value=0)
+            prior_score = matrix_reindex(
+                self.prior_score, old_index, index, axis, fill_value=0)
 
-        return self.__class__(target_df, user_in_test, item_in_test,
+        return self.__class__(target_csr, user_in_test, item_in_test,
             self.training_data, self.horizon, prior_score)
 
 
@@ -203,9 +207,9 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     item_in_test = item_df[
         item_df['_hist_len']>=min_item_len
     ].copy()
-    target_df = create_matrix(
+    target_csr = create_matrix(
         event_df[event_df['_holdout']==1].copy(),
-        user_in_test.index, item_in_test.index, "df"
+        user_in_test.index, item_in_test.index
     )
     training_data = argparse.Namespace(
         event_df=event_df[event_df['_holdout']==0].copy(),
@@ -216,17 +220,17 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         print("optionally excluding training events in predictions and targets")
         assert prior_score is None, "double configuration for prior score"
 
-        exclude_df = create_matrix(
+        exclude_csr = create_matrix(
             event_df[event_df['_holdout']==0].copy(),
-            user_in_test.index, item_in_test.index, "df"
+            user_in_test.index, item_in_test.index
         ).astype(bool)
-        prior_score = exclude_df * -1e10    # clipped -inf to avoid nan
+        prior_score = exclude_csr * -1e10    # clip -inf to avoid nan
 
-        mask_csr = df_to_coo(target_df).astype(bool) > df_to_coo(exclude_df).astype(bool)
-        target_df = pd.DataFrame.sparse.from_spmatrix(
-            df_to_coo(target_df).multiply(mask_csr), target_df.index, target_df.columns)
+        mask_csr = target_csr.astype(bool) > exclude_csr.astype(bool)
+        target_csr = target_csr.multiply(mask_csr)
+        target_csr.eliminate_zeros()
 
-    D = Dataset(target_df, user_in_test, item_in_test, training_data,
+    D = Dataset(target_csr, user_in_test, item_in_test, training_data,
         horizon, prior_score)
     print("Dataset created!")
     return D

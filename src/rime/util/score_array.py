@@ -15,28 +15,24 @@ def get_batch_size(shape, frac=0.1):
     n_batches = int(n_users / max_batch_size) + 1
     return int(np.ceil(n_users / n_batches))
 
-def df_to_coo(df):
-    """ fix pandas bug: https://github.com/pandas-dev/pandas/issues/25270 """
-    try:
-        return df.sparse.to_coo()
-    except KeyError:
-        df = df.copy()
-        df.index = list(range(len(df.index)))
-        df.columns = list(range(len(df.columns)))
-        return df.sparse.to_coo()
 
-def pd_sparse_reindex(df, index, axis, fill_value=0):
-    """ fix pandas bug: reindex silently drops sparsity when the index length > 36 """
+def matrix_reindex(csr, old_index, new_index, axis, fill_value=0):
+    """ pandas.reindex functionality on sparse or dense matrices """
     if axis==1:
-        return pd_sparse_reindex(df.T, index, 0, fill_value).T.copy()
-    csr = df_to_coo(df).tocsr().copy()
-    csr.resize((csr.shape[0]+1, csr.shape[1]))
-    csr[-1, :] = fill_value
-    csr.eliminate_zeros()
-    new_ind = pd.Series(
-            np.arange(df.shape[0]), index=df.index
-            ).reindex(index, fill_value=-1).values
-    return pd.DataFrame.sparse.from_spmatrix(csr[new_ind], index, df.columns)
+        return matrix_reindex(csr.T, old_index, new_index, 0, fill_value).T.copy()
+    assert csr.shape[0] == len(old_index), "shape must match between csr and old_index"
+
+    if sps.issparse(csr):
+        csr = sps.vstack([csr, csr[:1] * 0 + fill_value], "csr")
+        csr.eliminate_zeros()
+    else:
+        csr = np.vstack([csr, csr[:1] * 0 + fill_value])
+
+    iloc = pd.Series(
+            np.arange(len(old_index)), index=old_index
+            ).reindex(new_index, fill_value=-1).values
+    return csr[iloc].copy()
+
 
 def sps_to_torch(x, device):
     """ convert scipy.sparse to torch.sparse """
@@ -47,21 +43,20 @@ def sps_to_torch(x, device):
 
 
 class LazyScoreBase:
-    """ Lazy element-wise A*B+C for sparse and low-rank dataframes / matrices.
+    """ Lazy element-wise A*B+C for sparse and low-rank matrices.
 
-    The base class wraps over scalar, pandas, sparse, and dense.
-    Methods to overload include: eval, values, T, __getitem__, collate_fn.
-    Method reindex is only supported on the derived LowRankDataFrame subclass.
+    The base class wraps over scalar, scipy.sparse, and numpy dense.
+    Methods to overload include: eval, T, __getitem__, collate_fn.
+    Method `reindex` is only supported in the derived LowRankDataFrame subclass.
     """
 
     def __init__(self, c):
-        self.c = c
         self._type = 'scalar' if isinstance(c, numbers.Number) else \
-                     'pandas' if isinstance(c, pd.DataFrame) else \
                      'sparse' if sps.issparse(c) else \
                      'dense' if np.ndim(c) == 2 else \
                      None
         assert self._type is not None, f"type {type(c)} is not supported"
+        self.c = c if self._type != 'sparse' else c.tocsr()
         self.shape = c.shape if self._type != 'scalar' else None
 
     # methods to overload
@@ -70,24 +65,12 @@ class LazyScoreBase:
         """ LazyScoreBase -> scalar, numpy (device is None), or torch (device) """
         if self._type == 'scalar':
             return self.c
-        elif self._type == 'pandas':
-            return NotImplementedError("please call values property first")
         elif self._type == 'sparse':
             return self.c.toarray() if device is None else \
                    sps_to_torch(self.c, device).to_dense()
         elif self._type == 'dense':
-            return np.asarray(self.c) if device is None else \
+            return self.c if device is None else \
                    torch.as_tensor(self.c, device=device)
-
-    @property
-    def values(self):
-        """ LazyScoreBase(pandas) -> LazyScoreBase(sparse or dense) """
-        if self._type == 'pandas':
-            values = df_to_coo(self.c).tocsr() if hasattr(self.c, 'sparse') else \
-                     self.c.values
-            return self.__class__(values)
-        else:
-            return self
 
     @property
     def T(self):
@@ -96,24 +79,20 @@ class LazyScoreBase:
         return self.__class__(cT)
 
     def __getitem__(self, key):
-        """ LazyScoreBase -> LazyScoreBase(sub-rows) """
+        """ LazyScoreBase -> LazyScoreBase(sub-rows); used in pytorch dataloader """
         if np.isscalar(key):
             key = [key]
 
         if self._type == 'scalar':
             return self.__class__(self.c)
-        elif self._type == 'pandas':
-            raise NotImplementedError("please call values property first")
         else:
             return self.__class__(self.c[key])
 
     def collate_fn(self, D):
-        """ List[LazyScoreBase] -> LazyScoreBase """
+        """ List[LazyScoreBase] -> LazyScoreBase; used in pytorch dataloader """
         C = [d.c for d in D]
         if self._type == 'scalar':
             return self.__class__(C[0])
-        elif self._type == 'pandas':
-            return NotImplementedError("please call values property first")
         elif self._type == 'sparse':
             return self.__class__(sps.vstack(C))
         elif self._type == 'dense':
@@ -155,8 +134,6 @@ class LazyScoreExpression(LazyScoreBase):
         self.children = children
         for c in children:
             assert isinstance(c, LazyScoreBase), f"please wrap {c} in LazyScoreBase"
-        self.index = children[0].index
-        self.columns = children[0].columns
         self.shape = children[0].shape
 
     def eval(self, device=None):
@@ -164,27 +141,20 @@ class LazyScoreExpression(LazyScoreBase):
         return self.op(*children)
 
     @property
-    def values(self):
-        children = [c.values for c in self.children]
-        return self.__class__(self.op, children)
-
-    @property
     def T(self):
         children = [c.T for c in self.children]
         return self.__class__(self.op, children)
 
     def __getitem__(self, key):
-        """ used in pytorch dataloader. ignores index / columns """
         children = [c[key] for c in self.children]
         return self.__class__(self.op, children)
 
     @classmethod
     def collate_fn(cls, batch):
         first = batch[0]
-        op = first.op
         data = zip(*[b.children for b in batch])
         children = [c.collate_fn(D) for c, D in zip(first.children, data)]
-        return cls(op, children)
+        return cls(first.op, children)
 
 
 @dataclasses.dataclass(repr=False)
@@ -222,10 +192,6 @@ class LowRankDataFrame(LazyScoreBase):
                 return z.sigmoid()
 
     @property
-    def values(self):
-        return self
-
-    @property
     def shape(self):
         return (len(self.ind_logits), len(self.col_logits))
 
@@ -233,7 +199,7 @@ class LowRankDataFrame(LazyScoreBase):
         if np.isscalar(key):
             key = [key]
         return self.__class__(self.ind_logits[key], self.col_logits,
-            self.index[key], self.columns, self.act)
+            np.asarray(self.index)[key], self.columns, self.act)
 
     @property
     def T(self):
@@ -257,12 +223,13 @@ class LowRankDataFrame(LazyScoreBase):
     # new method only for this class
 
     def reindex(self, index, axis=0, fill_value=float("nan")):
+        """ reindex with new hidden dim to express fill_value(0) as exp(-inf * 1) """
         if axis==1:
             return self.T.reindex(index, fill_value=fill_value).T
 
         ind_logits = np.pad(self.ind_logits, ((0,1), (0,1)), constant_values=0)
-        with np.errstate(divide='ignore'): # 0 -> -inf
-            ind_logits[-1, -1] = np.log(fill_value)
+        ind_logits[-1, -1] = -np.inf if fill_value == 0 else np.log(fill_value)
+
         col_logits = np.pad(self.col_logits, ((0,0), (0,1)), constant_values=1)
 
         new_ind = pd.Series(

@@ -9,7 +9,7 @@ from typing import Dict, List
 from rime.models import *
 from rime.metrics import *
 from rime import dataset
-from rime.util import _argsort, cached_property, df_to_coo
+from rime.util import _argsort, cached_property
 
 from pkg_resources import get_distribution, DistributionNotFound
 try:
@@ -118,11 +118,11 @@ class Experiment:
 
 
     def metrics_update(self, name, S, T=None):
-        target_csr = df_to_coo(self.D.target_df)
-        score_mat = S.values
+        target_csr = self.D.target_csr
+        score_mat = S
 
         if self.online:
-            valid_mat = T.values
+            valid_mat = T
         elif self.cvx:
             valid_mat = score_mat
         else:

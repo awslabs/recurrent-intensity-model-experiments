@@ -74,12 +74,11 @@ def test_score_array():
     a = LowRankDataFrame(
         np.zeros((len(index), 2)), np.zeros((len(columns), 2)), index, columns, 'exp'
         )
-    b = pd.DataFrame.sparse.from_spmatrix(
-        sps.eye(len(index), len(columns), 1), index, columns
-        )
+    b = sps.eye(len(index), len(columns), 1)
     c = 3
 
-    score_op(a.values, "max")
-    score_op((a + b).values, "max")
-    score_op(((a + b) * c).values, "max")
-    score_op(((a + b) * c).values, "max", "cpu")
+    score_op(a, "max")
+    score_op(a + b, "max")
+    score_op((a + b) * c, "max")
+    score_op((a + b) * c, "max", "cpu")
+    score_op(a.reindex([3,4,5], axis=0, fill_value=0), "max", "cpu")
