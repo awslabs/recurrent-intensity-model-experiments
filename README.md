@@ -85,9 +85,9 @@ S is a low-rank dataframe-like object with shape `(len(D.user_in_test), len(D.it
 
 Ranking of the items (or users) and then comparing with the ground-truth targets can be laborsome. Instead, we utilize the `scipy.sparse` library to easily calculate the recommendation `hit` rates through point-wise multiplication. The sparsity property allows the evaluations to scale to large numbers of user-item pairs.
 ```
-item_rec_assignments = rime.util._assign_topk(score_mat, topk, device='cuda')
+item_rec_assignments = rime.util._assign_topk(score_mat, item_rec_topk, device='cuda')
 item_rec_metrics = evaluate_assigned(D.target_csr, item_rec_assignments, axis=1)
-user_rec_assignments = rime.util._assign_topk(score_mat.T, C, device='cuda').T
+user_rec_assignments = rime.util._assign_topk(score_mat.T, user_rec_C, device='cuda').T
 user_rec_metrics = evaluate_assigned(D.target_csr, user_rec_assignments, axis=0)
 ```
 
@@ -101,8 +101,8 @@ Additionally, we align the item_in_test between D and V, because cvx also consid
 ```
 V = V.reindex(D.item_in_test.index, axis=1) # align on the item_in_test to generalize
 T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the predicted scores.
-cvx_online = rime.metrics.cvx.CVX(T.values, self._k1, self._c1, ...)
-online_assignments = cvx_online.fit(T.values).transform(S.values)
+cvx_online = rime.metrics.cvx.CVX(S, item_rec_topk, user_rec_C, ...) # set hyperparameters
+online_assignments = cvx_online.fit(T).transform(S)
 out = evaluate_assigned(D.target_csr, online_assignments, axis=0)
 ```
 
