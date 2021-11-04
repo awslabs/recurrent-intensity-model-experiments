@@ -223,12 +223,18 @@ class LowRankDataFrame(LazyScoreBase):
     # new method only for this class
 
     def reindex(self, index, axis=0, fill_value=float("nan")):
-        """ reindex with new hidden dim to express fill_value(0) as exp(-inf * 1) """
+        """ reindex with new hidden dim to express fill_value(0) as act(-inf * 1) """
         if axis==1:
             return self.T.reindex(index, fill_value=fill_value).T
 
         ind_logits = np.pad(self.ind_logits, ((0,1), (0,1)), constant_values=0)
-        ind_logits[-1, -1] = -np.inf if fill_value == 0 else np.log(fill_value)
+
+        if fill_value == 0:
+            ind_logits[-1, -1] = float("-inf")    # common for exp and sigmoid
+        elif self.act == 'exp':
+            ind_logits[-1, -1] = np.log(fill_value)
+        elif self.act == 'sigmoid':
+            ind_logits[-1, -1] = np.log(fill_value) - np.log(1-fill_value)
 
         col_logits = np.pad(self.col_logits, ((0,0), (0,1)), constant_values=1)
 
