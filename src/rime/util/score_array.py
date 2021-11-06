@@ -166,8 +166,15 @@ class LowRankDataFrame(LazyScoreBase):
     index: list
     columns: list
     act: str
+    ind_default: list = None
+    col_default: list = None
 
     def __post_init__(self):
+        if self.ind_default is None:
+            self.ind_default = np.zeros_like(self.ind_logits[0])
+        if self.col_default is None:
+            self.col_default = np.zeros_like(self.col_logits[0])
+
         assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
         assert self.ind_logits.shape[0] == len(self.index), "check index"
         assert self.col_logits.shape[0] == len(self.columns), "check columns"
@@ -176,6 +183,7 @@ class LowRankDataFrame(LazyScoreBase):
     def eval(self, device=None):
         if device is None:
             z = self.ind_logits @ self.col_logits.T
+            assert not np.isnan(z).any(), "low rank score must be valid"
 
             if self.act == 'exp':
                 return np.exp(z)
@@ -185,6 +193,7 @@ class LowRankDataFrame(LazyScoreBase):
             ind_logits = torch.as_tensor(self.ind_logits, device=device)
             col_logits = torch.as_tensor(self.col_logits, device=device)
             z = ind_logits @ col_logits.T
+            assert not torch.isnan(z).any(), "low rank score must be valid"
 
             if self.act == 'exp':
                 return z.exp()
@@ -199,26 +208,26 @@ class LowRankDataFrame(LazyScoreBase):
         if np.isscalar(key):
             key = [key]
         return self.__class__(self.ind_logits[key], self.col_logits,
-            np.asarray(self.index)[key], self.columns, self.act)
+            np.asarray(self.index)[key], self.columns, self.act,
+            self.ind_default, self.col_default)
 
     @property
     def T(self):
         return self.__class__(self.col_logits, self.ind_logits,
-            self.columns, self.index, self.act)
+            self.columns, self.index, self.act, self.col_default, self.ind_default)
 
     @classmethod
     def collate_fn(cls, batch):
+        first = batch[0]
         ind_logits = []
-        col_logits = batch[0].col_logits
         index = []
-        columns = batch[0].columns
-        act = batch[0].act
 
         for elm in batch:
             ind_logits.append(elm.ind_logits)
             index.extend(elm.index)
 
-        return cls(np.vstack(ind_logits), col_logits, index, columns, act)
+        return cls(np.vstack(ind_logits), first.col_logits, index,
+            first.columns, first.act, first.ind_default, first.col_default)
 
     # new method only for this class
 
@@ -227,7 +236,9 @@ class LowRankDataFrame(LazyScoreBase):
         if axis==1:
             return self.T.reindex(index, fill_value=fill_value).T
 
-        ind_logits = np.pad(self.ind_logits, ((0,1), (0,1)), constant_values=0)
+        ind_logits = np.vstack([self.ind_logits, self.ind_default])
+        ind_logits = np.hstack([ind_logits, np.zeros_like(ind_logits[:, :1])])
+        ind_default = np.hstack([self.ind_default, np.zeros_like(self.ind_default[:1])])
 
         if fill_value == 0:
             ind_logits[-1, -1] = float("-inf")    # common for exp and sigmoid
@@ -236,14 +247,16 @@ class LowRankDataFrame(LazyScoreBase):
         elif self.act == 'sigmoid':
             ind_logits[-1, -1] = np.log(fill_value) - np.log(1-fill_value)
 
-        col_logits = np.pad(self.col_logits, ((0,0), (0,1)), constant_values=1)
+        col_logits = np.hstack([self.col_logits, np.ones_like(self.col_logits[:, :1])])
+        col_default = np.hstack([self.col_default, np.ones_like(self.col_default[:1])])
 
         new_ind = pd.Series(
             np.arange(len(self)), index=self.index
             ).reindex(index, fill_value=-1).values
 
         return self.__class__(
-            ind_logits[new_ind], col_logits, index, self.columns, self.act)
+            ind_logits[new_ind], col_logits, index, self.columns, self.act,
+            ind_default, col_default)
 
 
 def score_op(S, op, device=None):

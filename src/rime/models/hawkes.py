@@ -19,8 +19,8 @@ class Hawkes:
         input_fn = functools.partial(self._input_fn, training=True)
         training_user = D.user_df[
             (D.user_df['_hist_len']>0) &
-            (D.user_df['TEST_START_TIME'] < np.inf)
-        ] # _timestamps includes TEST_START_TIME
+            (D.user_df['_timestamps'].apply(lambda x: x[-1]) < np.inf)
+        ] # The last in _timestamps is set to TEST_START_TIME
         X = list(map(input_fn, training_user['_timestamps'].values))
 
         self.model.fit(X)

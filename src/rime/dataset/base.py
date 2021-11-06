@@ -49,7 +49,9 @@ def _mark_holdout(event_df, user_df, horizon):
 
 
 def _augment_user_hist(user_df, event_df):
-    """ augment history length before test start time """
+    """ extract user histories from event_df before the respective TEST_START_TIME;
+        append columns: _hist_items, _hist_ts, _timestamps, _hist_len, _hist_span
+    """
     @timed("groupby, collect, reindex")
     def fn(col_name):
         hist = groupby_collect(
@@ -58,11 +60,8 @@ def _augment_user_hist(user_df, event_df):
         return hist.reindex(user_df.index).apply(
             lambda x: x if isinstance(x, collections.abc.Iterable) else [])
 
-    user_df = user_df.join(
-        fn("ITEM_ID").to_frame("_hist_items"), on='USER_ID'
-    ).join(
-        fn("TIMESTAMP").to_frame("_hist_ts"), on='USER_ID'
-    )
+    user_df = user_df.join(fn("ITEM_ID").to_frame("_hist_items")) \
+                     .join(fn("TIMESTAMP").to_frame("_hist_ts"))
 
     user_df['_timestamps'] = user_df.apply(
         lambda x: x['_hist_ts'] + [x['TEST_START_TIME']], axis=1)
@@ -116,6 +115,8 @@ class Dataset:
 
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
+        self.user_ppl = perplexity(self.user_in_test['_hist_len'])
+        self.item_ppl = perplexity(self.item_in_test['_hist_len'])
 
     def __hash__(self):
         return id(self)
@@ -141,8 +142,8 @@ class Dataset:
                 '# test events': self.target_csr.sum(),
                 'default_user_rec_top_c': self.default_user_rec_top_c,
                 'default_item_rec_top_k': self.default_item_rec_top_k,
-                "user_ppl": perplexity(self.user_in_test['_hist_len']),
-                "item_ppl": perplexity(self.item_in_test['_hist_len']),
+                "user_ppl": self.user_ppl,
+                "item_ppl": self.item_ppl,
             },
         }
 
