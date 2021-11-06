@@ -107,8 +107,8 @@ class Experiment:
             _c1 = self.D.default_user_rec_top_c,
             _kmax = len(self.D.item_in_test),
             _cmax = len(self.D.user_in_test),
-            item_ppl = self.D.get_stats()['event_df']['item_ppl'],
-            user_ppl = self.D.get_stats()['event_df']['user_ppl'],
+            item_ppl = self.D.item_ppl,
+            user_ppl = self.D.user_ppl,
         )
 
         # pass-through references
@@ -262,7 +262,7 @@ class Experiment:
         if self.V is not None:
             return HawkesPoisson(self._hawkes).fit(self.V)
         else:
-            warnings.warn("Degenerating HawkesPoisson with Hawkes when self.V is None")
+            warnings.warn("Degenerating HawkesPoisson to Hawkes when self.V is None")
             return self._hawkes
 
     @cached_property

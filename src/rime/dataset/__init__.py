@@ -44,8 +44,6 @@ def prepare_minimal_dataset():
         ], columns=["USER_ID", "ITEM_ID", "TIMESTAMP", "_holdout"])
 
     user_df, item_df = extract_user_item(event_df)
-    user_df = user_df.reindex(["u1", "u2", "u3", "u4"]) # include all test users
-    item_df = item_df.reindex(["i1", "i2", "i3", "i4", "i5"]) # include all test items
 
     user_df['TEST_START_TIME'] = T_split
     user_df = _augment_user_hist(user_df, event_df) # add user history information
@@ -59,12 +57,11 @@ def prepare_minimal_dataset():
         "u4": [[],           [T_split]      ],
         }, columns=["_hist_items", "_timestamps"], orient="index")
     user_in_test["_hist_len"] = user_in_test["_hist_items"].apply(len)
-    user_in_test["_hist_span"] = user_in_test["_timestamps"].apply(np.ptp)
 
-    item_in_test = pd.DataFrame.from_dict({
-        "i1": [1],
-        "i5": [0],
-        }, columns=["_hist_len"], orient="index")
+    item_in_test = pd.Series({
+        "i1": 1,
+        "i5": 0,
+        }).to_frame("_hist_len")
 
     target_csr = sps.csr_matrix((len(user_in_test), len(item_in_test)))
 
