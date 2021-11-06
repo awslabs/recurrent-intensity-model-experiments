@@ -57,6 +57,7 @@ def prepare_minimal_dataset():
         "u4": [[],           [T_split]      ],
         }, columns=["_hist_items", "_timestamps"], orient="index")
     user_in_test["_hist_len"] = user_in_test["_hist_items"].apply(len)
+    user_in_test["_hist_span"] = user_in_test["_timestamps"].apply(lambda x: x[-1] - x[0])
 
     item_in_test = pd.Series({
         "i1": 1,
@@ -71,4 +72,5 @@ def prepare_minimal_dataset():
             user_df=user_df, item_df=item_df, event_df=event_df
         ),
     )
+    D.print_stats()
     return (D, None)
