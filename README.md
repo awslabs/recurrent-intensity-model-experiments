@@ -110,14 +110,13 @@ CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
 when `self.online=True` and `T is not None`.
 
 More information may be found in auto-generated documentation at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
-To extend to other datasets, one may mock the Dataset class as
+To extend to other datasets, one may follow the [two examples](src/rime/dataset/__init__.py) to create a minimal Dataset instance as:
 ```
-D = argparse.Namespace(
+D = rime.dataset.Dataset(
     target_csr=..., user_in_test=..., item_in_test=...,
     training_data=argparse.Namespace(event_df=..., user_df=..., item_df=...),
     ...)
 ```
-See more examples in [prepare_synthetic_data](src/rime/dataset/__init__.py).
 The main functions are covered in [test](test).
 
 

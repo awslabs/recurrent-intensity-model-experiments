@@ -49,7 +49,9 @@ def _mark_holdout(event_df, user_df, horizon):
 
 
 def _augment_user_hist(user_df, event_df):
-    """ augment history length before test start time """
+    """ extract user histories from event_df before the respective TEST_START_TIME;
+        append columns: _hist_items, _hist_ts, _timestamps, _hist_len, _hist_span
+    """
     @timed("groupby, collect, reindex")
     def fn(col_name):
         hist = groupby_collect(
@@ -109,6 +111,11 @@ class Dataset:
 
         _check_index(self.training_data.event_df,
             self.training_data.user_df, self.training_data.item_df)
+
+        if set(self.user_in_test.index) > set(self.training_data.user_df.index):
+            warnings.warn("please include all test users in training data as is expected.")
+        if set(self.item_in_test.index) > set(self.training_data.item_df.index):
+            warnings.warn("please include all test items in training data as is expected.")
 
         if self.prior_score is not None:
             assert (self.prior_score.shape == self.target_csr.shape), \

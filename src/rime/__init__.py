@@ -68,7 +68,7 @@ class Experiment:
     then sweeps through multipliers for relevance-diversity curve,
     interpreting mult<1 as item min-exposure and mult>=1 as user max-limit
     """
-    def __init__(self, D, V,
+    def __init__(self, D, V=None,
         mult=[], # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
         models_to_run=[
             "Rand", "Pop",
@@ -259,7 +259,11 @@ class Experiment:
 
     @cached_property
     def _hawkes_poisson(self):
-        return HawkesPoisson(self._hawkes).fit(self.V)
+        if self.V is not None:
+            return HawkesPoisson(self._hawkes).fit(self.V)
+        else:
+            warnings.warn("Degenerating HawkesPoisson with Hawkes when self.V is None")
+            return self._hawkes
 
     @cached_property
     def _bpr_item(self):

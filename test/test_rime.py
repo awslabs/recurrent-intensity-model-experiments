@@ -7,14 +7,22 @@ def test_rime_importable():
     import rime
 
 
-def do_synthetic_common(*args, **kw):
+def do_synthetic_common(*args, prepare_data_name="prepare_synthetic_data", **kw):
     from rime import main, plot_results
-    self = main("prepare_synthetic_data", *args, mult=[1.0], **kw)
+    self = main(prepare_data_name, *args, mult=[1.0], **kw)
     fig = plot_results(self.results)
 
     with tempfile.NamedTemporaryFile("r") as fp:
         self.results.save_results(fp.name)
         print("saved results", fp.read())
+
+
+def test_minimal_dataset():
+    do_synthetic_common(prepare_data_name="prepare_minimal_dataset")
+
+
+def test_minimal_cvx():
+    do_synthetic_common(prepare_data_name="prepare_minimal_dataset", cvx=True, max_epochs=2)
 
 
 @pytest.mark.parametrize("split_fn_name", ["split_by_time", "split_by_user"])
