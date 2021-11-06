@@ -44,6 +44,7 @@ def prepare_minimal_dataset():
         ], columns=["USER_ID", "ITEM_ID", "TIMESTAMP", "_holdout"])
 
     user_df, item_df = extract_user_item(event_df)
+    # optionally include cold-start users/items if non-zero prediction scores are desired
 
     user_df['TEST_START_TIME'] = T_split
     user_df = _augment_user_hist(user_df, event_df) # add user history information
