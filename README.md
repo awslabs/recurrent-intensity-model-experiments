@@ -25,7 +25,7 @@ Repository to reproduce the experiments in the paper:
 3. Run experiment as
     ```
     from rime import main, plot_results, Experiment, evaluate_assigned
-    self = main("prepare_ml_1m_data")
+    self = main("prepare_ml_1m_data") # or "prepare_minimal_dataset"
     # print out item_rec and user_rec metrics for all included methods
     ```
 4. Run `pytest -s -x --pdb` for unit tests including the end-to-end workflow.
