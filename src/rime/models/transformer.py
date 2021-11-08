@@ -11,7 +11,7 @@ class _LitTransformerModel(_LitRNNModel, _LitValidated):
         self.lr = lr
 
     def training_step(self, batch, batch_idx):
-        """ truncated_bptt_steps pass batch[:][:, slice] and hiddens """
+        """ max length defined through truncated_input_steps=256 """
         x, y = batch[0].T, batch[1].T   # transpose to TN layout
         out = self.model(x, True)
         # print(batch_idx, out.softmax(dim=-1).detach().cpu().numpy().round(2))
