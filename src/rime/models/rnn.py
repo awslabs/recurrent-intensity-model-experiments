@@ -1,5 +1,5 @@
 import pandas as pd, numpy as np
-import functools
+import functools, warnings
 
 import torch
 from torch.utils.data import DataLoader, random_split
@@ -8,7 +8,6 @@ from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 from .word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame
 
 
@@ -33,8 +32,7 @@ class RNN:
             self.model.load_state_dict(
                 torch.load(load_from_checkpoint)['state_dict'])
 
-        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus,
-            callbacks=[EarlyStopping(monitor='val_loss')])
+        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus)
         print("trainer log at:", self.trainer.logger.log_dir)
         self.batch_size = batch_size
 
@@ -79,7 +77,12 @@ class RNN:
               f"truncated@{self._truncated_input_steps} per user")
         print(f"sample_y={sample_y}")
 
-        train_set, valid_set = random_split(dataset, [m*4//5, (m - m*4//5)])
+        if len(dataset) > 5:
+            train_set, valid_set = random_split(dataset, [m*4//5, (m - m*4//5)])
+        else:
+            warnings.warn(f"short dataset len={len(dataset)}; "
+                "setting valid_set identical to train_set")
+            train_set, valid_set = dataset, dataset
         self.trainer.fit(self.model,
             DataLoader(train_set, self.batch_size, collate_fn=collate_fn, shuffle=True),
             DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
@@ -110,11 +113,12 @@ def _get_dataset_stats(dataset, collate_fn):
 
 
 class _LitRNNModel(_LitValidated):
-    def __init__(self, *args, truncated_bptt_steps, **kw):
+    def __init__(self, *args, truncated_bptt_steps, lr=0.1, **kw):
         super().__init__()
         self.model = RNNModel(*args, **kw)
         self.loss = torch.nn.NLLLoss(ignore_index=0)
         self.truncated_bptt_steps = truncated_bptt_steps
+        self.lr = lr
 
     def forward(self, batch):
         """ output user embedding at lengths-1 positions """
@@ -130,7 +134,13 @@ class _LitRNNModel(_LitValidated):
         return last_hidden.cpu().numpy(), log_bias.cpu().numpy()
 
     def configure_optimizers(self):
-        return torch.optim.Adagrad(self.parameters(), lr=0.1)
+        """ TODO: do lr_scheduler and final model load the best checkpoints? """
+        optimizer = torch.optim.Adagrad(self.parameters(), eps=1e-3, lr=self.lr)
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, factor=0.25, patience=5, min_lr=1e-5)
+        return {"optimizer": optimizer, "lr_scheduler": {
+                "scheduler": lr_scheduler, "monitor": "val_loss"
+            }}
 
     def training_step(self, batch, batch_idx, hiddens=None):
         """ truncated_bptt_steps pass batch[:][:, slice] and hiddens """

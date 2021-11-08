@@ -3,17 +3,19 @@ from .rnn import *
 from .rnn import _LitRNNModel, _LitValidated, _collate_fn
 
 class _LitTransformerModel(_LitRNNModel, _LitValidated):
-    def __init__(self, ntoken, *args, truncated_bptt_steps="full_bptt", **kw):
+    def __init__(self, ntoken, *args, truncated_bptt_steps=None, lr=0.1/4, **kw):
         super(_LitValidated, self).__init__()
         self.model = TransformerModel(ntoken, *args, **kw)
         self.loss = torch.nn.NLLLoss(ignore_index=0)
         self.ntoken = ntoken
+        self.lr = lr
 
     def training_step(self, batch, batch_idx):
         """ truncated_bptt_steps pass batch[:][:, slice] and hiddens """
         x, y = batch[0].T, batch[1].T   # transpose to TN layout
-        out = self.model(x).view(-1, self.ntoken)
-        loss = self.loss(out, y.view(-1))
+        out = self.model(x, True)
+        # print(batch_idx, out.softmax(dim=-1).detach().cpu().numpy().round(2))
+        loss = self.loss(out.view(-1, self.ntoken), y.view(-1))
         self.log("train_loss", loss)
         return loss
 
@@ -43,13 +45,12 @@ class Transformer(RNN):
 
         self.model = _LitTransformerModel(
             len(self._padded_item_list),
-            num_hidden, nhead, num_hidden, nlayers)
+            num_hidden, nhead, num_hidden, nlayers, 0)
 
         if load_from_checkpoint is not None:
             self.model.load_state_dict(
                 torch.load(load_from_checkpoint)['state_dict'])
 
-        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus,
-            callbacks=[EarlyStopping(monitor='val_loss')])
+        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus)
         print("trainer log at:", self.trainer.logger.log_dir)
         self.batch_size = batch_size

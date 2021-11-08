@@ -75,3 +75,19 @@ def prepare_synthetic_data(split_fn_name, exclude_train=False,
     D.print_stats()
     V = create_dataset(event_df, valid_df, item_df, 1, exclude_train=exclude_train)
     return (D, V)
+
+
+def prepare_simple_pattern():
+    """ Transformer(D.training_data.item_df, max_epochs=100).fit(D.training_data) # flaky
+    RNN(D.training_data.item_df, max_epochs=50).fit(D.training_data) # stable
+    """
+    event_df = pd.DataFrame({
+        "USER_ID": 1,
+        "ITEM_ID": [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2],
+        "TIMESTAMP": 1 + np.arange(12),
+        })
+    user_df, item_df = extract_user_item(event_df)
+    user_df['TEST_START_TIME'] = 12
+    D = create_dataset(event_df, user_df, item_df, 1)
+    D.print_stats()
+    return (D, None)
