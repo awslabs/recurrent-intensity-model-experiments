@@ -2,6 +2,7 @@ import pandas as pd, numpy as np
 import functools, collections, warnings
 
 from .rnn import RNN
+from .transformer import Transformer
 from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
