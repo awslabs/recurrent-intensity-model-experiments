@@ -75,7 +75,8 @@ class Experiment:
             "Hawkes", "HP",
             "RNN", "RNN-Pop",
             "RNN-Hawkes", "RNN-HP",
-            "EMA", "RNN-EMA",
+            "Transformer-Hawkes", "Transformer-HP",
+            "EMA", "RNN-EMA", "Transformer-EMA",
             "ALS", "LogisticMF",
             "BPR-Item", "BPR-User",
             ],
@@ -204,6 +205,15 @@ class Experiment:
         if model == "RNN-HP":
             return self._rnn.transform(D) * self._hawkes_poisson.transform(D)
 
+        if model == "Transformer-Hawkes":
+            return self._transformer.transform(D) * self._hawkes.transform(D)
+
+        if model == "Transformer-HP":
+            return self._transformer.transform(D) * self._hawkes_poisson.transform(D)
+
+        if model == "Transformer-EMA":
+            return self._transformer.transform(D) * EMA(D.horizon).transform(D)
+
         if model == "BPR-Item":
             return self._bpr_item.transform(D)
 
@@ -248,6 +258,15 @@ class Experiment:
     def _rnn(self):
         fitted = RNN(self.D.training_data.item_df,
             **self.model_hyps.get("RNN", {})
+        ).fit(self.D.training_data)
+        for name, param in fitted.model.named_parameters():
+            print(name, param.data.shape)
+        return fitted
+
+    @cached_property
+    def _transformer(self):
+        fitted = Transformer(self.D.training_data.item_df,
+            **self.model_hyps.get("Transformer", {})
         ).fit(self.D.training_data)
         for name, param in fitted.model.named_parameters():
             print(name, param.data.shape)

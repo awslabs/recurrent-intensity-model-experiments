@@ -24,10 +24,10 @@ class RNN:
             tokenize={k:i for i,k in enumerate(self._padded_item_list)},
             truncated_input_steps=truncated_input_steps)
 
-        self.model = _LitRNNModel(RNNModel(
+        self.model = _LitRNNModel(
             'GRU', len(self._padded_item_list),
             num_hidden, num_hidden, nlayers, 0, True,
-        ), truncated_bptt_steps)
+            truncated_bptt_steps=truncated_bptt_steps)
 
         if load_from_checkpoint is not None:
             self.model.load_state_dict(
@@ -110,17 +110,20 @@ def _get_dataset_stats(dataset, collate_fn):
 
 
 class _LitRNNModel(_LitValidated):
-    def __init__(self, model, truncated_bptt_steps):
+    def __init__(self, *args, truncated_bptt_steps, **kw):
         super().__init__()
-        self.model = model
+        self.model = RNNModel(*args, **kw)
         self.loss = torch.nn.NLLLoss(ignore_index=0)
         self.truncated_bptt_steps = truncated_bptt_steps
 
     def forward(self, batch):
         """ output user embedding at lengths-1 positions """
-        TN_layout, lengths = batch
+        TN_inp, lengths = batch
         hiddens = self.model.init_hidden(len(lengths))
-        TNC_out, _ = self.model.rnn(self.model.encoder(TN_layout), hiddens)
+        TNC_out, _ = self.model.rnn(self.model.encoder(TN_inp), hiddens)
+        return self._decode_last(TNC_out, lengths)
+
+    def _decode_last(self, TNC_out, lengths):
         last_hidden = TNC_out[lengths-1, np.arange(len(lengths))]
         pred_logits = self.model.decoder(last_hidden)
         log_bias = -pred_logits.logsumexp(1)
