@@ -115,6 +115,7 @@ To extend to other datasets, one may follow the [two examples](src/rime/dataset/
 D = rime.dataset.Dataset(
     target_csr=..., user_in_test=..., item_in_test=...,
     training_data=argparse.Namespace(event_df=..., user_df=..., item_df=...),
+    # optional sparse negative prior for exclusions or positive prior for approvals
     ...)
 ```
 The main functions are covered in [test](test).

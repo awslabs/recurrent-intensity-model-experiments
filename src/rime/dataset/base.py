@@ -154,14 +154,17 @@ class Dataset:
             print(self.item_in_test.sample().iloc[0])
 
     def reindex(self, index, axis=1):
-        if axis==1:
+        if axis==0:
+            old_index = self.user_in_test.index
+            assert set(index) <= set(old_index), \
+                                "user_in_test reindexing limited to shrinkage"
+            user_in_test = self.user_in_test.reindex(index)
+            item_in_test = self.item_in_test
+        else:
+            old_index = self.item_in_test.index
             user_in_test = self.user_in_test
             item_in_test = self.item_in_test.reindex(index, fill_value=0)
-        else:
-            raise NotImplementedError("user reindexing is not used in cvx-online; "
-                "also needs extra work to achieve fill_value=[]")
 
-        old_index = self.user_in_test.index if axis==0 else self.item_in_test.index
         target_csr = matrix_reindex(
             self.target_csr, old_index, index, axis, fill_value=0)
 
