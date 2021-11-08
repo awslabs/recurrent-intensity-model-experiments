@@ -77,7 +77,7 @@ class RNN:
               f"truncated@{self._truncated_input_steps} per user")
         print(f"sample_y={sample_y}")
 
-        if len(dataset) > 5:
+        if len(dataset) >= 5:
             train_set, valid_set = random_split(dataset, [m*4//5, (m - m*4//5)])
         else:
             warnings.warn(f"short dataset len={len(dataset)}; "
@@ -122,9 +122,9 @@ class _LitRNNModel(_LitValidated):
 
     def forward(self, batch):
         """ output user embedding at lengths-1 positions """
-        TN_inp, lengths = batch
+        TN_layout, lengths = batch
         hiddens = self.model.init_hidden(len(lengths))
-        TNC_out, _ = self.model.rnn(self.model.encoder(TN_inp), hiddens)
+        TNC_out, _ = self.model.rnn(self.model.encoder(TN_layout), hiddens)
         return self._decode_last(TNC_out, lengths)
 
     def _decode_last(self, TNC_out, lengths):
