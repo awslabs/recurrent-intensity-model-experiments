@@ -40,6 +40,7 @@ def prepare_minimal_dataset():
         "i5": 0,
         }).to_frame("_hist_len")
 
+    # aggregate ground-truth targets in this scipy.sparse matrix
     target_csr = sps.csr_matrix((len(user_in_test), len(item_in_test)))
 
     D = Dataset(
@@ -47,6 +48,8 @@ def prepare_minimal_dataset():
         training_data=argparse.Namespace(
             user_df=user_df, item_df=item_df, event_df=event_df
         ),
+        # optional sparse negative prior for exclusions or positive prior for approvals
+        prior_score = None,
     )
     D.print_stats()
     return (D, None)
