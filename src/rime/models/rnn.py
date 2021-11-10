@@ -88,12 +88,13 @@ class RNN:
         self.trainer.fit(self.model,
             DataLoader(train_set, self.batch_size, collate_fn=collate_fn, shuffle=True),
             DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
-        print("val_loss", self.model.val_loss, self.model._checkpoint.best_model_score)
 
         delattr(self.model, 'train_dataloader')
         delattr(self.model, 'val_dataloader')
 
         best_model_path = self.model._checkpoint.best_model_path
+        best_model_score = self.model._checkpoint.best_model_score
+        print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
         self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
         return self
 
@@ -142,9 +143,9 @@ class _LitRNNModel(_LitValidated):
         """ TODO: do lr_scheduler and final model load the best checkpoints? """
         optimizer = torch.optim.Adagrad(self.parameters(), eps=1e-3, lr=self.lr)
         lr_scheduler = _ReduceLRLoadCkpt(optimizer, model=self,
-            factor=0.25, patience=5, min_lr=self.lr*1e-3, verbose=True)
+            factor=0.25, patience=4, min_lr=self.lr*1e-3, verbose=True)
         return {"optimizer": optimizer, "lr_scheduler": {
-                "scheduler": lr_scheduler, "monitor": "val_loss"
+                "scheduler": lr_scheduler, "monitor": "val_epoch_loss"
             }}
 
     def training_step(self, batch, batch_idx, hiddens=None):

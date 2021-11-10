@@ -73,10 +73,10 @@ class Experiment:
         models_to_run=[
             "Rand", "Pop",
             "Hawkes", "HP",
-            "RNN", "RNN-Pop",
-            "RNN-Hawkes", "RNN-HP",
             "Transformer", "Transformer-Pop",
             "Transformer-Hawkes", "Transformer-HP",
+            "RNN", "RNN-Pop",
+            "RNN-Hawkes", "RNN-HP",
             "EMA", "RNN-EMA", "Transformer-EMA",
             "ALS", "LogisticMF",
             "BPR-Item", "BPR-User",

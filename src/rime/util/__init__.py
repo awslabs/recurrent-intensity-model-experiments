@@ -235,15 +235,17 @@ class _LitValidated(LightningModule):
         loss = self.training_step(batch, batch_idx)
         if isinstance(loss, collections.abc.Mapping) and 'loss' in loss:
             loss = loss['loss']
-        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_batch_loss", loss)
         return loss
 
     def validation_epoch_end(self, outputs):
-        self.val_loss = torch.stack(outputs).mean()
+        val_epoch_loss = torch.stack(outputs).mean()
+        self.log("val_epoch_loss", val_epoch_loss, prog_bar=True)
+        self.val_epoch_loss = val_epoch_loss
 
     @cached_property
     def _checkpoint(self):
-        return ModelCheckpoint(monitor="val_loss")
+        return ModelCheckpoint(monitor="val_epoch_loss")
 
 
 class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):
