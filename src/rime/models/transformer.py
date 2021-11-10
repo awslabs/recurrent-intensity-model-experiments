@@ -32,7 +32,7 @@ class _LitTransformerModel(_LitRNNModel, _LitValidated):
 
 class Transformer(RNN):
     def __init__(self, item_df,
-        num_hidden=128, nlayers=2, max_epochs=5, nhead=2,
+        num_hidden=128, nlayers=2, max_epochs=20, nhead=2, lr=0.1/4,
         gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, batch_size=64,
         load_from_checkpoint=None):
@@ -45,12 +45,13 @@ class Transformer(RNN):
 
         self.model = _LitTransformerModel(
             len(self._padded_item_list),
-            num_hidden, nhead, num_hidden, nlayers, 0)
+            num_hidden, nhead, num_hidden, nlayers, 0, lr=lr)
 
         if load_from_checkpoint is not None:
             self.model.load_state_dict(
                 torch.load(load_from_checkpoint)['state_dict'])
 
-        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus)
+        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus,
+            callbacks=[self.model._checkpoint, LearningRateMonitor()])
         print("trainer log at:", self.trainer.logger.log_dir)
         self.batch_size = batch_size

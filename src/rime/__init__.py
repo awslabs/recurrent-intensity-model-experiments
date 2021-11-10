@@ -73,9 +73,10 @@ class Experiment:
         models_to_run=[
             "Rand", "Pop",
             "Hawkes", "HP",
+            "Transformer", "Transformer-Pop",
+            "Transformer-Hawkes", "Transformer-HP",
             "RNN", "RNN-Pop",
             "RNN-Hawkes", "RNN-HP",
-            "Transformer-Hawkes", "Transformer-HP",
             "EMA", "RNN-EMA", "Transformer-EMA",
             "ALS", "LogisticMF",
             "BPR-Item", "BPR-User",
@@ -205,14 +206,20 @@ class Experiment:
         if model == "RNN-HP":
             return self._rnn.transform(D) * self._hawkes_poisson.transform(D)
 
+        if model == "Transformer":
+            return self._transformer.transform(D)
+
+        if model == "Transformer-Pop":
+            return self._transformer.transform(D) * Pop(1, 0).transform(D)
+
+        if model == "Transformer-EMA":
+            return self._transformer.transform(D) * EMA(D.horizon).transform(D)
+
         if model == "Transformer-Hawkes":
             return self._transformer.transform(D) * self._hawkes.transform(D)
 
         if model == "Transformer-HP":
             return self._transformer.transform(D) * self._hawkes_poisson.transform(D)
-
-        if model == "Transformer-EMA":
-            return self._transformer.transform(D) * EMA(D.horizon).transform(D)
 
         if model == "BPR-Item":
             return self._bpr_item.transform(D)

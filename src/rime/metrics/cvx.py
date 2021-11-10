@@ -3,6 +3,7 @@ import torch, itertools, os, warnings
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from ..util import empty_cache_on_exit, _LitValidated, get_batch_size, score_op
 from ..util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
 
@@ -35,7 +36,9 @@ class CVX:
             "logs/", name=f"{prefix}-{topk}-{C}-{constraint_type}")
 
         self._trainer_kw = dict(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
-            log_every_n_steps=1)
+            log_every_n_steps=1,
+            callbacks=[ModelCheckpoint()], # change default save path from . to logger path
+            )
 
 
     @empty_cache_on_exit

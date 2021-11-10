@@ -8,12 +8,13 @@ from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 from .word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
-from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame
+from pytorch_lightning.callbacks import LearningRateMonitor
+from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame, _ReduceLRLoadCkpt
 
 
 class RNN:
     def __init__(self, item_df,
-        num_hidden=128, nlayers=2, max_epochs=5, gpus=int(torch.cuda.is_available()),
+        num_hidden=128, nlayers=2, max_epochs=20, gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, truncated_bptt_steps=32, batch_size=64,
         load_from_checkpoint=None):
 
@@ -32,7 +33,8 @@ class RNN:
             self.model.load_state_dict(
                 torch.load(load_from_checkpoint)['state_dict'])
 
-        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus)
+        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus,
+            callbacks=[self.model._checkpoint, LearningRateMonitor()])
         print("trainer log at:", self.trainer.logger.log_dir)
         self.batch_size = batch_size
 
@@ -86,10 +88,14 @@ class RNN:
         self.trainer.fit(self.model,
             DataLoader(train_set, self.batch_size, collate_fn=collate_fn, shuffle=True),
             DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
-        print("val_loss", self.model.val_loss)
 
         delattr(self.model, 'train_dataloader')
         delattr(self.model, 'val_dataloader')
+
+        best_model_path = self.model._checkpoint.best_model_path
+        best_model_score = self.model._checkpoint.best_model_score
+        print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
+        self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
         return self
 
 
@@ -136,10 +142,10 @@ class _LitRNNModel(_LitValidated):
     def configure_optimizers(self):
         """ TODO: do lr_scheduler and final model load the best checkpoints? """
         optimizer = torch.optim.Adagrad(self.parameters(), eps=1e-3, lr=self.lr)
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, factor=0.25, patience=5, min_lr=1e-5)
+        lr_scheduler = _ReduceLRLoadCkpt(optimizer, model=self,
+            factor=0.25, patience=4, min_lr=self.lr*1e-3, verbose=True)
         return {"optimizer": optimizer, "lr_scheduler": {
-                "scheduler": lr_scheduler, "monitor": "val_loss"
+                "scheduler": lr_scheduler, "monitor": "val_epoch_loss"
             }}
 
     def training_step(self, batch, batch_idx, hiddens=None):

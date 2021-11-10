@@ -3,6 +3,7 @@ import functools, collections, time, contextlib, os, torch, gc, warnings
 from torch.utils.data import DataLoader
 from datetime import datetime
 from pytorch_lightning import LightningModule
+from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from backports.cached_property import cached_property
 from .score_array import *
 
@@ -234,8 +235,28 @@ class _LitValidated(LightningModule):
         loss = self.training_step(batch, batch_idx)
         if isinstance(loss, collections.abc.Mapping) and 'loss' in loss:
             loss = loss['loss']
-        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_batch_loss", loss)
         return loss
 
     def validation_epoch_end(self, outputs):
-        self.val_loss = torch.stack(outputs).mean()
+        val_epoch_loss = torch.stack(outputs).mean()
+        self.log("val_epoch_loss", val_epoch_loss, prog_bar=True)
+        self.val_epoch_loss = val_epoch_loss
+
+    @cached_property
+    def _checkpoint(self):
+        return ModelCheckpoint(monitor="val_epoch_loss")
+
+
+class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):
+    def __init__(self, *args, model, **kw):
+        super().__init__(*args, **kw)
+        self.model = model
+
+    def _reduce_lr(self, epoch):
+        super()._reduce_lr(epoch)
+        best_model_path = self.model._checkpoint.best_model_path
+        best_model_score = self.model._checkpoint.best_model_score
+        if self.verbose:
+            print(f"loading checkpoint {best_model_path} with score {best_model_score}")
+        self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
