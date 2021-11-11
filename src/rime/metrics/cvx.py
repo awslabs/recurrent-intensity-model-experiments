@@ -10,7 +10,7 @@ from ..util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
 
 class CVX:
     def __init__(self, score_mat, topk, C, constraint_type='ub', device='cpu',
-        max_epochs=100, min_epsilon=1e-10, gpus=int(torch.cuda.is_available()),
+        max_epochs=None, min_epsilon=1e-10, gpus=int(torch.cuda.is_available()),
         prefix='CVX'):
 
         n_users, n_items = score_mat.shape
@@ -27,6 +27,9 @@ class CVX:
 
         print(f"entering {prefix} CVX score (min={self.score_min}, max={self.score_max})")
         self.device = device
+
+        if max_epochs is None:
+            max_epochs = 100 if 0<beta<1 else 1
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type, 0.1 / max(score_mat.shape),
@@ -91,7 +94,7 @@ class _LitCVX(LightningModule):
         self.lr = n_items / n_batches
 
         self.epsilon = epsilon
-        self.epsilon_gamma = min_epsilon ** (1/max_epochs)
+        self.epsilon_gamma = (min_epsilon / epsilon) ** (1/max_epochs)
 
         if v is None:
             if constraint_type == 'ub':
@@ -106,7 +109,7 @@ class _LitCVX(LightningModule):
     def configure_optimizers(self):
         return torch.optim.SGD(self.parameters(), lr=self.lr)
 
-    def on_epoch_start(self):
+    def on_train_epoch_start(self):
         self.epsilon *= self.epsilon_gamma
         self.log("epsilon", self.epsilon, prog_bar=True)
 

@@ -115,7 +115,7 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
         u_min = torch.where(g<0, u, u_min)
         u_max = torch.where(g>0, u, u_max)
 
-    return u, i
+    return u, (i+1)
 
 
 def dual_clip(u, constraint_type):
