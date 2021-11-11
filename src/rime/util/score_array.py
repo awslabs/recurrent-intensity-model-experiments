@@ -94,7 +94,8 @@ class LazyScoreBase:
         elif self._type == 'scalar':
             return self.__class__(self.c)
         else:
-            key = np.ravel(key) # 0d -> 1d
+            if np.isscalar(key):
+                key = [key]
             return self.__class__(self.c[key])
 
     def collate_fn(self, D):
@@ -221,7 +222,8 @@ class LowRankDataFrame(LazyScoreBase):
         return (len(self.ind_logits), len(self.col_logits))
 
     def __getitem__(self, key):
-        key = np.ravel(key) # 0d -> 1d
+        if np.isscalar(key):
+            key = [key]
         return self.__class__(self.ind_logits[key], self.col_logits,
             np.asarray(self.index)[key], self.columns, self.act,
             self.ind_default, self.col_default)
