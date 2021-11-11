@@ -54,10 +54,11 @@ class LazyScoreBase:
         self._type = 'scalar' if isinstance(c, numbers.Number) else \
                      'sparse' if sps.issparse(c) else \
                      'dense' if np.ndim(c) == 2 else \
+                     '_dict' if isinstance(c, dict) else \
                      None
         assert self._type is not None, f"type {type(c)} is not supported"
         self.c = c if self._type != 'sparse' else c.tocsr()
-        self.shape = c.shape if self._type != 'scalar' else None
+        self.shape = getattr(c, "shape", None) # exclude scalar and _dict
 
     # methods to overload
 
@@ -65,6 +66,8 @@ class LazyScoreBase:
         """ LazyScoreBase -> scalar, numpy (device is None), or torch (device) """
         if self._type == 'scalar':
             return self.c
+        elif self._type == '_dict':
+            raise NotImplementedError("internal sparse array representation")
         elif self._type == 'sparse':
             return self.c.toarray() if device is None else \
                    sps_to_torch(self.c, device).to_dense()
@@ -75,17 +78,23 @@ class LazyScoreBase:
     @property
     def T(self):
         """ LazyScoreBase -> LazyScoreBase(transposed) """
-        cT = self.c if self._type == 'scalar' else self.c.T
+        cT = getattr(self.c, "T", self.c)
         return self.__class__(cT)
 
     def __getitem__(self, key):
         """ LazyScoreBase -> LazyScoreBase(sub-rows); used in pytorch dataloader """
-        if np.isscalar(key):
-            key = [key]
-
-        if self._type == 'scalar':
+        if self._type == 'sparse' and np.isscalar(key):
+            slc = slice(self.c.indptr[key], self.c.indptr[key+1])
+            _dict = {
+                "values": self.c.data[slc],
+                "keys": self.c.indices[slc],
+                "shape": self.c.shape[1],
+                }
+            return self.__class__(_dict)
+        elif self._type == 'scalar':
             return self.__class__(self.c)
         else:
+            key = np.ravel(key) # 0d -> 1d
             return self.__class__(self.c[key])
 
     def collate_fn(self, D):
@@ -93,6 +102,13 @@ class LazyScoreBase:
         C = [d.c for d in D]
         if self._type == 'scalar':
             return self.__class__(C[0])
+        elif self._type == '_dict':
+            csr = sps.csr_matrix((
+                np.hstack([c['values'] for c in C]), # data
+                np.hstack([c['keys'] for c in C]), # indices
+                np.hstack([[0], np.cumsum([len(c['keys']) for c in C])]), # indptr
+                ), shape=(len(C), C[0]['shape']))
+            return self.__class__(csr)
         elif self._type == 'sparse':
             return self.__class__(sps.vstack(C))
         elif self._type == 'dense':
@@ -205,8 +221,7 @@ class LowRankDataFrame(LazyScoreBase):
         return (len(self.ind_logits), len(self.col_logits))
 
     def __getitem__(self, key):
-        if np.isscalar(key):
-            key = [key]
+        key = np.ravel(key) # 0d -> 1d
         return self.__class__(self.ind_logits[key], self.col_logits,
             np.asarray(self.index)[key], self.columns, self.act,
             self.ind_default, self.col_default)
