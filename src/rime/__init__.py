@@ -234,8 +234,13 @@ class Experiment:
             return self._logistic_mf.transform(D)
 
 
-    def run(self):
-        for model in self.models_to_run:
+    def run(self, models_to_run=None):
+        if models_to_run is None:
+            models_to_run = self.models_to_run
+        elif isinstance(models_to_run, str):
+            models_to_run = [models_to_run]
+
+        for model in models_to_run:
             print("running", model)
             S = self.transform(model, self.D)
 

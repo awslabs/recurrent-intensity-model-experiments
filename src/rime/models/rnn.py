@@ -94,8 +94,9 @@ class RNN:
 
         best_model_path = self.model._checkpoint.best_model_path
         best_model_score = self.model._checkpoint.best_model_score
-        print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
-        self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
+        if best_model_score is not None:
+            print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
+            self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
         return self
 
 
