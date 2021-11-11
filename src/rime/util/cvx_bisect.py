@@ -92,7 +92,7 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
 
     if alpha == 0 or alpha == 1: # z = +-infinity
         u = -z * torch.ones_like(s[:, 0])
-        return u
+        return u, 0
 
     if 'CVX_STABLE' in os.environ and int(os.environ['CVX_STABLE']):
         v = torch.as_tensor(v, device=s.device).reshape((1, -1))
@@ -115,7 +115,7 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
         u_min = torch.where(g<0, u, u_min)
         u_max = torch.where(g>0, u, u_max)
 
-    return u
+    return u, i
 
 
 def dual_clip(u, constraint_type):
@@ -140,7 +140,7 @@ def dual(v, s, alpha, beta, eps, constraint_type='ub'):
          = E_xy [ s(x,y) pi(x,y) + u(x)(alpha(x) - pi(x,y)) + v(y)(beta(y) - pi(x,y)) ]
          >= E_xy [ s(x,y) + v(y)(beta(y) - pi(x,y)) ]
     """
-    u = dual_solve_u(v, s, alpha, eps)
+    u, _ = dual_solve_u(v, s, alpha, eps)
     u = dual_clip(u, constraint_type)
     return dual_complete(u, v, s, alpha, beta, eps)
 
@@ -149,7 +149,7 @@ def dual_iterate(v, s, alpha, beta, eps,
     constraint_type_a='ub', constraint_type_b='eq',
     max_iters=10, stepsize=0):
     for epoch in range(max_iters):
-        u = dual_solve_u(v, s, alpha, eps)
+        u, _ = dual_solve_u(v, s, alpha, eps)
         u = dual_clip(u, constraint_type_a)
 
         yield v, dual_complete(u, v, s, alpha, beta, eps), primal_solution(u, v, s, eps)
@@ -158,7 +158,7 @@ def dual_iterate(v, s, alpha, beta, eps,
             grad_v = grad_u(v, u, s.T, beta, eps)
             v = v - grad_v * stepsize
         else:
-            v = dual_solve_u(u, s.T, beta, eps)
+            v, _ = dual_solve_u(u, s.T, beta, eps)
         v = dual_clip(v, constraint_type_b)
 
 
@@ -250,15 +250,15 @@ if __name__ == '__main__':
     arr = []
     for eps in [1, 0.5, 0.01]:
         for _ in range(3):
-            u = dual_solve_u(v, s, alpha, eps)
+            u, _ = dual_solve_u(v, s, alpha, eps)
             u = dual_clip(u, 'ub')
             y = dual_complete(u, v, s, alpha, beta, eps)
             arr.append([v.numpy(), y.numpy()])
             print(eps, u, v, y)
 
-            v = dual_solve_u(u, s.T, beta, eps)
+            v, _ = dual_solve_u(u, s.T, beta, eps)
 
-            u = dual_solve_u(v, s, alpha, eps)
+            u, _ = dual_solve_u(v, s, alpha, eps)
             u = dual_clip(u, 'ub')
             y = dual_complete(u, v, s, alpha, beta, eps)
             arr.append([v.numpy(), y.numpy()])

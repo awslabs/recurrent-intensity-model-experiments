@@ -9,6 +9,7 @@ from .lightfm_bpr import LightFM_BPR
 try:
     from .implicit import ALS, LogisticMF
 except ImportError:
+    ALS = LogisticMF = None
     warnings.warn("Implicit package not properly installed.")
 
 from rime.util import LowRankDataFrame

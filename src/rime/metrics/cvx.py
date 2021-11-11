@@ -25,7 +25,7 @@ class CVX:
             self.score_max = float(score_mat.max())
             self.score_min = float(score_mat.min())
 
-        print(f"entering {prefix} CVX score in ({self.score_min}, {self.score_max})")
+        print(f"entering {prefix} CVX score (min={self.score_min}, max={self.score_max})")
         self.device = device
 
         self._model_args = (
@@ -95,9 +95,9 @@ class _LitCVX(LightningModule):
 
         if v is None:
             if constraint_type == 'ub':
-                v = -torch.rand(n_items)
-            elif constraint_type == 'lb':
                 v = torch.rand(n_items)
+            elif constraint_type == 'lb':
+                v = -torch.rand(n_items)
             else: # eq
                 v = torch.rand(n_items) * 2 - 1
         self.v = torch.nn.Parameter(v)
@@ -123,7 +123,7 @@ class _LitCVX(LightningModule):
         if epsilon is None:
             epsilon = self.epsilon
 
-        u = dual_solve_u(v, batch, self.alpha, epsilon, gtol=self.gtol)
+        u, _ = dual_solve_u(v, batch, self.alpha, epsilon, gtol=self.gtol)
         u = dual_clip(u, "ub")
         pi = primal_solution(u, v, batch, epsilon)
         return pi.cpu().numpy()
@@ -135,10 +135,14 @@ class _LitCVX(LightningModule):
         else:
             batch = torch.as_tensor(batch)
 
-        u = dual_solve_u(self.v.detach(), batch, self.alpha, self.epsilon, gtol=self.gtol)
+        u, u_iters = dual_solve_u(
+            self.v.detach(), batch, self.alpha, self.epsilon, gtol=self.gtol)
         u = dual_clip(u, "ub")
-        v = dual_solve_u(u, batch.T, self.beta, self.epsilon, gtol=self.gtol)
+        self.log("u_iters", u_iters, prog_bar=True)
+
+        v, v_iters = dual_solve_u(u, batch.T, self.beta, self.epsilon, gtol=self.gtol)
         v = dual_clip(v, self.constraint_type)
+        self.log("v_iters", v_iters, prog_bar=True)
 
         loss = ((self.v - v)**2).mean() / 2
         self.log("train_loss", loss)
