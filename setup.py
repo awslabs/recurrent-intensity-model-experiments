@@ -17,6 +17,7 @@ setup(
         "tick>=0.6",
         # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu -y
         "backports.cached-property",
+        "dgl", # pip install dgl-cu111
     ],
     use_scm_version=True,
     setup_requires=['setuptools_scm'],

@@ -41,7 +41,7 @@ def prepare_minimal_dataset():
         }).to_frame("_hist_len")
 
     # aggregate ground-truth targets in this scipy.sparse matrix
-    target_csr = sps.csr_matrix((len(user_in_test), len(item_in_test)))
+    target_csr = sps.csr_matrix(np.ones((len(user_in_test), len(item_in_test))))
 
     D = Dataset(
         user_in_test=user_in_test, item_in_test=item_in_test, target_csr=target_csr,

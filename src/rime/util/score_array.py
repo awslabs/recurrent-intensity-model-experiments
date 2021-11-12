@@ -316,6 +316,21 @@ class LowRankDataFrame(LazyScoreBase):
             ind_default, col_default)
 
 
+def create_second_order_dataframe(
+    user_embeddings, item_embeddings, user_biases, item_biases,
+    user_index, item_index, act
+    ):
+    if user_biases is not None:
+        user_embeddings = np.hstack([user_embeddings, user_biases[:, None]])
+        item_embeddings = np.hstack([item_embeddings, np.ones_like(item_embeddings[:, :1])])
+
+    if item_biases is not None:
+        user_embeddings = np.hstack([user_embeddings, np.ones_like(user_embeddings[:, :1])])
+        item_embeddings = np.hstack([item_embeddings, item_biases[:, None]])
+
+    return LowRankDataFrame(user_embeddings, item_embeddings, user_index, item_index, act)
+
+
 def score_op(S, op, device=None):
     """ aggregation operations (e.g., max, min) across entire matrix """
     out = None

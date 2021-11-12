@@ -8,7 +8,7 @@ import functools, collections, torch, dataclasses, warnings, json
 import pandas as pd, numpy as np
 from typing import Dict, List
 from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson,
-    LightFM_BPR, ALS, LogisticMF, BPR)
+    LightFM_BPR, ALS, LogisticMF, BPR, GCMC)
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
 from rime.util import _argsort, cached_property, RandScore

@@ -7,6 +7,7 @@ from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
 from .bpr import BPR
+from .gcmc import GCMC
 try:
     from .implicit import ALS, LogisticMF
 except ImportError:
