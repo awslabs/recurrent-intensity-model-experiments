@@ -141,7 +141,6 @@ class _LitRNNModel(_LitValidated):
         return last_hidden.cpu().numpy(), log_bias.cpu().numpy()
 
     def configure_optimizers(self):
-        """ TODO: do lr_scheduler and final model load the best checkpoints? """
         optimizer = torch.optim.Adagrad(self.parameters(), eps=1e-3, lr=self.lr)
         lr_scheduler = _ReduceLRLoadCkpt(optimizer, model=self,
             factor=0.25, patience=4, min_lr=self.lr*1e-3, verbose=True)

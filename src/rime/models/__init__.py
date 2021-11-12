@@ -6,6 +6,7 @@ from .transformer import Transformer
 from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
+from .bpr import BPR
 try:
     from .implicit import ALS, LogisticMF
 except ImportError:

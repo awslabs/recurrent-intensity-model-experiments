@@ -245,7 +245,7 @@ class _LitValidated(LightningModule):
 
     @cached_property
     def _checkpoint(self):
-        return ModelCheckpoint(monitor="val_epoch_loss")
+        return ModelCheckpoint(monitor="val_epoch_loss", save_weights_only=True)
 
 
 class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):

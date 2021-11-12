@@ -8,7 +8,7 @@ import functools, collections, torch, dataclasses, warnings, json
 import pandas as pd, numpy as np
 from typing import Dict, List
 from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson,
-    LightFM_BPR, ALS, LogisticMF)
+    LightFM_BPR, ALS, LogisticMF, BPR)
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
 from rime.util import _argsort, cached_property, RandScore
@@ -81,7 +81,7 @@ class Experiment:
             "RNN-Hawkes", "RNN-HP",
             "EMA", "RNN-EMA", "Transformer-EMA",
             "ALS", "LogisticMF",
-            "BPR-Item", "BPR-User",
+            "BPR", "BPR-Item", "BPR-User",
             ],
         model_hyps={},
         device="cuda" if torch.cuda.is_available() else "cpu",
@@ -233,6 +233,9 @@ class Experiment:
         if model == "BPR-User":
             return self._bpr_user.transform(D)
 
+        if model == "BPR":
+            return self._bpr.transform(D)
+
         if model == "ALS":
             return self._als.transform(D)
 
@@ -320,6 +323,10 @@ class Experiment:
     @cached_property
     def _bpr_user(self):
         return LightFM_BPR(user_rec=True).fit(self.D.training_data)
+
+    @cached_property
+    def _bpr(self):
+        return BPR().fit(self.D.training_data)
 
     @cached_property
     def _als(self):
