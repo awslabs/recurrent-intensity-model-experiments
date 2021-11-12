@@ -1,10 +1,10 @@
 import numpy as np, pandas as pd
-import torch, dataclasses, functools, warnings, operator, builtins, numbers
+import torch, dataclasses, functools, warnings, operator, builtins, numbers, os
 from typing import Dict, List
 from torch.utils.data import DataLoader
 import scipy.sparse as sps
 
-def get_batch_size(shape, frac=0.1):
+def get_batch_size(shape, frac=float(os.environ.get("BATCH_SIZE_FRAC", 0.1))):
     """ round to similar batch sizes """
     n_users, n_items = shape
     if torch.cuda.device_count():

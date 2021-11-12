@@ -254,7 +254,7 @@ class Experiment:
             if self.tie_break:
                 S = S + RandScore.like(S) * self.tie_break
             else:
-                warnings.warn("not using RandScore class by default")
+                warnings.warn("disabling RandScore class by default")
 
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
@@ -266,7 +266,7 @@ class Experiment:
                 if self.tie_break:
                     T = T + RandScore.like(T) * self.tie_break
                 else:
-                    warnings.warn("not using RandScore class by default")
+                    warnings.warn("disabling RandScore class by default")
 
             else:
                 T = None
