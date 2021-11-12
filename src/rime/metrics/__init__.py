@@ -56,7 +56,11 @@ def evaluate_user_rec(target_csr, score_mat, C, **kw):
     return evaluate_assigned(target_csr, assigned_csr, score_mat, axis=0)
 
 
-def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None, **kw):
+def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None,
+    relative=False, item_prior=None, **kw):
+    if relative:
+        C = (C * np.asarray(item_prior) / np.mean(item_prior))
+
     if cvx:
         self = CVX(valid_mat, topk, C, **kw)
         assigned_csr = self.fit(valid_mat).transform(score_mat)
@@ -65,6 +69,7 @@ def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None, **k
     else:
         assigned_csr = assign_mtch(score_mat, topk, C, **kw)
     out = evaluate_assigned(target_csr, assigned_csr, score_mat)
-    print('evaluate_mtch prec@{topk}={prec:.1e} item_ppl@{C}={item_ppl:.1e}'.format(
-        **out, **locals()))
+
+    print('evaluate_mtch prec@{topk}={prec:.1e} item_ppl@{mean_C}={item_ppl:.1e}'.format(
+        **out, mean_C=np.mean(C), **locals()))
     return out

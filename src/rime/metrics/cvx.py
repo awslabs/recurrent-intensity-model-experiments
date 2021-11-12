@@ -29,14 +29,14 @@ class CVX:
         self.device = device
 
         if max_epochs is None:
-            max_epochs = 100 if 0<beta<1 else 10 # fewer epochs on trivial cases
+            max_epochs = 100 if 0<min(beta)<=max(beta)<1 else 10 # trivial cases
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type, 0.1 / max(score_mat.shape),
             max_epochs, min_epsilon)
 
-        tb_logger = loggers.TensorBoardLogger(
-            "logs/", name=f"{prefix}-{topk}-{C}-{constraint_type}")
+        tb_logger = loggers.TensorBoardLogger("logs/",
+            name=f"{prefix}-{topk}-{np.mean(C):.1f}-{constraint_type}-{not np.isscalar(C)}")
 
         self._trainer_kw = dict(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
             log_every_n_steps=1,

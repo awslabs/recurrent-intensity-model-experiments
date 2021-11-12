@@ -171,7 +171,9 @@ class Experiment:
         for k, c, constraint_type in confs:
             res = evaluate_mtch(
                 target_csr, score_mat, k, c, constraint_type=constraint_type,
-                cvx=self.cvx, device=self.device, **mtch_kw
+                cvx=self.cvx, device=self.device,
+                item_prior=1+self.D.item_in_test['_hist_len'].values,
+                **mtch_kw
             )
             res.update({'k': k, 'c': c})
             out.append(res)
@@ -254,7 +256,7 @@ class Experiment:
             if self.tie_break:
                 S = S + RandScore.like(S) * self.tie_break
             else:
-                warnings.warn("disabling RandScore class by default")
+                warnings.warn("Disabling RandScore class by default")
 
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
@@ -266,7 +268,7 @@ class Experiment:
                 if self.tie_break:
                     T = T + RandScore.like(T) * self.tie_break
                 else:
-                    warnings.warn("disabling RandScore class by default")
+                    warnings.warn("Disabling RandScore class by default")
 
             else:
                 T = None
@@ -360,6 +362,7 @@ def plot_results(self, logy=True):
         ax.set_ylabel(yname)
         if logy:
             ax.set_yscale('log')
+        ax.axhline(getattr(self, yname), ls='--', color='gray')
     fig.legend(
         df.loc['prec'].unstack().index.values,
         bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,

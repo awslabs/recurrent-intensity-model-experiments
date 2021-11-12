@@ -81,16 +81,12 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
             where u = min{u>=0 : E_y[pi(x,y)] <= alpha(x)}
     find exact u s.t. E_y[pi(x,y)] == alpha(x)
     """
-    if alpha < 0 or alpha > 1:
-        warnings.warn(f"clipping alpha={alpha} to [0, 1]")
-        alpha = np.clip(alpha, 0, 1)
-
-    alpha = torch.as_tensor(alpha, device=s.device)
+    alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
     eps = torch.as_tensor(eps, device=s.device)
 
     z = alpha.log() - (1-alpha).log()
 
-    if alpha == 0 or alpha == 1: # z = +-infinity
+    if alpha.amax() <= 0 or alpha.amin() >= 1: # z = +-infinity
         u = -z * torch.ones_like(s[:, 0])
         return u, 0
 
