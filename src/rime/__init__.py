@@ -11,7 +11,7 @@ from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson
     LightFM_BPR, ALS, LogisticMF)
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
-from rime.util import _argsort, cached_property
+from rime.util import _argsort, cached_property, RandScore
 
 from pkg_resources import get_distribution, DistributionNotFound
 try:
@@ -87,6 +87,7 @@ class Experiment:
         device="cuda" if torch.cuda.is_available() else "cpu",
         cvx=False,
         online=False,
+        tie_break=0,
         **mtch_kw
         ):
         self.D = D
@@ -103,6 +104,7 @@ class Experiment:
                 cvx = True
             assert V is not None, "online cvx is trained with explicit valid_mat"
 
+        self.tie_break = tie_break
         self.mtch_kw = mtch_kw
 
         self.results = ExperimentResult(
@@ -249,12 +251,23 @@ class Experiment:
             if self.D.prior_score is not None:
                 S = S + self.D.prior_score
 
+            if self.tie_break:
+                S = S + RandScore.like(S) * self.tie_break
+            else:
+                warnings.warn("not using rand_score by default")
+
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
                 T = self.transform(model, V)
 
                 if V.prior_score is not None:
                     T = T + V.prior_score
+
+                if self.tie_break:
+                    T = T + RandScore.like(T) * self.tie_break
+                else:
+                    warnings.warn("not using rand_score by default")
+
             else:
                 T = None
             self.metrics_update(model, S, T)

@@ -175,6 +175,46 @@ class LazyScoreExpression(LazyScoreBase):
 
 
 @dataclasses.dataclass(repr=False)
+class RandScore(LazyScoreBase):
+    """ add random noise to break ties """
+    row_seeds: list
+    col_seeds: list
+
+    @property
+    def shape(self):
+        return (len(self.row_seeds), len(self.col_seeds))
+
+    @classmethod
+    def like(cls, other):
+        return cls(np.arange(other.shape[0]), np.arange(other.shape[1]))
+
+    def eval(self, device=None):
+        d1 = len(self.col_seeds)
+        if device is None:
+            return np.vstack([
+                np.random.RandomState(int(s)).rand(d1)
+                for s in self.row_seeds])
+        else:
+            return torch.vstack([
+                torch.rand(d1, device=device,
+                    generator=torch.Generator(device).manual_seed(int(s)))
+                for s in self.row_seeds])
+
+    @property
+    def T(self):
+        return self.__class__(self.col_seeds, self.row_seeds)
+
+    def __getitem__(self, key):
+        if np.isscalar(key):
+            key = [key]
+        return self.__class__(self.row_seeds[key], self.col_seeds)
+
+    @classmethod
+    def collate_fn(cls, batch):
+        return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds)
+
+
+@dataclasses.dataclass(repr=False)
 class LowRankDataFrame(LazyScoreBase):
     """ mimics a pandas dataframe with exponentiated low-rank structures
     """
