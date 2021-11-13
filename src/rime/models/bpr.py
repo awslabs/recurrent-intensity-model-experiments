@@ -8,8 +8,9 @@ from .lightfm_bpr import LightFM_BPR
 
 
 class _BPR(_LitValidated):
-    def __init__(self, user_proposal, item_proposal, no_components,
-        n_negatives=10, lr=1, weight_decay=1e-5):
+    def __init__(self, user_proposal, item_proposal,
+        user_rec=True, item_rec=True, no_components=32,
+        n_negatives=10, lr=1, weight_decay=5e-6):
         super().__init__()
         self.register_buffer("user_proposal", torch.as_tensor(user_proposal))
         self.register_buffer("item_proposal", torch.as_tensor(item_proposal))
@@ -20,6 +21,8 @@ class _BPR(_LitValidated):
         self.item_bias_vec = torch.nn.Embedding(len(item_proposal), 1)
         self.log_sigmoid = torch.nn.LogSigmoid()
 
+        self.user_rec = user_rec
+        self.item_rec = item_rec
         self.n_negatives = n_negatives
         self.lr = lr
         self.weight_decay = weight_decay
@@ -30,17 +33,22 @@ class _BPR(_LitValidated):
 
     def training_step(self, batch, batch_idx):
         i, j = batch.T
-        n_shape = (self.n_negatives, len(batch))
-        ni = torch.multinomial(self.user_proposal, np.prod(n_shape), True).reshape(n_shape)
-        nj = torch.multinomial(self.item_proposal, np.prod(n_shape), True).reshape(n_shape)
-
         pos_score = self._bilinear_score(i, j)
-        ni_score = self._bilinear_score(ni, j)
-        nj_score = self._bilinear_score(i, nj)
 
-        loglik = torch.stack([self.log_sigmoid(pos_score - ni_score),
-                              self.log_sigmoid(pos_score - nj_score)])
-        loss = -loglik.mean()
+        n_shape = (self.n_negatives, len(batch))
+        loglik = []
+
+        if self.user_rec:
+            ni = torch.multinomial(self.user_proposal, np.prod(n_shape), True).reshape(n_shape)
+            ni_score = self._bilinear_score(ni, j)
+            loglik.append(self.log_sigmoid(pos_score - ni_score))
+
+        if self.item_rec:
+            nj = torch.multinomial(self.item_proposal, np.prod(n_shape), True).reshape(n_shape)
+            nj_score = self._bilinear_score(i, nj)
+            loglik.append(self.log_sigmoid(pos_score - nj_score))
+
+        loss = -torch.stack(loglik).mean()
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
@@ -55,8 +63,12 @@ class _BPR(_LitValidated):
 
 
 class BPR(LightFM_BPR):
-    def __init__(self, no_components=32, batch_size=10000, max_epochs=50):
-        self.__dict__.update(**locals())
+    def __init__(self, user_rec=True, item_rec=True, batch_size=10000, max_epochs=50, **kw):
+        self._model_kw = {"user_rec": user_rec, "item_rec": item_rec}
+        self._model_kw.update(kw)
+
+        self.batch_size = batch_size
+        self.max_epochs = max_epochs
         self._transposed=False
 
     @empty_cache_on_exit
@@ -73,7 +85,7 @@ class BPR(LightFM_BPR):
         user_proposal = (D.user_df['_hist_len'].values + 0.1) ** 0.5
         item_proposal = (D.item_df['_hist_len'].values + 0.1) ** 0.5
 
-        model = _BPR(user_proposal, item_proposal, self.no_components)
+        model = _BPR(user_proposal, item_proposal, **self._model_kw)
 
         trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
@@ -90,7 +102,7 @@ class BPR(LightFM_BPR):
         self.bpr_model = argparse.Namespace(
             user_embeddings=model.user_encoder.weight.detach().cpu().numpy(),
             item_embeddings=model.item_encoder.weight.detach().cpu().numpy(),
-            user_biases=model.user_bias_vec.weight.detach().cpu().numpy().ravel(),
-            item_biases=model.item_bias_vec.weight.detach().cpu().numpy().ravel(),
+            user_biases=model.user_bias_vec.weight.squeeze(-1).detach().cpu().numpy(),
+            item_biases=model.item_bias_vec.weight.squeeze(-1).detach().cpu().numpy(),
             )
         return self
