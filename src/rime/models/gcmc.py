@@ -11,32 +11,47 @@ import dgl.function as fn
 
 class _GCMC(_LitValidated):
     def __init__(self, user_prior, item_prior, no_components,
-        n_negatives=10, lr=1, weight_decay=1e-5):
+        n_negatives=10, lr=0.1, weight_decay=1e-5):
         super().__init__()
         self.register_buffer("user_prior", torch.as_tensor(user_prior))
         self.register_buffer("item_prior", torch.as_tensor(item_prior))
 
         self.item_encoder = torch.nn.Embedding(len(item_prior), no_components)
         self.item_bias_vec = torch.nn.Embedding(len(item_prior), 1)
+        self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components, "none")
         self.log_sigmoid = torch.nn.LogSigmoid()
-        self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components)
 
         self.n_negatives = n_negatives
         self.lr = lr
         self.weight_decay = weight_decay
 
-        # self.G = G        # set G for training and inference separately
-        # self.G.nodes['item'].data['weight'] = self.item_encoder.weight
+        self.init_weights()
+
+    def init_weights(self):
+        initrange = 0.1
+        torch.nn.init.uniform_(self.item_encoder.weight, -initrange, initrange)
+        torch.nn.init.zeros_(self.item_bias_vec.weight)
+        torch.nn.init.uniform_(self.conv.weight, -initrange, initrange)
+        torch.nn.init.zeros_(self.conv.bias)
 
     def user_encoder(self, i, G=None):
         if G is None:
             G = self.G
+        G = G.to(i.device)
+
         out = self.conv(G.to(i.device), self.item_encoder.weight)
+
+        # G.nodes['item'].data['h'] = self.item_encoder.weight
+        # G.update_all(fn.copy_src("h", "h"), fn.sum("h", "h"))
+        # G.nodes['item'].data.pop('h')
+        # out = G.nodes['user'].data.pop('h')
+
         # self.G.update_all()
         # sampler = dgl.dataloading.MultiLayerFullNeighborSampler(1)
         # block, *_ = sampler.sample_blocks(self.G, {'user': i.ravel()})
         # out = conv(block, block.nodes['item_src'].data['weight'])
         # out = out.view((*i.shape, -1))
+
         return out[i]
 
     def _bilinear_score(self, i, j):
@@ -139,6 +154,7 @@ class GCMC:
         trainer.fit(model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=num_workers),
             DataLoader(valid_set, self.batch_size, num_workers=num_workers))
+        delattr(model, "G")
 
         best_model_path = model._checkpoint.best_model_path
         best_model_score = model._checkpoint.best_model_score
@@ -149,8 +165,6 @@ class GCMC:
         self.item_embeddings = model.item_encoder.weight.detach().cpu().numpy()
         self.item_biases = model.item_bias_vec.weight.detach().cpu().numpy().ravel()
         self.model = model
-        delattr(model, "G")
-
         return self
 
     def transform(self, D):

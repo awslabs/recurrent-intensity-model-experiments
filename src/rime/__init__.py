@@ -236,6 +236,9 @@ class Experiment:
         if model == "BPR":
             return self._bpr.transform(D)
 
+        if model == "GCMC":
+            return self._gcmc.transform(D)
+
         if model == "ALS":
             return self._als.transform(D)
 
@@ -327,6 +330,10 @@ class Experiment:
     @cached_property
     def _bpr(self):
         return BPR().fit(self.D.training_data)
+
+    @cached_property
+    def _gcmc(self):
+        return GCMC(self.D.training_data.item_df).fit(self.V)
 
     @cached_property
     def _als(self):
