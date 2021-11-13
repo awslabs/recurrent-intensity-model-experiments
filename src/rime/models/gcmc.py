@@ -14,7 +14,7 @@ except ImportError:
 
 class _GCMC(_BPR, _LitValidated):
     """ module to compute user RFM embedding. change default lr=0.1 """
-    def __init__(self, user_proposal, item_proposal, no_components,
+    def __init__(self, user_proposal, item_proposal, no_components=32,
         n_negatives=10, lr=0.1, weight_decay=1e-5,
         recency_boundaries=[0.1, 0.3, 1, 3, 10]):
         super(_LitValidated, self).__init__()
@@ -28,6 +28,8 @@ class _GCMC(_BPR, _LitValidated):
         self.recency_encoder = torch.nn.Embedding(len(recency_boundaries)+1, 1)
         self.log_sigmoid = torch.nn.LogSigmoid()
 
+        self.user_rec = True
+        self.item_rec = True
         self.n_negatives = n_negatives
         self.lr = lr
         self.weight_decay = weight_decay
@@ -62,10 +64,12 @@ class _GCMC(_BPR, _LitValidated):
 
 
 class GCMC:
-    def __init__(self, item_df, no_components=32, batch_size=10000, max_epochs=50):
+    def __init__(self, item_df, batch_size=10000, max_epochs=50, **kw):
         """ item_df = D.training_data.item_df """
-        self.__dict__.update(**locals())
         self._padded_item_list = [None] + item_df.index.tolist()
+        self.batch_size = batch_size
+        self.max_epochs = max_epochs
+        self._model_kw = kw.copy()
 
     def _extract_labels(self, V):
         V = V.reindex(self._padded_item_list, axis=1)
@@ -111,7 +115,7 @@ class GCMC:
         else:
             train_set = valid_set = dataset
 
-        model = _GCMC(user_proposal, item_proposal, self.no_components)
+        model = _GCMC(user_proposal, item_proposal, **self._model_kw)
         trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
