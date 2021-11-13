@@ -193,6 +193,8 @@ def create_matrix(event_df, user_index, item_index, return_type='csr'):
         return csr
     elif return_type == 'df':
         return pd.DataFrame.sparse.from_spmatrix(csr, user_index, item_index)
+    elif return_type == 'ij':
+        return (i, j)
 
 
 def split_by_time(user_df, test_start, valid_start):

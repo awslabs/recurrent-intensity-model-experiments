@@ -3,21 +3,21 @@ from torch.utils.data import DataLoader, random_split
 from torch.distributions.categorical import Categorical
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import _LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit
+from ..util import _LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, create_matrix
 from .lightfm_bpr import LightFM_BPR
 
 
 class _BPR(_LitValidated):
-    def __init__(self, user_prop, item_prop, no_components,
+    def __init__(self, user_proposal, item_proposal, no_components,
         n_negatives=10, lr=1, weight_decay=1e-5):
         super().__init__()
-        self.register_buffer("user_prop", torch.as_tensor(user_prop))
-        self.register_buffer("item_prop", torch.as_tensor(item_prop))
+        self.register_buffer("user_proposal", torch.as_tensor(user_proposal))
+        self.register_buffer("item_proposal", torch.as_tensor(item_proposal))
 
-        self.user_encoder = torch.nn.Embedding(len(user_prop), no_components)
-        self.item_encoder = torch.nn.Embedding(len(item_prop), no_components)
-        self.user_bias_vec = torch.nn.Embedding(len(user_prop), 1)
-        self.item_bias_vec = torch.nn.Embedding(len(item_prop), 1)
+        self.user_encoder = torch.nn.Embedding(len(user_proposal), no_components)
+        self.item_encoder = torch.nn.Embedding(len(item_proposal), no_components)
+        self.user_bias_vec = torch.nn.Embedding(len(user_proposal), 1)
+        self.item_bias_vec = torch.nn.Embedding(len(item_proposal), 1)
         self.log_sigmoid = torch.nn.LogSigmoid()
 
         self.n_negatives = n_negatives
@@ -31,8 +31,8 @@ class _BPR(_LitValidated):
     def training_step(self, batch, batch_idx):
         i, j = batch.T
         n_shape = (self.n_negatives, len(batch))
-        ni = torch.multinomial(self.user_prop, np.prod(n_shape), True).reshape(n_shape)
-        nj = torch.multinomial(self.item_prop, np.prod(n_shape), True).reshape(n_shape)
+        ni = torch.multinomial(self.user_proposal, np.prod(n_shape), True).reshape(n_shape)
+        nj = torch.multinomial(self.item_proposal, np.prod(n_shape), True).reshape(n_shape)
 
         pos_score = self._bilinear_score(i, j)
         ni_score = self._bilinear_score(ni, j)
@@ -61,31 +61,25 @@ class BPR(LightFM_BPR):
 
     @empty_cache_on_exit
     def fit(self, D):
-        user2ind = {k:i for i,k in enumerate(D.user_df.index)}
-        item2ind = {k:i for i,k in enumerate(D.item_df.index)}
-        dataset = np.array([
-            [user2ind[k] for k in D.event_df['USER_ID']],
-            [item2ind[k] for k in D.event_df['ITEM_ID']],
-            ]).T
+        ij_target = create_matrix(D.event_df, D.user_df.index, D.item_df.index, 'ij')
+        dataset = np.array(ij_target, dtype=int).T
 
         N = len(dataset)
         if len(dataset) > 5:
             train_set, valid_set = random_split(dataset, [N*4//5, (N - N*4//5)])
-            num_workers = 4
         else:
             train_set = valid_set = dataset
-            num_workers = 0
 
-        user_prop = (D.user_df['_hist_len'].values + 0.1) ** 0.5
-        item_prop = (D.item_df['_hist_len'].values + 0.1) ** 0.5
+        user_proposal = (D.user_df['_hist_len'].values + 0.1) ** 0.5
+        item_proposal = (D.item_df['_hist_len'].values + 0.1) ** 0.5
 
-        model = _BPR(user_prop, item_prop, self.no_components)
+        model = _BPR(user_proposal, item_proposal, self.no_components)
 
         trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
         trainer.fit(model,
-            DataLoader(train_set, self.batch_size, shuffle=True, num_workers=num_workers),
-            DataLoader(valid_set, self.batch_size, num_workers=num_workers))
+            DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N>1e4)*4),
+            DataLoader(valid_set, self.batch_size, num_workers=(N>1e4)*4))
 
         best_model_path = model._checkpoint.best_model_path
         best_model_score = model._checkpoint.best_model_score

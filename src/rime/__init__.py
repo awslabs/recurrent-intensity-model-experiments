@@ -80,8 +80,9 @@ class Experiment:
             "RNN", "RNN-Pop",
             "RNN-Hawkes", "RNN-HP",
             "EMA", "RNN-EMA", "Transformer-EMA",
+            "BPR", "GCMC",
             "ALS", "LogisticMF",
-            "BPR", "BPR-Item", "BPR-User",
+            "BPR-Item", "BPR-User",
             ],
         model_hyps={},
         device="cuda" if torch.cuda.is_available() else "cpu",
@@ -333,7 +334,11 @@ class Experiment:
 
     @cached_property
     def _gcmc(self):
-        return GCMC(self.D.training_data.item_df).fit(self.V)
+        if self.V is not None:
+            return GCMC(self.D.training_data.item_df).fit(self.V)
+        else:
+            warnings.warn("Degenerating GCMC to BPR when self.V is None")
+            return self._bpr
 
     @cached_property
     def _als(self):
