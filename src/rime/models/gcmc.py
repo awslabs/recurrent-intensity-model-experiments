@@ -7,7 +7,7 @@ from ..util import (_LitValidated, _ReduceLRLoadCkpt,
     empty_cache_on_exit, create_matrix, create_second_order_dataframe)
 from .bpr import BPR, _BPR
 try:
-    import dgl
+    import dgl, dgl.function as fn
 except ImportError:
     warnings.warn("GCMC requires dgl package")
 
@@ -52,7 +52,10 @@ class _GCMC(_BPR, _LitValidated):
     def user_bias_vec(self, i, G=None):
         if G is None:
             G = self.G
-        user_recency = G.nodes['user'].data['recency'].to(i.device)
+        G = G.to(i.device)
+
+        G.update_all(lambda x: None, fn.max('t', 'last_t'))
+        user_recency = G.nodes['user'].data['test_t'] - G.nodes['user'].data['last_t']
 
         recency_buckets = torch.bucketize(user_recency, self.recency_boundaries)
         return self.recency_encoder(recency_buckets)[i]
@@ -69,23 +72,33 @@ class GCMC:
         target_coo = V.target_csr.tocoo()
         i, j = target_coo.row, target_coo.col
 
-        user_proposal = (V.user_in_test['_hist_len'].values + 0.1) ** 0.5
-        item_proposal = (V.item_in_test['_hist_len'].values + 0.1) ** 0.5
+        user_proposal = (np.ravel(target_coo.sum(axis=1)) + 0.1) ** 0.5
+        item_proposal = (np.ravel(target_coo.sum(axis=0)) + 0.1) ** 0.5
         return (i, j), user_proposal, item_proposal
 
     def _extract_features(self, D):
+        """ create item -> user graph """
         D = D.reindex(self._padded_item_list, axis=1)
-        i, j = create_matrix(D.training_data.event_df,
-            D.user_in_test.index, self._padded_item_list, 'ij')
+        event_df = D.training_data.event_df[
+            D.training_data.event_df['USER_ID'].isin(set(D.user_in_test.index)) &
+            D.training_data.event_df['ITEM_ID'].isin(set(D.item_in_test.index))
+        ]
+        i, j = create_matrix(event_df, D.user_in_test.index, D.item_in_test.index, 'ij')
+        t = event_df['TIMESTAMP'].values / D.horizon
 
-        n_users = len(D.user_in_test)
-        i = np.hstack([i, np.arange(n_users)])
-        j = np.hstack([j, np.zeros_like(j, shape=n_users)]) # pad item 0 to every user
+        i = np.hstack([i, np.arange(len(D.user_in_test.index))])
+        j = np.hstack([j, np.zeros_like(j, shape=len(D.user_in_test.index))])
+        t = np.hstack([t, -np.inf * np.ones_like(t, shape=len(D.user_in_test.index))])
 
-        user_recency = D.user_in_test['_timestamps'].apply(
-            lambda x: (x[-1]-x[-2]) / D.horizon if len(x)>1 else np.inf
-            )
-        return (i, j), user_recency
+        G = dgl.heterograph(
+            {('user','source','item'): (i, j)},
+            {'user': len(D.user_in_test.index), 'item': len(D.item_in_test.index)}
+        ).reverse() # item -> user
+        G.edata['t'] = torch.as_tensor(t)
+
+        user_test_time = D.user_in_test['_timestamps'].apply(lambda x: x[-1]).values
+        G.nodes['user'].data['test_t'] = torch.as_tensor(user_test_time / D.horizon)
+        return G, D.user_in_test.index
 
     @empty_cache_on_exit
     def fit(self, V):
@@ -102,13 +115,7 @@ class GCMC:
         trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
-        ij_source, user_recency = self._extract_features(V)
-        G = dgl.heterograph(
-            {('user','source','item'): ij_source,},
-            {"user": len(user_recency), "item": len(self._padded_item_list)}
-            ).reverse()
-        G.nodes['user'].data['recency'] = torch.as_tensor(user_recency.values)
-
+        G, _ = self._extract_features(V)
         model.G = G
         trainer.fit(model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N>1e4)*4),
@@ -127,20 +134,13 @@ class GCMC:
         return self
 
     def transform(self, D):
-        ij_source, user_recency = self._extract_features(D)
-
-        G = dgl.heterograph(
-            {('user','source','item'): ij_source,},
-            {"user": len(user_recency), "item": len(self._padded_item_list)}
-            ).reverse()
-        G.nodes['user'].data['recency'] = torch.as_tensor(user_recency.values)
-
+        G, user_index = self._extract_features(D)
         i = torch.arange(G.num_nodes('user'))
         user_embeddings = self.model.user_encoder(i, G).detach().cpu().numpy()
         user_biases = self.model.user_bias_vec(i, G).detach().cpu().numpy().ravel()
 
         S = create_second_order_dataframe(
             user_embeddings, self.item_embeddings, user_biases, self.item_biases,
-            user_recency.index, self._padded_item_list, 'sigmoid')
+            user_index, self._padded_item_list, 'sigmoid')
 
         return S.reindex(D.item_in_test.index, axis=1)
