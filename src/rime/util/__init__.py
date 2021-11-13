@@ -120,8 +120,8 @@ assign_topk = _assign_topk
 @empty_cache_on_exit
 def _argsort(S, tie_breaker=1e-10, device="cpu"):
     print(f"_argsort {S.size:,} scores on device {device}; ", end="")
-    if hasattr(S, "batch_size") and S.batch_size * 2 < S.shape[0]:
-        warnings.warn(f"switching numpy.argsort due to {S.batch_size}*2<{S.shape[0]}")
+    if hasattr(S, "batch_size") and S.batch_size < S.shape[0]:
+        warnings.warn(f"switching numpy.argsort due to {S.batch_size}<{S.shape[0]}")
         device = None
 
     if hasattr(S, "eval"):

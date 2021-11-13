@@ -8,16 +8,16 @@ from .lightfm_bpr import LightFM_BPR
 
 
 class _BPR(_LitValidated):
-    def __init__(self, user_prior, item_prior, no_components,
+    def __init__(self, user_prop, item_prop, no_components,
         n_negatives=10, lr=1, weight_decay=1e-5):
         super().__init__()
-        self.register_buffer("user_prior", torch.as_tensor(user_prior))
-        self.register_buffer("item_prior", torch.as_tensor(item_prior))
+        self.register_buffer("user_prop", torch.as_tensor(user_prop))
+        self.register_buffer("item_prop", torch.as_tensor(item_prop))
 
-        self.user_encoder = torch.nn.Embedding(len(user_prior), no_components)
-        self.item_encoder = torch.nn.Embedding(len(item_prior), no_components)
-        self.user_bias_vec = torch.nn.Embedding(len(user_prior), 1)
-        self.item_bias_vec = torch.nn.Embedding(len(item_prior), 1)
+        self.user_encoder = torch.nn.Embedding(len(user_prop), no_components)
+        self.item_encoder = torch.nn.Embedding(len(item_prop), no_components)
+        self.user_bias_vec = torch.nn.Embedding(len(user_prop), 1)
+        self.item_bias_vec = torch.nn.Embedding(len(item_prop), 1)
         self.log_sigmoid = torch.nn.LogSigmoid()
 
         self.n_negatives = n_negatives
@@ -31,8 +31,8 @@ class _BPR(_LitValidated):
     def training_step(self, batch, batch_idx):
         i, j = batch.T
         n_shape = (self.n_negatives, len(batch))
-        ni = torch.multinomial(self.user_prior, np.prod(n_shape), True).reshape(n_shape)
-        nj = torch.multinomial(self.item_prior, np.prod(n_shape), True).reshape(n_shape)
+        ni = torch.multinomial(self.user_prop, np.prod(n_shape), True).reshape(n_shape)
+        nj = torch.multinomial(self.item_prop, np.prod(n_shape), True).reshape(n_shape)
 
         pos_score = self._bilinear_score(i, j)
         ni_score = self._bilinear_score(ni, j)
@@ -76,10 +76,10 @@ class BPR(LightFM_BPR):
             train_set = valid_set = dataset
             num_workers = 0
 
-        user_prior = (D.user_df['_hist_len'].values + 0.1) ** 0.5
-        item_prior = (D.item_df['_hist_len'].values + 0.1) ** 0.5
+        user_prop = (D.user_df['_hist_len'].values + 0.1) ** 0.5
+        item_prop = (D.item_df['_hist_len'].values + 0.1) ** 0.5
 
-        model = _BPR(user_prior, item_prior, self.no_components)
+        model = _BPR(user_prop, item_prop, self.no_components)
 
         trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])

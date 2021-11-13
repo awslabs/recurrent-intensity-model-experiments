@@ -10,15 +10,18 @@ import dgl.function as fn
 
 
 class _GCMC(_LitValidated):
-    def __init__(self, user_prior, item_prior, no_components,
-        n_negatives=10, lr=0.1, weight_decay=1e-5):
+    """ module to compute user RFM embedding. register G and user_recency before calling """
+    def __init__(self, user_prop, item_prop, no_components,
+        n_negatives=10, lr=0.1, weight_decay=1e-5, recency_boundaries=[0.1, 0.3, 1, 3, 10]):
         super().__init__()
-        self.register_buffer("user_prior", torch.as_tensor(user_prior))
-        self.register_buffer("item_prior", torch.as_tensor(item_prior))
+        self.register_buffer("user_prop", torch.as_tensor(user_prop))
+        self.register_buffer("item_prop", torch.as_tensor(item_prop))
+        self.register_buffer("recency_boundaries", torch.as_tensor(recency_boundaries))
 
-        self.item_encoder = torch.nn.Embedding(len(item_prior), no_components)
-        self.item_bias_vec = torch.nn.Embedding(len(item_prior), 1)
+        self.item_encoder = torch.nn.Embedding(len(item_prop), no_components)
+        self.item_bias_vec = torch.nn.Embedding(len(item_prop), 1)
         self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components, "none")
+        self.recency_encoder = torch.nn.Embedding(len(recency_boundaries)+1, 1)
         self.log_sigmoid = torch.nn.LogSigmoid()
 
         self.n_negatives = n_negatives
@@ -39,30 +42,27 @@ class _GCMC(_LitValidated):
             G = self.G
         G = G.to(i.device)
 
-        out = self.conv(G.to(i.device), self.item_encoder.weight)
-
-        # G.nodes['item'].data['h'] = self.item_encoder.weight
-        # G.update_all(fn.copy_src("h", "h"), fn.sum("h", "h"))
-        # G.nodes['item'].data.pop('h')
-        # out = G.nodes['user'].data.pop('h')
-
-        # self.G.update_all()
-        # sampler = dgl.dataloading.MultiLayerFullNeighborSampler(1)
-        # block, *_ = sampler.sample_blocks(self.G, {'user': i.ravel()})
-        # out = conv(block, block.nodes['item_src'].data['weight'])
-        # out = out.view((*i.shape, -1))
-
+        out = self.conv(G, self.item_encoder.weight)
         return out[i]
+
+    def user_bias_vec(self, i, G=None):
+        if G is None:
+            G = self.G
+        user_recency = G.nodes['user'].data['recency'].to(i.device)
+
+        recency_buckets = torch.bucketize(user_recency, self.recency_boundaries)
+        return self.recency_encoder(recency_buckets)[i]
 
     def _bilinear_score(self, i, j):
         score = (self.user_encoder(i) * self.item_encoder(j)).sum(-1)
+        score = score + self.user_bias_vec(i).squeeze(-1)
         return score + self.item_bias_vec(j).squeeze(-1)
 
     def training_step(self, batch, batch_idx):
         i, j = batch.T
         n_shape = (self.n_negatives, len(batch))
-        ni = torch.multinomial(self.user_prior, np.prod(n_shape), True).reshape(n_shape)
-        nj = torch.multinomial(self.item_prior, np.prod(n_shape), True).reshape(n_shape)
+        ni = torch.multinomial(self.user_prop, np.prod(n_shape), True).reshape(n_shape)
+        nj = torch.multinomial(self.item_prop, np.prod(n_shape), True).reshape(n_shape)
 
         pos_score = self._bilinear_score(i, j)
         ni_score = self._bilinear_score(ni, j)
@@ -90,16 +90,15 @@ class GCMC:
         self.__dict__.update(**locals())
         self._padded_item_list = [None] + item_df.index.tolist()
 
-
     def _extract_labels(self, D):
         D = D.reindex(self._padded_item_list, axis=1)
         target_coo = D.target_csr.tocoo()
         i = [i for i,d in zip(target_coo.row, target_coo.data) for k in range(int(d))]
         j = [j for j,d in zip(target_coo.col, target_coo.data) for k in range(int(d))]
 
-        user_prior = (D.user_in_test['_hist_len'].values + 0.1) ** 0.5
-        item_prior = (D.item_in_test['_hist_len'].values + 0.1) ** 0.5
-        return (i, j), user_prior, item_prior
+        user_prop = (D.user_in_test['_hist_len'].values + 0.1) ** 0.5
+        item_prop = (D.item_in_test['_hist_len'].values + 0.1) ** 0.5
+        return (i, j), user_prop, item_prop
 
     def _extract_features(self, D):
         D = D.reindex(self._padded_item_list, axis=1)
@@ -109,51 +108,45 @@ class GCMC:
         event_df = D.training_data.event_df[
             D.training_data.event_df['USER_ID'].isin(user2ind) &
             D.training_data.event_df['ITEM_ID'].isin(item2ind)
-        ].join(
-            D.user_in_test['_timestamps']
-                .apply(lambda x: x[-1]).to_frame("TEST_START_TIME"),
-            on='USER_ID'
-            )
+        ]
         i = [user2ind[k] for k in event_df['USER_ID']]
         j = [item2ind[k] for k in event_df['ITEM_ID']]
-        dt = (event_df['TEST_START_TIME'] - event_df['TIMESTAMP']).values / D.horizon
 
         n_users = len(D.user_in_test)
         i = np.hstack([i, np.arange(n_users)])
         j = np.hstack([j, np.zeros_like(j, shape=n_users)]) # padding items
-        dt = np.hstack([dt, np.ones_like(dt, shape=n_users) * np.inf])
-        return (i, j), dt, D.user_in_test.index
+
+        user_recency = D.user_in_test['_timestamps'].apply(
+            lambda x: x[-1]-x[-2] if len(x)>1 else np.inf
+            )
+        return (i, j), user_recency
 
     @empty_cache_on_exit
     def fit(self, V):
-        ij_target, user_prior, item_prior = self._extract_labels(V)
-        ij_source, dt, user_index = self._extract_features(V)
-
-        G = dgl.heterograph(
-            {('user','source','item'): ij_source,},
-            {"user": len(user_index), "item": len(self._padded_item_list)}
-            ).reverse()
-        G.edata['dt'] = torch.as_tensor(dt)
-        G.update_all(lambda x: None, fn.min("dt", "min_dt"))
-
-        model = _GCMC(user_prior, item_prior, self.no_components)
+        ij_target, user_prop, item_prop = self._extract_labels(V)
 
         dataset = np.array(ij_target, dtype=int).T
         N = len(dataset)
         if len(dataset) > 5:
             train_set, valid_set = random_split(dataset, [N*4//5, (N - N*4//5)])
-            num_workers = 4
         else:
             train_set = valid_set = dataset
-            num_workers = 0
 
+        model = _GCMC(user_prop, item_prop, self.no_components)
         trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
+        ij_source, user_recency = self._extract_features(V)
+        G = dgl.heterograph(
+            {('user','source','item'): ij_source,},
+            {"user": len(user_recency), "item": len(self._padded_item_list)}
+            ).reverse()
+        G.nodes['user'].data['recency'] = torch.as_tensor(user_recency.values)
+
         model.G = G
         trainer.fit(model,
-            DataLoader(train_set, self.batch_size, shuffle=True, num_workers=num_workers),
-            DataLoader(valid_set, self.batch_size, num_workers=num_workers))
+            DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N>5)*4),
+            DataLoader(valid_set, self.batch_size, num_workers=(N>5)*4))
         delattr(model, "G")
 
         best_model_path = model._checkpoint.best_model_path
@@ -168,20 +161,20 @@ class GCMC:
         return self
 
     def transform(self, D):
-        ij_source, dt, user_index = self._extract_features(D)
+        ij_source, user_recency = self._extract_features(D)
 
         G = dgl.heterograph(
             {('user','source','item'): ij_source,},
-            {"user": len(user_index), "item": len(self._padded_item_list)}
+            {"user": len(user_recency), "item": len(self._padded_item_list)}
             ).reverse()
-        G.edata['dt'] = torch.as_tensor(dt)
-        G.update_all(lambda x: None, fn.min("dt", "min_dt"))
+        G.nodes['user'].data['recency'] = torch.as_tensor(user_recency.values)
 
         i = torch.arange(G.num_nodes('user'))
         user_embeddings = self.model.user_encoder(i, G).detach().cpu().numpy()
+        user_biases = self.model.user_bias_vec(i, G).detach().cpu().numpy().ravel()
 
         S = create_second_order_dataframe(
-            user_embeddings, self.item_embeddings, None, self.item_biases,
-            user_index, self._padded_item_list, 'sigmoid')
+            user_embeddings, self.item_embeddings, user_biases, self.item_biases,
+            user_recency.index, self._padded_item_list, 'sigmoid')
 
         return S.reindex(D.item_in_test.index, axis=1)
