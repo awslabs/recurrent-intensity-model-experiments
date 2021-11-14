@@ -10,15 +10,20 @@ from .lightfm_bpr import LightFM_BPR
 class _BPR(_LitValidated):
     def __init__(self, user_proposal, item_proposal,
         user_rec=True, item_rec=True, no_components=32,
-        n_negatives=10, lr=1, weight_decay=5e-6):
+        n_negatives=10, lr=1, weight_decay=5e-6,
+        user_encoder_name="user_encoder", user_bias_vec_name="user_bias_vec"):
         super().__init__()
         self.register_buffer("user_proposal", torch.as_tensor(user_proposal))
         self.register_buffer("item_proposal", torch.as_tensor(item_proposal))
 
-        self.user_encoder = torch.nn.Embedding(len(user_proposal), no_components)
-        self.item_encoder = torch.nn.Embedding(len(item_proposal), no_components)
-        self.user_bias_vec = torch.nn.Embedding(len(user_proposal), 1)
-        self.item_bias_vec = torch.nn.Embedding(len(item_proposal), 1)
+        n_users = user_proposal.shape[-1]
+        n_items = item_proposal.shape[-1]
+
+        setattr(self, user_encoder_name, torch.nn.Embedding(n_users, no_components))
+        setattr(self, user_bias_vec_name, torch.nn.Embedding(n_users, 1))
+
+        self.item_encoder = torch.nn.Embedding(n_items, no_components)
+        self.item_bias_vec = torch.nn.Embedding(n_items, 1)
         self.log_sigmoid = torch.nn.LogSigmoid()
 
         self.user_rec = user_rec

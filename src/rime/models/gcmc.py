@@ -14,32 +14,21 @@ except ImportError:
 
 class _GCMC(_BPR, _LitValidated):
     """ module to compute user RFM embedding. change default lr=0.1 """
-    def __init__(self, user_proposal, item_proposal, no_components=32,
-        n_negatives=10, lr=0.1, weight_decay=1e-5,
+    def __init__(self, *args, no_components=32,
+        lr=0.1, weight_decay=1e-5,
         recency_boundaries=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
-        user_graph_ratio=0.8):
-        super(_LitValidated, self).__init__()
-        self.register_buffer("user_proposal", torch.as_tensor(user_proposal))
-        self.register_buffer("item_proposal", torch.as_tensor(item_proposal))
+        user_graph_ratio=0.8,
+        **kw):
+
+        super().__init__(*args, lr=lr, weight_decay=weight_decay,
+            user_encoder_name="user_id_encoder", user_bias_vec_name="user_id_bias_vec",
+            **kw)
+
         self.register_buffer("recency_boundaries",
             torch.as_tensor(recency_boundaries) * horizon)
 
-        n_users = user_proposal.shape[-1]
-        n_items = item_proposal.shape[-1]
-
-        self.user_id_encoder = torch.nn.Embedding(n_users, no_components)
-        self.item_encoder = torch.nn.Embedding(n_items, no_components)
-        self.user_id_bias_vec = torch.nn.Embedding(n_users, 1)
-        self.item_bias_vec = torch.nn.Embedding(n_items, 1)
         self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components, "none")
         self.recency_encoder = torch.nn.Embedding(len(recency_boundaries)+1, 1)
-        self.log_sigmoid = torch.nn.LogSigmoid()
-
-        self.user_rec = True
-        self.item_rec = True
-        self.n_negatives = n_negatives
-        self.lr = lr
-        self.weight_decay = weight_decay
         self.user_graph_ratio = user_graph_ratio
 
         self.init_weights()
@@ -81,7 +70,7 @@ class _GCMC(_BPR, _LitValidated):
         for s, (G, u_p, i_p) in enumerate(zip(
             self.G_list, self.user_proposal, self.item_proposal
             )):
-            single_loss = super()._bpr_training_step(batch[k==s, :-1], u_p, i_p, G=G)
+            single_loss = self._bpr_training_step(batch[k==s, :-1], u_p, i_p, G=G)
             loss_list.append(single_loss)
 
         loss = torch.stack(loss_list).mean()
