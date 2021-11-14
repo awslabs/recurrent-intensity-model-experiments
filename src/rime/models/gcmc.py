@@ -16,14 +16,17 @@ class _GCMC(_BPR, _LitValidated):
     """ module to compute user RFM embedding. change default lr=0.1 """
     def __init__(self, user_proposal, item_proposal, no_components=32,
         n_negatives=10, lr=0.1, weight_decay=1e-5,
-        recency_boundaries=[0.1, 0.3, 1, 3, 10], horizon=float("inf")):
+        recency_boundaries=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
+        user_graph_ratio=0.8):
         super(_LitValidated, self).__init__()
         self.register_buffer("user_proposal", torch.as_tensor(user_proposal))
         self.register_buffer("item_proposal", torch.as_tensor(item_proposal))
         self.register_buffer("recency_boundaries",
             torch.as_tensor(recency_boundaries) * horizon)
 
+        self.user_id_encoder = torch.nn.Embedding(len(user_proposal), no_components)
         self.item_encoder = torch.nn.Embedding(len(item_proposal), no_components)
+        self.user_id_bias_vec = torch.nn.Embedding(len(user_proposal), 1)
         self.item_bias_vec = torch.nn.Embedding(len(item_proposal), 1)
         self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components, "none")
         self.recency_encoder = torch.nn.Embedding(len(recency_boundaries)+1, 1)
@@ -34,6 +37,7 @@ class _GCMC(_BPR, _LitValidated):
         self.n_negatives = n_negatives
         self.lr = lr
         self.weight_decay = weight_decay
+        self.user_graph_ratio = user_graph_ratio
 
         self.init_weights()
 
@@ -44,7 +48,7 @@ class _GCMC(_BPR, _LitValidated):
         torch.nn.init.uniform_(self.conv.weight, -initrange, initrange)
         torch.nn.init.zeros_(self.conv.bias)
 
-    def user_encoder(self, i, G=None):
+    def user_graph_encoder(self, i, G=None):
         if G is None:
             G = self.G
         G = G.to(i.device)
@@ -52,7 +56,7 @@ class _GCMC(_BPR, _LitValidated):
         out = self.conv(G, self.item_encoder.weight)
         return out[i]
 
-    def user_bias_vec(self, i, G=None):
+    def user_graph_bias_vec(self, i, G=None):
         if G is None:
             G = self.G
         G = G.to(i.device)
@@ -61,6 +65,14 @@ class _GCMC(_BPR, _LitValidated):
         user_recency = G.nodes['user'].data['test_t'] - G.nodes['user'].data['last_t']
         recency_buckets = torch.bucketize(user_recency, self.recency_boundaries)
         return self.recency_encoder(recency_buckets)[i]
+
+    def user_encoder(self, i, G=None):
+        return self.user_id_encoder(i) * (1 - self.user_graph_ratio) + \
+                self.user_graph_encoder(i, G) * self.user_graph_ratio
+
+    def user_bias_vec(self, i, G=None):
+        return self.user_id_bias_vec(i) * (1 - self.user_graph_ratio) + \
+                self.user_graph_bias_vec(i, G) * self.user_graph_ratio
 
 
 class GCMC:

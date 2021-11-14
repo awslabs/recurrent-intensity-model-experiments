@@ -27,25 +27,25 @@ class _BPR(_LitValidated):
         self.lr = lr
         self.weight_decay = weight_decay
 
-    def _bilinear_score(self, i, j):
+    def forward(self, i, j):
         return (self.user_encoder(i) * self.item_encoder(j)).sum(-1) \
             + self.user_bias_vec(i).squeeze(-1) + self.item_bias_vec(j).squeeze(-1)
 
     def training_step(self, batch, batch_idx):
         i, j = batch.T
-        pos_score = self._bilinear_score(i, j)
+        pos_score = self.forward(i, j)
 
         n_shape = (self.n_negatives, len(batch))
         loglik = []
 
         if self.user_rec:
             ni = torch.multinomial(self.user_proposal, np.prod(n_shape), True).reshape(n_shape)
-            ni_score = self._bilinear_score(ni, j)
+            ni_score = self.forward(ni, j)
             loglik.append(self.log_sigmoid(pos_score - ni_score))
 
         if self.item_rec:
             nj = torch.multinomial(self.item_proposal, np.prod(n_shape), True).reshape(n_shape)
-            nj_score = self._bilinear_score(i, nj)
+            nj_score = self.forward(i, nj)
             loglik.append(self.log_sigmoid(pos_score - nj_score))
 
         loss = -torch.stack(loglik).mean()
