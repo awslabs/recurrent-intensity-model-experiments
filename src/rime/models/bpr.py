@@ -31,24 +31,27 @@ class _BPR(_LitValidated):
         return (self.user_encoder(i) * self.item_encoder(j)).sum(-1) \
             + self.user_bias_vec(i).squeeze(-1) + self.item_bias_vec(j).squeeze(-1)
 
-    def training_step(self, batch, batch_idx):
+    def _bpr_training_step(self, batch, user_proposal, item_proposal, **kw):
         i, j = batch.T
-        pos_score = self.forward(i, j)
+        pos_score = self.forward(i, j, **kw)
 
         n_shape = (self.n_negatives, len(batch))
         loglik = []
 
         if self.user_rec:
-            ni = torch.multinomial(self.user_proposal, np.prod(n_shape), True).reshape(n_shape)
-            ni_score = self.forward(ni, j)
+            ni = torch.multinomial(user_proposal, np.prod(n_shape), True).reshape(n_shape)
+            ni_score = self.forward(ni, j, **kw)
             loglik.append(self.log_sigmoid(pos_score - ni_score))
 
         if self.item_rec:
-            nj = torch.multinomial(self.item_proposal, np.prod(n_shape), True).reshape(n_shape)
-            nj_score = self.forward(i, nj)
+            nj = torch.multinomial(item_proposal, np.prod(n_shape), True).reshape(n_shape)
+            nj_score = self.forward(i, nj, **kw)
             loglik.append(self.log_sigmoid(pos_score - nj_score))
 
-        loss = -torch.stack(loglik).mean()
+        return -torch.stack(loglik).mean()
+
+    def training_step(self, batch, batch_idx):
+        loss = self._bpr_training_step(batch, self.user_proposal, self.item_proposal)
         self.log("train_loss", loss, prog_bar=True)
         return loss
 

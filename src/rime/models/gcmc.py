@@ -1,4 +1,4 @@
-import torch, argparse, numpy as np, warnings
+import torch, argparse, numpy as np, warnings, pandas as pd
 from torch.utils.data import DataLoader, random_split
 from torch.distributions.categorical import Categorical
 from pytorch_lightning import Trainer
@@ -24,10 +24,13 @@ class _GCMC(_BPR, _LitValidated):
         self.register_buffer("recency_boundaries",
             torch.as_tensor(recency_boundaries) * horizon)
 
-        self.user_id_encoder = torch.nn.Embedding(len(user_proposal), no_components)
-        self.item_encoder = torch.nn.Embedding(len(item_proposal), no_components)
-        self.user_id_bias_vec = torch.nn.Embedding(len(user_proposal), 1)
-        self.item_bias_vec = torch.nn.Embedding(len(item_proposal), 1)
+        n_users = user_proposal.shape[-1]
+        n_items = item_proposal.shape[-1]
+
+        self.user_id_encoder = torch.nn.Embedding(n_users, no_components)
+        self.item_encoder = torch.nn.Embedding(n_items, no_components)
+        self.user_id_bias_vec = torch.nn.Embedding(n_users, 1)
+        self.item_bias_vec = torch.nn.Embedding(n_items, 1)
         self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components, "none")
         self.recency_encoder = torch.nn.Embedding(len(recency_boundaries)+1, 1)
         self.log_sigmoid = torch.nn.LogSigmoid()
@@ -48,31 +51,42 @@ class _GCMC(_BPR, _LitValidated):
         torch.nn.init.uniform_(self.conv.weight, -initrange, initrange)
         torch.nn.init.zeros_(self.conv.bias)
 
-    def user_graph_encoder(self, i, G=None):
-        if G is None:
-            G = self.G
+    def user_graph_encoder(self, i, G):
         G = G.to(i.device)
-
         out = self.conv(G, self.item_encoder.weight)
         return out[i]
 
-    def user_graph_bias_vec(self, i, G=None):
-        if G is None:
-            G = self.G
-        G = G.to(i.device)
-
+    def user_graph_bias_vec(self, i, G):
+        G = G.to(i.device).clone()
         G.update_all(lambda x: None, fn.max('t', 'last_t'))
         user_recency = G.nodes['user'].data['test_t'] - G.nodes['user'].data['last_t']
         recency_buckets = torch.bucketize(user_recency, self.recency_boundaries)
         return self.recency_encoder(recency_buckets)[i]
 
-    def user_encoder(self, i, G=None):
+    def user_encoder(self, i, G):
         return self.user_id_encoder(i) * (1 - self.user_graph_ratio) + \
                 self.user_graph_encoder(i, G) * self.user_graph_ratio
 
-    def user_bias_vec(self, i, G=None):
+    def user_bias_vec(self, i, G):
         return self.user_id_bias_vec(i) * (1 - self.user_graph_ratio) + \
                 self.user_graph_bias_vec(i, G) * self.user_graph_ratio
+
+    def forward(self, i, j, G):
+        return (self.user_encoder(i, G) * self.item_encoder(j)).sum(-1) \
+            + self.user_bias_vec(i, G).squeeze(-1) + self.item_bias_vec(j).squeeze(-1)
+
+    def training_step(self, batch, batch_idx):
+        k = batch[:, -1]
+        loss_list = []
+        for s, (G, u_p, i_p) in enumerate(zip(
+            self.G_list, self.user_proposal, self.item_proposal
+            )):
+            single_loss = super()._bpr_training_step(batch[k==s, :-1], u_p, i_p, G=G)
+            loss_list.append(single_loss)
+
+        loss = torch.stack(loss_list).mean()
+        self.log("composite_loss", loss, prog_bar=True)
+        return loss
 
 
 class GCMC:
@@ -104,28 +118,41 @@ class GCMC:
         G.edata['t'] = torch.as_tensor(t).double()
 
         n_users = G.num_nodes('user')
-        G = dgl.add_edges(G, range(n_users), [0] * n_users,
-            {'t': torch.as_tensor([float("-inf")] * n_users).double()})
+        pad_time = -np.inf * torch.ones(n_users).double()
+        G = dgl.add_edges(G, range(n_users), [0] * n_users, {'t': pad_time})
 
         user_test_time = D.user_in_test['_timestamps'].apply(lambda x: x[-1]).values
         G.nodes['user'].data['test_t'] = torch.as_tensor(user_test_time)
         return G.reverse(copy_edata=True)
 
-    @empty_cache_on_exit
-    def fit(self, V):
+    def _extract_task(self, k, V):
+        user_proposal = np.ravel(V.target_csr.sum(axis=1) + 0.1) ** 0.5
+        item_proposal = np.ravel(V.target_csr.sum(axis=0) + 0.1) ** 0.5
+
+        user_proposal = pd.Series(user_proposal, V.user_in_test.index) \
+                        .reindex(self._user_list, fill_value=0).values
+        item_proposal = pd.Series(item_proposal, V.item_in_test.index) \
+                        .reindex(self._padded_item_list, fill_value=0).values
+
         V = V.reindex(self._user_list, axis=0).reindex(self._padded_item_list, axis=1)
         target_coo = V.target_csr.tocoo()
-        dataset = np.transpose([target_coo.row, target_coo.col]).astype(int)
+
+        dataset = np.transpose([
+            target_coo.row, target_coo.col, k * np.ones_like(target_coo.row),
+            ]).astype(int)
 
         G = self._extract_features(V)
 
-        user_proposal = (np.ravel(target_coo.sum(axis=1)) + 0.1) ** 0.5
-        item_proposal = (np.ravel(target_coo.sum(axis=0)) + 0.1) ** 0.5
+        return dataset, G, user_proposal, item_proposal
 
-        user_incl = (G.in_degrees().numpy() + np.ravel(target_coo.sum(1))).astype(bool)
-        item_incl = (G.out_degrees().numpy() + np.ravel(target_coo.sum(0))).astype(bool)
+    @empty_cache_on_exit
+    def fit(self, *V_arr):
+        dataset, G_list, user_proposal, item_proposal = zip(*[
+            self._extract_task(k, V) for k, V in enumerate(V_arr)
+            ])
 
-        model = _GCMC(user_proposal * user_incl, item_proposal * item_incl, **self._model_kw)
+        dataset = np.vstack(dataset)
+        model = _GCMC(np.array(user_proposal), np.array(item_proposal), **self._model_kw)
 
         N = len(dataset)
         if len(dataset) > 5:
@@ -136,11 +163,11 @@ class GCMC:
         trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
-        model.G = G
+        model.G_list = G_list
         trainer.fit(model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N>1e4)*4),
             DataLoader(valid_set, self.batch_size, num_workers=(N>1e4)*4))
-        delattr(model, "G")
+        delattr(model, "G_list")
 
         best_model_path = model._checkpoint.best_model_path
         best_model_score = model._checkpoint.best_model_score

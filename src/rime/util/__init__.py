@@ -173,7 +173,8 @@ def groupby_collect(series):
 
     return pd.Series(
         [x.tolist() for x in np.split(series.values, splits)],
-        index=series.index.values[np.hstack([[0], splits])])
+        index=series.index.values[np.hstack([[0], splits])]
+        ) if len(series) else pd.Series()
 
 
 def create_matrix(event_df, user_index, item_index, return_type='csr'):
