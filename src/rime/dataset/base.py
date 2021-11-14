@@ -2,7 +2,7 @@ import pandas as pd, numpy as np, scipy as sp
 import scipy.sparse as sps
 import functools, collections, warnings, dataclasses, argparse
 from ..util import create_matrix, cached_property, perplexity, \
-                   timed, groupby_collect, matrix_reindex, get_batch_size
+           timed, groupby_collect, matrix_reindex, get_batch_size, fill_factory_inplace
 
 
 def _check_index(event_df, user_df, item_df):
@@ -153,13 +153,18 @@ class Dataset:
             print(self.user_in_test.sample().iloc[0])
             print(self.item_in_test.sample().iloc[0])
 
-    def reindex(self, index, axis=1):
+    def reindex(self, index, axis):
         if axis==0:
             old_index = self.user_in_test.index
-            assert set(index) <= set(old_index), \
-                                "user_in_test reindexing limited to shrinkage"
-            user_in_test = self.user_in_test.reindex(index)
+            user_in_test = self.user_in_test.reindex(index, fill_value=0)
             item_in_test = self.item_in_test
+
+            if not set(index) < set(old_index):
+                fill_factory_inplace(user_in_test, [i not in old_index for i in index], {
+                    "_hist_items": list, '_hist_ts': list,
+                    'TEST_START_TIME': lambda: float('inf'),
+                    "_timestamps": lambda: [float('inf')]
+                    })
         else:
             old_index = self.item_in_test.index
             user_in_test = self.user_in_test

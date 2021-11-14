@@ -197,6 +197,14 @@ def create_matrix(event_df, user_index, item_index, return_type='csr'):
         return (i, j)
 
 
+def fill_factory_inplace(df, isna, kv):
+    for k,v in kv.items():
+        if k in df.columns:
+            df[k] = [v() if _isna else x for _isna, x in zip(isna, df[k])]
+        else:
+            warnings.warn(f"fill_factory_inplace missing {k}")
+
+
 def split_by_time(user_df, test_start, valid_start):
     user_df = user_df.copy()
     user_df['TEST_START_TIME'] = test_start

@@ -330,12 +330,12 @@ class Experiment:
 
     @cached_property
     def _bpr(self):
-        return BPR().fit(self.D.training_data)
+        return BPR(**self.model_hyps.get("BPR", {})).fit(self.D.training_data)
 
     @cached_property
     def _gcmc(self):
         if self.V is not None:
-            return GCMC(self.D.training_data.item_df).fit(self.V)
+            return GCMC(self.D, **self.model_hyps.get("GCMC", {})).fit(self.V)
         else:
             warnings.warn("Degenerating GCMC to BPR when self.V is None")
             return self._bpr
