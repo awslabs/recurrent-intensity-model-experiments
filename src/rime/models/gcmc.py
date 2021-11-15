@@ -15,9 +15,9 @@ except ImportError:
 class _GCMC(_BPR, _LitValidated):
     """ module to compute user RFM embedding. change default lr=0.1 """
     def __init__(self, *args, no_components=32,
-        lr=0.1, weight_decay=1e-5,
+        lr=1, weight_decay=1e-5,
         recency_boundaries=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
-        user_graph_ratio=0.8,
+        user_graph_ratio=None,
         **kw):
 
         super().__init__(*args, lr=lr, weight_decay=weight_decay,
@@ -28,8 +28,13 @@ class _GCMC(_BPR, _LitValidated):
             torch.as_tensor(recency_boundaries) * horizon)
 
         self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components, "none")
+        self.layer_norm = torch.nn.LayerNorm(no_components)
         self.recency_encoder = torch.nn.Embedding(len(recency_boundaries)+1, 1)
-        self.user_graph_ratio = user_graph_ratio
+
+        if user_graph_ratio is None:
+            self._user_graph_ratio_logit = torch.nn.Parameter(torch.empty(1))
+        else:
+            self._user_graph_ratio = user_graph_ratio
 
         self.init_weights()
 
@@ -39,11 +44,13 @@ class _GCMC(_BPR, _LitValidated):
         torch.nn.init.zeros_(self.item_bias_vec.weight)
         torch.nn.init.uniform_(self.conv.weight, -initrange, initrange)
         torch.nn.init.zeros_(self.conv.bias)
+        if hasattr(self, "_user_graph_ratio_logit"):
+            torch.nn.init.uniform_(self._user_graph_ratio_logit, -initrange, initrange)
 
     def user_graph_encoder(self, i, G):
         G = G.to(i.device)
         out = self.conv(G, self.item_encoder.weight)
-        return out[i]
+        return self.layer_norm(out)[i]
 
     def user_graph_bias_vec(self, i, G):
         G = G.to(i.device).clone()
@@ -52,13 +59,24 @@ class _GCMC(_BPR, _LitValidated):
         recency_buckets = torch.bucketize(user_recency, self.recency_boundaries)
         return self.recency_encoder(recency_buckets)[i]
 
+    @property
+    def user_graph_ratio(self):
+        if hasattr(self, "_user_graph_ratio_logit"):
+            return self._user_graph_ratio_logit.sigmoid()
+        else:
+            return self._user_graph_ratio
+
     def user_encoder(self, i, G):
-        return self.user_id_encoder(i) * (1 - self.user_graph_ratio) + \
-                self.user_graph_encoder(i, G) * self.user_graph_ratio
+        out = self.user_id_encoder(i) * (1 - self.user_graph_ratio)
+        if self.user_graph_ratio > 0:
+            out = out + self.user_graph_encoder(i, G) * self.user_graph_ratio
+        return out
 
     def user_bias_vec(self, i, G):
-        return self.user_id_bias_vec(i) * (1 - self.user_graph_ratio) + \
-                self.user_graph_bias_vec(i, G) * self.user_graph_ratio
+        out = self.user_id_bias_vec(i) * (1 - self.user_graph_ratio)
+        if self.user_graph_ratio > 0:
+            out = out + self.user_graph_bias_vec(i, G) * self.user_graph_ratio
+        return out
 
     def forward(self, i, j, G):
         return (self.user_encoder(i, G) * self.item_encoder(j)).sum(-1) \
@@ -74,7 +92,8 @@ class _GCMC(_BPR, _LitValidated):
             loss_list.append(single_loss)
 
         loss = torch.stack(loss_list).mean()
-        self.log("composite_loss", loss, prog_bar=True)
+        self.log("train_loss", loss, prog_bar=True)
+        self.log("user_graph_ratio", self.user_graph_ratio, prog_bar=True)
         return loss
 
 

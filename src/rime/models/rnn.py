@@ -143,7 +143,7 @@ class _LitRNNModel(_LitValidated):
     def configure_optimizers(self):
         optimizer = torch.optim.Adagrad(self.parameters(), eps=1e-3, lr=self.lr)
         lr_scheduler = _ReduceLRLoadCkpt(optimizer, model=self,
-            factor=0.25, patience=4, min_lr=self.lr*1e-3, verbose=True)
+            factor=0.25, patience=4, verbose=True)
         return {"optimizer": optimizer, "lr_scheduler": {
                 "scheduler": lr_scheduler, "monitor": "val_epoch_loss"
             }}

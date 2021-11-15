@@ -10,7 +10,7 @@ from .lightfm_bpr import LightFM_BPR
 class _BPR(_LitValidated):
     def __init__(self, user_proposal, item_proposal,
         user_rec=True, item_rec=True, no_components=32,
-        n_negatives=10, lr=1, weight_decay=5e-6,
+        n_negatives=10, lr=1, weight_decay=1e-5,
         user_encoder_name="user_encoder", user_bias_vec_name="user_bias_vec"):
         super().__init__()
         self.register_buffer("user_proposal", torch.as_tensor(user_proposal))
@@ -64,7 +64,7 @@ class _BPR(_LitValidated):
         optimizer = torch.optim.Adagrad(self.parameters(),
             eps=1e-3, lr=self.lr, weight_decay=self.weight_decay)
         lr_scheduler = _ReduceLRLoadCkpt(optimizer, model=self,
-            factor=0.25, patience=4, min_lr=self.lr*1e-3, verbose=True)
+            factor=0.25, patience=4, verbose=True)
         return {"optimizer": optimizer, "lr_scheduler": {
                 "scheduler": lr_scheduler, "monitor": "val_epoch_loss"
             }}
