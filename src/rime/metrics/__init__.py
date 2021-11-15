@@ -37,6 +37,7 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
             obj_sum = _multiply_sum_by_batches(assigned_csr, score_mat)
         else:
             obj_sum = _multiply(assigned_csr, score_mat).sum()
+        out['obj_mean'] = obj_sum / assigned_csr.sum()
 
     if axis is not None:
         hit_axis = np.ravel(hit.sum(axis=axis))
