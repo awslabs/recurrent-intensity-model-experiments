@@ -89,6 +89,8 @@ class Experiment:
         cvx=False,
         online=False,
         tie_break=0,
+        cache=None,
+        results=None,
         **mtch_kw
         ):
         self.D = D
@@ -107,17 +109,21 @@ class Experiment:
             assert V is not None, "online cvx is trained with explicit valid_mat"
 
         self.tie_break = tie_break
+        if cache is not None:
+            self.update_cache(cache)
         self.mtch_kw = mtch_kw
 
-        self.results = ExperimentResult(
-            cvx, online,
-            _k1 = self.D.default_item_rec_top_k,
-            _c1 = self.D.default_user_rec_top_c,
-            _kmax = len(self.D.item_in_test),
-            _cmax = len(self.D.user_in_test),
-            item_ppl = self.D.item_ppl,
-            user_ppl = self.D.user_ppl,
-        )
+        if results is None:
+            results = ExperimentResult(
+                cvx, online,
+                _k1 = self.D.default_item_rec_top_k,
+                _c1 = self.D.default_user_rec_top_c,
+                _kmax = len(self.D.item_in_test),
+                _cmax = len(self.D.user_in_test),
+                item_ppl = self.D.item_ppl,
+                user_ppl = self.D.user_ppl,
+            )
+        self.results = results
 
         # pass-through references
         self.__dict__.update(self.results.__dict__)
@@ -265,9 +271,8 @@ class Experiment:
                 S = S + self.D.prior_score
 
             if self.tie_break:
+                warnings.warn("Using experimental RandScore class")
                 S = S + RandScore.like(S) * self.tie_break
-            else:
-                warnings.warn("Disabling RandScore class by default")
 
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
@@ -277,9 +282,8 @@ class Experiment:
                     T = T + V.prior_score
 
                 if self.tie_break:
+                    warnings.warn("Using experimental RandScore class")
                     T = T + RandScore.like(T) * self.tie_break
-                else:
-                    warnings.warn("Disabling RandScore class by default")
 
             else:
                 T = None
@@ -363,6 +367,13 @@ class Experiment:
     @cached_property
     def _logistic_mf(self):
         return LogisticMF().fit(self.D.training_data)
+
+    def update_cache(self, other):
+        for attr in ['_transformer', '_rnn', '_hawkes', '_hawkes_poisson',
+                     '_bpr_item', '_bpr_user', '_als', '_logistic_mf',
+                     '_bpr', '_gcmc', '_gcmc_extra']:
+            if attr in other.__dict__:
+                setattr(self, attr, getattr(other, attr))
 
 
 def main(name, *args, **kw):
