@@ -30,4 +30,11 @@ def prepare_netflix_data(
     D = create_dataset(event_df, user_df, item_df, test_end-test_start, **kw)
     D.print_stats()
     V = create_dataset(event_df, valid_df, item_df, test_start-valid_start, **kw)
-    return (D, V)
+    # extract user data from time-split
+    V0 = create_dataset(
+        V.training_data.event_df,
+        V.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME'),
+        V.training_data.item_df[['_siz']],
+        float("inf"), min_user_len=0, min_item_len=0
+    )
+    return (D, V, V0)

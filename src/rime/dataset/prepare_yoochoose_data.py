@@ -29,7 +29,14 @@ def prepare_yoochoose_data(
     D.print_stats()
     V = create_dataset(event_df, valid_df, item_df, horizon,
         min_user_len=min_user_len, min_item_len=min_item_len, **kw)
-    return (D, V)
+    # extract context data from user-split
+    V0 = create_dataset(
+        D.training_data.event_df,
+        D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME'),
+        D.training_data.item_df[['_siz']],
+        horizon, min_user_len=0, min_item_len=0
+    )
+    return (D, V, V0)
 
 
 def _sample_by_user(event_df, frac, seed):

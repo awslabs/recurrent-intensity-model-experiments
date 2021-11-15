@@ -70,7 +70,7 @@ class Experiment:
     then sweeps through multipliers for relevance-diversity curve,
     interpreting mult<1 as item min-exposure and mult>=1 as user max-limit
     """
-    def __init__(self, D, V=None,
+    def __init__(self, D, V=None, *V_extra,
         mult=[], # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
         models_to_run=[
             "Rand", "Pop",
@@ -80,7 +80,7 @@ class Experiment:
             "RNN", "RNN-Pop",
             "RNN-Hawkes", "RNN-HP",
             "EMA", "RNN-EMA", "Transformer-EMA",
-            "BPR", "GCMC",
+            "BPR", "GCMC", "GCMC-Extra",
             "ALS", "LogisticMF",
             "BPR-Item", "BPR-User",
             ],
@@ -93,6 +93,7 @@ class Experiment:
         ):
         self.D = D
         self.V = V
+        self.V_extra = V_extra
 
         self.mult = mult
         self.models_to_run = models_to_run
@@ -240,6 +241,9 @@ class Experiment:
         if model == "GCMC":
             return self._gcmc.transform(D)
 
+        if model == "GCMC-Extra":
+            return self._gcmc_extra.transform(D)
+
         if model == "ALS":
             return self._als.transform(D)
 
@@ -335,9 +339,21 @@ class Experiment:
     @cached_property
     def _gcmc(self):
         if self.V is not None:
-            return GCMC(self.D, **self.model_hyps.get("GCMC", {})).fit(self.V)
+            return GCMC(
+                self.D, user_graph_ratio=1, **self.model_hyps.get("GCMC", {})
+                ).fit(self.V)
         else:
             warnings.warn("Degenerating GCMC to BPR when self.V is None")
+            return self._bpr
+
+    @cached_property
+    def _gcmc_extra(self):
+        if self.V is not None:
+            return GCMC(
+                self.D, **self.model_hyps.get("GCMC-Extra", {})
+                ).fit(self.V, *self.V_extra)
+        else:
+            warnings.warn("Degenerating GCMC-Extra to BPR when self.V is None")
             return self._bpr
 
     @cached_property
@@ -351,8 +367,8 @@ class Experiment:
 
 def main(name, *args, **kw):
     prepare_fn = getattr(dataset, name)
-    D, V = prepare_fn(*args)
-    self = Experiment(D, V, **kw)
+    D, *V = prepare_fn(*args)
+    self = Experiment(D, *V, **kw)
     self.run()
     self.results.print_results()
     return self
