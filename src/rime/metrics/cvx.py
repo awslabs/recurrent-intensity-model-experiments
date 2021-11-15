@@ -29,7 +29,10 @@ class CVX:
         self.device = device
 
         if max_epochs is None:
-            max_epochs = 100 if 0<np.min(beta)<=np.max(beta)<1 else 10 # trivial cases
+            if 0<np.min(alpha)<=np.max(alpha)<1 and 0<np.min(beta)<=np.max(beta)<1:
+                max_epochs = 100
+            else: # trivial cases with u or v being 0
+                max_epochs = 10
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type, 0.1 / max(score_mat.shape),

@@ -98,9 +98,11 @@ class _GCMC(_BPR, _LitValidated):
 
 
 class GCMC:
-    def __init__(self, D, batch_size=10000, max_epochs=50, **kw):
+    """ exclude_first_V (pending deprecation): avoid reusing V during CVX calibration """
+    def __init__(self, D, exclude_first_V=False, batch_size=10000, max_epochs=50, **kw):
         self._user_list = D.training_data.user_df.index.tolist()
         self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
+        self.exclude_first_V = exclude_first_V
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
@@ -155,6 +157,8 @@ class GCMC:
 
     @empty_cache_on_exit
     def fit(self, *V_arr):
+        if self.exclude_first_V:
+            V_arr = V_arr[1:]
         dataset, G_list, user_proposal, item_proposal = zip(*[
             self._extract_task(k, V) for k, V in enumerate(V_arr)
             ])
@@ -196,6 +200,6 @@ class GCMC:
 
         S = create_second_order_dataframe(
             user_embeddings, self.item_embeddings, user_biases, self.item_biases,
-            self._user_list, self._padded_item_list, 'sigmoid')
+            self._user_list, self._padded_item_list, 'softplus')
 
         return S.reindex(D.user_in_test.index, axis=0).reindex(D.item_in_test.index, axis=1)

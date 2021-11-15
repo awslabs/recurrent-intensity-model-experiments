@@ -216,7 +216,8 @@ class RandScore(LazyScoreBase):
 
 @dataclasses.dataclass(repr=False)
 class LowRankDataFrame(LazyScoreBase):
-    """ mimics a pandas dataframe with exponentiated low-rank structures
+    """ mimics a pandas dataframe with low-rank structures and
+    nonnegative exp / softplus / sigmoid activation
     """
     ind_logits: List[list]
     col_logits: List[list]
@@ -235,7 +236,8 @@ class LowRankDataFrame(LazyScoreBase):
         assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
         assert self.ind_logits.shape[0] == len(self.index), "check index"
         assert self.col_logits.shape[0] == len(self.columns), "check columns"
-        assert self.act in ['exp', 'sigmoid'], "requires nonnegative act to solve cvx"
+        assert self.act in ['exp', 'softplus', 'sigmoid'], \
+            "requires nonnegative act to model intensity score"
 
     def eval(self, device=None):
         if device is None:
@@ -244,6 +246,8 @@ class LowRankDataFrame(LazyScoreBase):
 
             if self.act == 'exp':
                 return np.exp(z)
+            elif self.act == 'softplus':
+                return np.where(z>0, z + np.log(1 + np.exp(-z)), np.log(1 + np.exp(z)))
             elif self.act == 'sigmoid':
                 return 1./(1+np.exp(-z))
         else:
@@ -254,6 +258,8 @@ class LowRankDataFrame(LazyScoreBase):
 
             if self.act == 'exp':
                 return z.exp()
+            elif self.act == 'softplus':
+                return torch.nn.Softplus()(z)
             elif self.act == 'sigmoid':
                 return z.sigmoid()
 
@@ -299,7 +305,7 @@ class LowRankDataFrame(LazyScoreBase):
 
         if fill_value == 0:
             ind_logits[-1, -1] = float("-inf")    # common for exp and sigmoid
-        elif self.act == 'exp':
+        elif self.act in ['exp', 'softplus']:
             ind_logits[-1, -1] = np.log(fill_value)
         elif self.act == 'sigmoid':
             ind_logits[-1, -1] = np.log(fill_value) - np.log(1-fill_value)
