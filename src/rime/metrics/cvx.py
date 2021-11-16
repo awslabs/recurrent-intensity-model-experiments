@@ -10,7 +10,7 @@ from ..util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
 
 class CVX:
     def __init__(self, score_mat, topk, C, constraint_type='ub', device='cpu',
-        max_epochs=None, min_epsilon=1e-10, gpus=int(torch.cuda.is_available()),
+        max_epochs=100, min_epsilon=1e-10, gpus=int(torch.cuda.is_available()),
         prefix='CVX'):
 
         n_users, n_items = score_mat.shape
@@ -27,12 +27,6 @@ class CVX:
 
         print(f"entering {prefix} CVX score (min={self.score_min}, max={self.score_max})")
         self.device = device
-
-        if max_epochs is None:
-            if 0<np.min(alpha)<=np.max(alpha)<1 and 0<np.min(beta)<=np.max(beta)<1:
-                max_epochs = 100
-            else: # trivial cases with u or v being 0
-                max_epochs = 10
 
         self._model_args = (
             n_users, n_items, alpha, beta, constraint_type, 0.1 / max(score_mat.shape),

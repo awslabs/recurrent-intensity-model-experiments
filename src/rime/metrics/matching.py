@@ -27,7 +27,7 @@ def _assign_sorted(shape, k, c, argsort_ij, blocked={(-1, -1)}):
 
 
 def assign_mtch(score_mat, topk, C,
-    argsort_ij=None, constraint_type='ub', device="cpu"):
+    constraint_type='ub', argsort_ij=None, device="cpu"):
 
     n_users, n_items = score_mat.shape
 

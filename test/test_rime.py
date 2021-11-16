@@ -91,5 +91,5 @@ def test_score_array(shape=(3, 4), device="cpu"):
     score_op(a + b, "max")
     score_op((a + b) * c, "max")
     score_op((a + b) * c, "max", device)
-    score_op(a.reindex([3, 4, 5], axis=0, fill_value=0), "max", device)
+    score_op(a.reindex(np.asarray([3, 4, 5]), axis=0, fill_value=0), "max", device)
     score_op(a + RandScore.like(b) * 2, "max", device)

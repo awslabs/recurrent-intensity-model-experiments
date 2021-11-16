@@ -177,8 +177,8 @@ class LazyScoreExpression(LazyScoreBase):
 @dataclasses.dataclass(repr=False)
 class RandScore(LazyScoreBase):
     """ add random noise to break ties """
-    row_seeds: list
-    col_seeds: list
+    row_seeds: list # np.array for fast indexing
+    col_seeds: list # np.array for fast indexing
 
     @property
     def shape(self):
@@ -195,19 +195,23 @@ class RandScore(LazyScoreBase):
                 np.random.RandomState(int(s)).rand(d1)
                 for s in self.row_seeds])
         else:
-            return torch.vstack([
-                torch.rand(d1, device=device,
-                    generator=torch.Generator(device).manual_seed(int(s)))
-                for s in self.row_seeds])
+            rows = []
+            for s in self.row_seeds:
+                generator = torch.Generator(device).manual_seed(int(s))
+                new = torch.rand(d1, device=device, generator=generator)
+                rows.append(new)
+            return torch.vstack(rows)
 
     @property
     def T(self):
+        warnings.warn("transpose changes rand seed; only for evaluate_user_rec")
         return self.__class__(self.col_seeds, self.row_seeds)
 
     def __getitem__(self, key):
         if np.isscalar(key):
             key = [key]
-        return self.__class__(self.row_seeds[key], self.col_seeds)
+        row_seeds = self.row_seeds[key]
+        return self.__class__(row_seeds, self.col_seeds)
 
     @classmethod
     def collate_fn(cls, batch):
@@ -221,8 +225,8 @@ class LowRankDataFrame(LazyScoreBase):
     """
     ind_logits: List[list]
     col_logits: List[list]
-    index: list
-    columns: list
+    index: list    # np.array for fast indexing
+    columns: list  # np.array for fast indexing
     act: str
     ind_default: list = None
     col_default: list = None
@@ -271,7 +275,7 @@ class LowRankDataFrame(LazyScoreBase):
         if np.isscalar(key):
             key = [key]
         return self.__class__(self.ind_logits[key], self.col_logits,
-            np.asarray(self.index)[key], self.columns, self.act,
+            self.index[key], self.columns, self.act,
             self.ind_default, self.col_default)
 
     @property

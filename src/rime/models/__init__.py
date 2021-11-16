@@ -14,16 +14,14 @@ except ImportError:
     ALS = LogisticMF = None
     warnings.warn("Implicit package not properly installed.")
 
-from rime.util import LowRankDataFrame
+from rime.util import LowRankDataFrame, RandScore
 
 
 class Rand:
     def transform(self, D):
         """ return a constant of one """
         shape = (len(D.user_in_test), len(D.item_in_test))
-        return LowRankDataFrame(
-            np.zeros(shape[0])[:, None], np.zeros(shape[1])[:, None],
-            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
+        return RandScore(np.arange(shape[0]), np.arange(shape[1]))
 
 
 class Pop:
