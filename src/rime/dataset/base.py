@@ -115,8 +115,8 @@ class Dataset:
 
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
-        self.user_ppl = perplexity(self.user_in_test['_hist_len'])
-        self.item_ppl = perplexity(self.item_in_test['_hist_len'])
+        self.user_ppl_baseline = perplexity(self.user_in_test['_hist_len'])
+        self.item_ppl_baseline = perplexity(self.item_in_test['_hist_len'])
 
     def __hash__(self):
         return id(self)
@@ -142,8 +142,8 @@ class Dataset:
                 '# test events': self.target_csr.sum(),
                 'default_user_rec_top_c': self.default_user_rec_top_c,
                 'default_item_rec_top_k': self.default_item_rec_top_k,
-                "user_ppl": self.user_ppl,
-                "item_ppl": self.item_ppl,
+                "user_ppl_baseline": self.user_ppl_baseline,
+                "item_ppl_baseline": self.item_ppl_baseline,
             },
         }
 

@@ -28,12 +28,24 @@ class ExperimentResult:
     _c1: int
     _kmax: int
     _cmax: int
-    item_ppl: float
-    user_ppl: float
+
+    item_ppl_baseline: float = None
+    user_ppl_baseline: float = None
+
+    item_ppl: float = None # Deprecated; will be removed
+    user_ppl: float = None # Deprecated; will be removed
 
     item_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
     user_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
     mtch_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.item_ppl_baseline is None:
+            warnings.warn("item_ppl -> item_ppl_baseline", DeprecationWarning)
+            self.item_ppl_baseline = self.item_ppl
+        if self.user_ppl_baseline is None:
+            warnings.warn("user_ppl -> user_ppl_baseline", DeprecationWarning)
+            self.user_ppl_baseline = self.user_ppl
 
     def print_results(self):
         print('\nitem_rec')
@@ -120,8 +132,8 @@ class Experiment:
                 _c1 = self.D.default_user_rec_top_c,
                 _kmax = len(self.D.item_in_test),
                 _cmax = len(self.D.user_in_test),
-                item_ppl = self.D.item_ppl,
-                user_ppl = self.D.user_ppl,
+                item_ppl_baseline = self.D.item_ppl_baseline,
+                user_ppl_baseline = self.D.user_ppl_baseline,
             )
         self.results = results
 
@@ -408,9 +420,9 @@ def plot_results(self, logy=True):
         ax.set_ylabel(yname)
         if logy:
             ax.set_yscale('log')
-        ax.axhline(getattr(self, yname), ls='--', color='gray')
+        ax.axhline(getattr(self, yname + '_baseline'), ls='-.', color='gray')
     fig.legend(
-        df.loc['prec'].unstack().index.values,
+        df.loc['prec'].unstack().index.values.tolist() + [yname + '_baseline'],
         bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,
         mode="expand", borderaxespad=0.)
     fig.subplots_adjust(wspace=0.25)
