@@ -26,8 +26,8 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
     V0 = create_dataset(
         D.training_data.event_df,
         D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME'),
-        D.training_data.item_df[['_siz']],
-        horizon, min_user_len=0, min_item_len=0
+        D.training_data.item_df[['_siz']], # just need the index
+        horizon, min_user_len=0, min_item_len=0 # include cold-start users/items to ensemble BPR
     )
     return D, V, V0
 

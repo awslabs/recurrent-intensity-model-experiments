@@ -20,6 +20,7 @@ Repository to reproduce the experiments in the paper:
 
 1. Download and install via `pip install -e .`
     - If direct installation fails, some dependencies might be more easily installed by conda: `conda env update --file environment.yml --name target-env-to-update`
+    - Package implicit requires separate installation: `conda install -c conda-forge implicit implicit-proc=*=gpu -y`
     - Notice: conda env update may overwrite the current python version and it is recommended to manually fix that in the yml file.
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run experiment as

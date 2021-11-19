@@ -19,14 +19,14 @@ def _multiply_sum_by_batches(x, s):
 
 
 def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None,
-    total_recs_incl_zeros=0):
+    min_total_recs=0):
     """ compare targets and recommendation assignments on user-item matrix
     """
     hit = _multiply(target_csr, assigned_csr)
-    total_recs_incl_zeros = max(total_recs_incl_zeros, assigned_csr.sum())
+    min_total_recs = max(min_total_recs, assigned_csr.sum())
 
     out = {
-        'prec':     hit.sum() / total_recs_incl_zeros,
+        'prec':     hit.sum() / min_total_recs,
         'recs/user': assigned_csr.sum() / assigned_csr.shape[0],
         'item_cov': (assigned_csr.sum(axis=0)>0).mean(),  # 1 by n_items
         'item_ppl': perplexity(assigned_csr.sum(axis=0)),
@@ -39,7 +39,7 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None,
             obj_sum = _multiply_sum_by_batches(assigned_csr, score_mat)
         else:
             obj_sum = _multiply(assigned_csr, score_mat).sum()
-        out['obj_mean'] = float(obj_sum / total_recs_incl_zeros)
+        out['obj_mean'] = float(obj_sum / min_total_recs)
 
     if axis is not None:
         hit_axis = np.ravel(hit.sum(axis=axis))
@@ -72,11 +72,12 @@ def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None,
     else:
         assigned_csr = assign_mtch(score_mat, topk, C, constraint_type, **kw)
 
-    total_recs_incl_zeros = topk * score_mat.shape[0]
     if constraint_type == 'ub':
-        total_recs_incl_zeros = min(total_recs_incl_zeros, np.mean(C) * score_mat.shape[1])
+        min_total_recs = np.mean(C) * score_mat.shape[1]
+    else:
+        min_total_recs = topk * score_mat.shape[0]
     out = evaluate_assigned(target_csr, assigned_csr, score_mat,
-        total_recs_incl_zeros=total_recs_incl_zeros)
+        min_total_recs=min_total_recs)
 
     print('evaluate_mtch prec@{topk}={prec:.1e} item_ppl@{mean_C}={item_ppl:.1e}'.format(
         **out, mean_C=np.mean(C), **locals()))
