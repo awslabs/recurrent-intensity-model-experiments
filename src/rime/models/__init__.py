@@ -44,9 +44,10 @@ class Pop:
         ind_logits = np.vstack([np.log(user_scores), np.ones(len(user_scores))]).T
         col_logits = np.vstack([np.ones(len(item_scores)), np.log(item_scores)]).T
 
-        return LowRankDataFrame(
+        S = LowRankDataFrame(
             ind_logits, col_logits,
             index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
+        return S + RandScore.like(S) * 0.01
 
 
 class EMA:

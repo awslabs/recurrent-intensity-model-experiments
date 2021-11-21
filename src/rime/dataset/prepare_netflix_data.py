@@ -21,7 +21,7 @@ def prepare_netflix_data(
         (event_df['TIMESTAMP'] < test_end) &
         (event_df['USER_ID'].astype(int) % user_mod == 0) &
         (event_df['ITEM_ID'].apply(lambda x: int(x[:-4])) % item_mod == 0)
-    ].sample(frac=1, random_state=0).sort_values('TIMESTAMP', kind='mergesort')
+    ].sample(frac=1, random_state=0).sort_values(['USER_ID', 'TIMESTAMP'], kind='mergesort')
     print(f"{event_df.describe()}")
 
     user_df, item_df = extract_user_item(event_df)
@@ -30,11 +30,15 @@ def prepare_netflix_data(
     D = create_dataset(event_df, user_df, item_df, test_end-test_start, **kw)
     D.print_stats()
     V = create_dataset(event_df, valid_df, item_df, test_start-valid_start, **kw)
-    # extract user data from time-split
-    V0 = create_dataset(
-        V.training_data.event_df,
-        V.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME'),
-        V.training_data.item_df[['_siz']],
-        float("inf"), min_user_len=0, min_item_len=0
-    )
-    return (D, V, V0)
+
+    V_extra = []
+    for k in range(10):
+        extra_df = valid_df.copy()
+        extra_df['TEST_START_TIME'] = valid_start - (test_start-valid_start)*(k+1)
+        V_extra.append(create_dataset(
+            V.training_data.event_df,
+            extra_df,
+            V.training_data.item_df[['_siz']],
+            test_start-valid_start,
+        ))
+    return (D, V, *V_extra)

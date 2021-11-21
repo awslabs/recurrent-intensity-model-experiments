@@ -79,6 +79,9 @@ def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None,
     out = evaluate_assigned(target_csr, assigned_csr, score_mat,
         min_total_recs=min_total_recs)
 
+    for pct in ['25%', '50%', '75%']:
+        out[f'recs/item_{pct}'] = pd.Series(np.ravel(assigned_csr.sum(0))).describe()[pct]
+
     print('evaluate_mtch prec@{topk}={prec:.1e} item_ppl@{mean_C}={item_ppl:.1e}'.format(
         **out, mean_C=np.mean(C), **locals()))
     return out

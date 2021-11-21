@@ -356,7 +356,7 @@ class Experiment:
     def _gcmc(self):
         if self.V is not None:
             return GCMC(
-                self.D, user_graph_ratio=1, **self.model_hyps.get("GCMC", {})
+                self.D, *self.model_hyps.get("GCMC", {})
                 ).fit(self.V)
         else:
             warnings.warn("Degenerating GCMC to BPR when self.V is None")

@@ -32,9 +32,9 @@ def prepare_yoochoose_data(
     # extract context data from user-split
     V0 = create_dataset(
         D.training_data.event_df,
-        D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME'),
+        D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME') + horizon/2,
         D.training_data.item_df[['_siz']],
-        horizon, min_user_len=0, min_item_len=0
+        horizon/2,
     )
     return (D, V, V0)
 

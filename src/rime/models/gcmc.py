@@ -13,11 +13,14 @@ except ImportError:
 
 
 class _GCMC(_BPR, _LitValidated):
-    """ module to compute user RFM embedding. change default lr=0.1 """
+    """ module to compute user RFM embedding.
+
+    :parameter user_id_graph_ratio: switch (default), learn, or numeric
+    """
     def __init__(self, *args, no_components=32,
         lr=1, weight_decay=1e-5,
         recency_boundaries=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
-        user_graph_ratio=None,
+        user_id_graph_ratio='switch', # TODO: we only need 0 in the future
         **kw):
 
         super().__init__(*args, lr=lr, weight_decay=weight_decay,
@@ -31,10 +34,10 @@ class _GCMC(_BPR, _LitValidated):
         self.layer_norm = torch.nn.LayerNorm(no_components)
         self.recency_encoder = torch.nn.Embedding(len(recency_boundaries)+1, 1)
 
-        if user_graph_ratio is None:
-            self._user_graph_ratio_logit = torch.nn.Parameter(torch.empty(1))
-        else:
-            self._user_graph_ratio = user_graph_ratio
+        if user_id_graph_ratio == 'learn':
+            self._user_id_graph_ratio_logit = torch.nn.Parameter(torch.empty(1))
+        else: # switch or numeric
+            self._user_id_graph_ratio = user_id_graph_ratio
 
         self.init_weights()
 
@@ -44,8 +47,8 @@ class _GCMC(_BPR, _LitValidated):
         torch.nn.init.zeros_(self.item_bias_vec.weight)
         torch.nn.init.uniform_(self.conv.weight, -initrange, initrange)
         torch.nn.init.zeros_(self.conv.bias)
-        if hasattr(self, "_user_graph_ratio_logit"):
-            torch.nn.init.uniform_(self._user_graph_ratio_logit, -initrange, initrange)
+        if hasattr(self, "_user_id_graph_ratio_logit"):
+            torch.nn.init.uniform_(self._user_id_graph_ratio_logit, -initrange, initrange)
 
     def user_graph_encoder(self, i, G):
         G = G.to(i.device)
@@ -60,22 +63,32 @@ class _GCMC(_BPR, _LitValidated):
         return self.recency_encoder(recency_buckets)[i]
 
     @property
-    def user_graph_ratio(self):
-        if hasattr(self, "_user_graph_ratio_logit"):
-            return self._user_graph_ratio_logit.sigmoid()
+    def user_id_graph_ratio(self):
+        if hasattr(self, "_user_id_graph_ratio_logit"):
+            return self._user_id_graph_ratio_logit.sigmoid()
         else:
-            return self._user_graph_ratio
+            return self._user_id_graph_ratio
 
     def user_encoder(self, i, G):
-        out = self.user_id_encoder(i) * (1 - self.user_graph_ratio)
-        if self.user_graph_ratio > 0:
-            out = out + self.user_graph_encoder(i, G) * self.user_graph_ratio
+        if self.user_id_graph_ratio == 'switch':
+            G = G.to(i.device)
+            out = torch.where(G.in_degrees()[i].unsqueeze(-1)>1, # exclude padding
+                self.user_graph_encoder(i, G), self.user_id_encoder(i))
+        else:
+            out = self.user_id_encoder(i) * (1 - self.user_id_graph_ratio)
+            if self.user_id_graph_ratio > 0:
+                out = out + self.user_graph_encoder(i, G) * self.user_id_graph_ratio
         return out
 
     def user_bias_vec(self, i, G):
-        out = self.user_id_bias_vec(i) * (1 - self.user_graph_ratio)
-        if self.user_graph_ratio > 0:
-            out = out + self.user_graph_bias_vec(i, G) * self.user_graph_ratio
+        if self.user_id_graph_ratio == 'switch':
+            G = G.to(i.device)
+            out = torch.where(G.in_degrees()[i].unsqueeze(-1)>1, # exclude padding
+                self.user_graph_bias_vec(i, G), self.user_id_bias_vec(i))
+        else:
+            out = self.user_id_bias_vec(i) * (1 - self.user_id_graph_ratio)
+            if self.user_id_graph_ratio > 0:
+                out = out + self.user_graph_bias_vec(i, G) * self.user_id_graph_ratio
         return out
 
     def forward(self, i, j, G):
@@ -93,16 +106,15 @@ class _GCMC(_BPR, _LitValidated):
 
         loss = torch.stack(loss_list).mean()
         self.log("train_loss", loss, prog_bar=True)
-        self.log("user_graph_ratio", self.user_graph_ratio, prog_bar=True)
+        if self.user_id_graph_ratio != 'switch':
+            self.log("user_id_graph_ratio", self.user_id_graph_ratio, prog_bar=True)
         return loss
 
 
 class GCMC:
-    """ exclude_first_V (pending deprecation): avoid reusing V during CVX calibration """
-    def __init__(self, D, exclude_first_V=False, batch_size=10000, max_epochs=50, **kw):
+    def __init__(self, D, batch_size=10000, max_epochs=50, **kw):
         self._user_list = D.training_data.user_df.index.tolist()
         self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
-        self.exclude_first_V = exclude_first_V
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
@@ -157,12 +169,11 @@ class GCMC:
 
     @empty_cache_on_exit
     def fit(self, *V_arr):
-        if self.exclude_first_V:
-            V_arr = V_arr[1:]
         dataset, G_list, user_proposal, item_proposal = zip(*[
             self._extract_task(k, V) for k, V in enumerate(V_arr)
             ])
 
+        print("GCMC label sizes", [len(d) for d in dataset])
         dataset = np.vstack(dataset)
         model = _GCMC(np.array(user_proposal), np.array(item_proposal), **self._model_kw)
 
