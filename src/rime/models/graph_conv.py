@@ -9,35 +9,26 @@ from .bpr import BPR, _BPR
 try:
     import dgl, dgl.function as fn
 except ImportError:
-    warnings.warn("GCMC requires dgl package")
+    warnings.warn("GraphConv requires dgl package")
 
 
-class _GCMC(_BPR, _LitValidated):
+class _GraphConv(_BPR, _LitValidated):
     """ module to compute user RFM embedding.
-
-    :parameter user_id_graph_ratio: switch (default), learn, or numeric
     """
-    def __init__(self, *args, no_components=32,
-        lr=1, weight_decay=1e-5,
-        recency_boundaries=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
-        user_id_graph_ratio='switch', # TODO: we only need 0 in the future
+    def __init__(self, *args, no_components=32, encode_user_ids="n/a",
+        recency_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
         **kw):
 
-        super().__init__(*args, lr=lr, weight_decay=weight_decay,
-            user_encoder_name="user_id_encoder", user_bias_vec_name="user_id_bias_vec",
+        super().__init__(*args,
+            no_components=no_components, encode_user_ids=False,
             **kw)
 
         self.register_buffer("recency_boundaries",
-            torch.as_tensor(recency_boundaries) * horizon)
+            torch.as_tensor(recency_multipliers) * horizon)
 
         self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components, "none")
         self.layer_norm = torch.nn.LayerNorm(no_components)
-        self.recency_encoder = torch.nn.Embedding(len(recency_boundaries)+1, 1)
-
-        if user_id_graph_ratio == 'learn':
-            self._user_id_graph_ratio_logit = torch.nn.Parameter(torch.empty(1))
-        else: # switch or numeric
-            self._user_id_graph_ratio = user_id_graph_ratio
+        self.recency_encoder = torch.nn.Embedding(len(self.recency_boundaries)+1, 1)
 
         self.init_weights()
 
@@ -47,49 +38,18 @@ class _GCMC(_BPR, _LitValidated):
         torch.nn.init.zeros_(self.item_bias_vec.weight)
         torch.nn.init.uniform_(self.conv.weight, -initrange, initrange)
         torch.nn.init.zeros_(self.conv.bias)
-        if hasattr(self, "_user_id_graph_ratio_logit"):
-            torch.nn.init.uniform_(self._user_id_graph_ratio_logit, -initrange, initrange)
 
-    def user_graph_encoder(self, i, G):
+    def user_encoder(self, i, G):
         G = G.to(i.device)
         out = self.conv(G, self.item_encoder.weight)
         return self.layer_norm(out)[i]
 
-    def user_graph_bias_vec(self, i, G):
+    def user_bias_vec(self, i, G):
         G = G.to(i.device).clone()
         G.update_all(lambda x: None, fn.max('t', 'last_t'))
         user_recency = G.nodes['user'].data['test_t'] - G.nodes['user'].data['last_t']
         recency_buckets = torch.bucketize(user_recency, self.recency_boundaries)
         return self.recency_encoder(recency_buckets)[i]
-
-    @property
-    def user_id_graph_ratio(self):
-        if hasattr(self, "_user_id_graph_ratio_logit"):
-            return self._user_id_graph_ratio_logit.sigmoid()
-        else:
-            return self._user_id_graph_ratio
-
-    def user_encoder(self, i, G):
-        if self.user_id_graph_ratio == 'switch':
-            G = G.to(i.device)
-            out = torch.where(G.in_degrees()[i].unsqueeze(-1)>1, # exclude padding
-                self.user_graph_encoder(i, G), self.user_id_encoder(i))
-        else:
-            out = self.user_id_encoder(i) * (1 - self.user_id_graph_ratio)
-            if self.user_id_graph_ratio > 0:
-                out = out + self.user_graph_encoder(i, G) * self.user_id_graph_ratio
-        return out
-
-    def user_bias_vec(self, i, G):
-        if self.user_id_graph_ratio == 'switch':
-            G = G.to(i.device)
-            out = torch.where(G.in_degrees()[i].unsqueeze(-1)>1, # exclude padding
-                self.user_graph_bias_vec(i, G), self.user_id_bias_vec(i))
-        else:
-            out = self.user_id_bias_vec(i) * (1 - self.user_id_graph_ratio)
-            if self.user_id_graph_ratio > 0:
-                out = out + self.user_graph_bias_vec(i, G) * self.user_id_graph_ratio
-        return out
 
     def forward(self, i, j, G):
         return (self.user_encoder(i, G) * self.item_encoder(j)).sum(-1) \
@@ -106,12 +66,10 @@ class _GCMC(_BPR, _LitValidated):
 
         loss = torch.stack(loss_list).mean()
         self.log("train_loss", loss, prog_bar=True)
-        if self.user_id_graph_ratio != 'switch':
-            self.log("user_id_graph_ratio", self.user_id_graph_ratio, prog_bar=True)
         return loss
 
 
-class GCMC:
+class GraphConv:
     def __init__(self, D, batch_size=10000, max_epochs=50, **kw):
         self._user_list = D.training_data.user_df.index.tolist()
         self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
@@ -128,7 +86,7 @@ class GCMC:
         D.user_in_test.index.name = 'USER_ID'
 
         i, j = create_matrix(
-            D.user_in_test['_hist_items'].explode().to_frame('ITEM_ID').reset_index(),
+            D.user_in_test['_hist_items'].explode().dropna().to_frame('ITEM_ID').reset_index(),
             D.user_in_test.index, D.item_in_test.index, 'ij'
             )
         t = np.hstack(D.user_in_test['_timestamps'].apply(lambda x: x[:-1]))
@@ -173,9 +131,9 @@ class GCMC:
             self._extract_task(k, V) for k, V in enumerate(V_arr)
             ])
 
-        print("GCMC label sizes", [len(d) for d in dataset])
+        print("GraphConv label sizes", [len(d) for d in dataset])
         dataset = np.vstack(dataset)
-        model = _GCMC(np.array(user_proposal), np.array(item_proposal), **self._model_kw)
+        model = _GraphConv(np.array(user_proposal), np.array(item_proposal), **self._model_kw)
 
         N = len(dataset)
         if len(dataset) > 5:

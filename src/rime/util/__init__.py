@@ -200,8 +200,10 @@ def create_matrix(event_df, user_index, item_index, return_type='csr'):
 
 def fill_factory_inplace(df, isna, kv):
     for k,v in kv.items():
-        if k in df.columns:
-            df[k] = [v() if _isna else x for _isna, x in zip(isna, df[k])]
+        if k is None: # series
+            df[:] = [v() if do else x for do, x in zip(isna, df.values)]
+        elif k in df.columns:
+            df[k] = [v() if do else x for do, x in zip(isna, df[k])]
         else:
             warnings.warn(f"fill_factory_inplace missing {k}")
 

@@ -48,6 +48,20 @@ def _mark_holdout(event_df, user_df, horizon):
     return event_df
 
 
+def _reindex_user_hist(user_df, index, factory={
+        "_hist_items": list,
+        "_timestamps": lambda: [float("inf")],
+        "_hist_len": lambda: 0,
+        "_hist_span": lambda: 0,
+        # other fields not used after initialization
+    }):
+    missing = [i not in user_df.index for i in index]
+    user_df = user_df.reindex(index)
+    if any(missing):
+        fill_factory_inplace(user_df, missing, factory)
+    return user_df
+
+
 def _augment_user_hist(user_df, event_df):
     """ extract user histories from event_df before the respective TEST_START_TIME;
         append columns: _hist_items, _hist_ts, _timestamps, _hist_len, _hist_span
@@ -57,8 +71,7 @@ def _augment_user_hist(user_df, event_df):
         hist = groupby_collect(
             event_df[event_df['_holdout']==0].set_index('USER_ID')[col_name]
             )
-        return hist.reindex(user_df.index).apply(
-            lambda x: x if isinstance(x, collections.abc.Iterable) else [])
+        return _reindex_user_hist(hist, user_df.index, {None: list})
 
     user_df = user_df.join(fn("ITEM_ID").to_frame("_hist_items")) \
                      .join(fn("TIMESTAMP").to_frame("_hist_ts"))
@@ -156,15 +169,9 @@ class Dataset:
     def reindex(self, index, axis):
         if axis==0:
             old_index = self.user_in_test.index
-            user_in_test = self.user_in_test.reindex(index, fill_value=0)
+            user_in_test = _reindex_user_hist(self.user_in_test, index)
             item_in_test = self.item_in_test
 
-            if not set(index) < set(old_index):
-                fill_factory_inplace(user_in_test, [i not in old_index for i in index], {
-                    "_hist_items": list, '_hist_ts': list,
-                    'TEST_START_TIME': lambda: float('inf'),
-                    "_timestamps": lambda: [float('inf')]
-                    })
         else:
             old_index = self.item_in_test.index
             user_in_test = self.user_in_test

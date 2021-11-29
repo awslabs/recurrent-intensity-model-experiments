@@ -8,7 +8,7 @@ import functools, collections, torch, dataclasses, warnings, json
 import pandas as pd, numpy as np
 from typing import Dict, List
 from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson,
-    LightFM_BPR, ALS, LogisticMF, BPR, GCMC)
+    LightFM_BPR, ALS, LogisticMF, BPR, GraphConv)
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
 from rime.util import _argsort, cached_property, RandScore
@@ -92,7 +92,7 @@ class Experiment:
             "RNN", "RNN-Pop",
             "RNN-Hawkes", "RNN-HP",
             "EMA", "RNN-EMA", "Transformer-EMA",
-            "BPR", "GCMC", "GCMC-Extra",
+            "BPR", "GraphConv-Base", "GraphConv-Extra",
             "ALS", "LogisticMF",
             "BPR-Item", "BPR-User",
             ],
@@ -256,11 +256,11 @@ class Experiment:
         if model == "BPR":
             return self._bpr.transform(D)
 
-        if model == "GCMC":
-            return self._gcmc.transform(D)
+        if model == "GraphConv-Base":
+            return self._graph_conv_base.transform(D)
 
-        if model == "GCMC-Extra":
-            return self._gcmc_extra.transform(D)
+        if model == "GraphConv-Extra":
+            return self._graph_conv_extra.transform(D)
 
         if model == "ALS":
             return self._als.transform(D)
@@ -353,23 +353,23 @@ class Experiment:
         return BPR(**self.model_hyps.get("BPR", {})).fit(self.D.training_data)
 
     @cached_property
-    def _gcmc(self):
+    def _graph_conv_base(self):
         if self.V is not None:
-            return GCMC(
-                self.D, *self.model_hyps.get("GCMC", {})
+            return GraphConv(
+                self.D, *self.model_hyps.get("GraphConv-Base", {})
                 ).fit(self.V)
         else:
-            warnings.warn("Degenerating GCMC to BPR when self.V is None")
+            warnings.warn("Degenerating GraphConv-Base to BPR when self.V is None")
             return self._bpr
 
     @cached_property
-    def _gcmc_extra(self):
+    def _graph_conv_extra(self):
         if self.V is not None:
-            return GCMC(
-                self.D, **self.model_hyps.get("GCMC-Extra", {})
+            return GraphConv(
+                self.D, **self.model_hyps.get("GraphConv-Extra", {})
                 ).fit(self.V, *self.V_extra)
         else:
-            warnings.warn("Degenerating GCMC-Extra to BPR when self.V is None")
+            warnings.warn("Degenerating GraphConv-Extra to BPR when self.V is None")
             return self._bpr
 
     @cached_property
@@ -383,7 +383,7 @@ class Experiment:
     def update_cache(self, other):
         for attr in ['_transformer', '_rnn', '_hawkes', '_hawkes_poisson',
                      '_bpr_item', '_bpr_user', '_als', '_logistic_mf',
-                     '_bpr', '_gcmc', '_gcmc_extra']:
+                     '_bpr', '_graph_conv_base', '_graph_conv_extra']:
             if attr in other.__dict__:
                 setattr(self, attr, getattr(other, attr))
 
