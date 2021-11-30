@@ -201,7 +201,7 @@ class Experiment:
 
         return out
 
-    def transform(self, model, D):
+    def transform(self, model, D):  # noqa: C901
         if model == "Rand":
             return Rand().transform(D)
 
