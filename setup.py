@@ -7,7 +7,9 @@ setup(
     packages=find_packages(where="src", exclude=("test",)),
     package_dir={"": "src"},
 
-    # use `conda env update --file environment.yml` to install full dependencies
+    # This list of requirements work in pytorch_latest_p37 jupyter notebook environments,
+    # with the exception that torch, dgl, and implicit should be manually installed beforehand.
+    # To work in github, we need more packages via `conda env update --file environment.yml`
     install_requires=[
         "torch>=1.7.1", # torch==1.7.1+cu101
         "pytorch-lightning>=1.3.8,<1.5",
@@ -17,7 +19,7 @@ setup(
         "tick>=0.6",
         # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu -y
         "backports.cached-property",
-        "dgl", # pip install dgl-cu111
+        "dgl", # pip install dgl-cu111 # or matching cuda version with torch
     ],
     use_scm_version=True,
     setup_requires=['setuptools_scm'],
