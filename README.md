@@ -19,8 +19,10 @@ Repository to reproduce the experiments in the paper:
 ## Getting Started
 
 1. Download and install via `pip install -e .`
-    - If direct installation fails, some dependencies might be more easily installed by conda: `conda env update --file environment.yml --name target-env-to-update`
-    - Notice: conda env update may overwrite the current python version and it is recommended to manually fix that in the yml file.
+    - We assume pre-installed `pytorch` and `dgl` with correct cuda versions
+    - Package `implicit` needs to be installed by conda; see details in [setup.py](setup.py)
+    - If more dependencies are needed, such as in github build box, try this command:
+        `conda env update --file environment.yml`
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run experiment as
     ```

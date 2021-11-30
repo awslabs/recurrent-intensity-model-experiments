@@ -81,21 +81,18 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
             where u = min{u>=0 : E_y[pi(x,y)] <= alpha(x)}
     find exact u s.t. E_y[pi(x,y)] == alpha(x)
     """
-    if alpha < 0 or alpha > 1:
-        warnings.warn(f"clipping alpha={alpha} to [0, 1]")
-        alpha = np.clip(alpha, 0, 1)
-
-    alpha = torch.as_tensor(alpha, device=s.device)
+    alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
     eps = torch.as_tensor(eps, device=s.device)
 
     z = alpha.log() - (1-alpha).log()
 
-    if alpha == 0 or alpha == 1: # z = +-infinity
+    if alpha.amax() <= 0 or alpha.amin() >= 1: # z = +-infinity
         u = -z * torch.ones_like(s[:, 0])
-        return u
+        return u, 0
 
+    v_inp = torch.as_tensor(v, device=s.device).reshape((1, -1))
     if 'CVX_STABLE' in os.environ and int(os.environ['CVX_STABLE']):
-        v = torch.as_tensor(v, device=s.device).reshape((1, -1))
+        v = v_inp
     else:
         s = s_u_v(s, None, v)
         v = None
@@ -103,11 +100,23 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
     u_min = s_u_v(s, None, v).amin(1) - z * eps - 1e-3
     u_max = s_u_v(s, None, v).amax(1) - z * eps + 1e-3
 
+    u_guess = [ # avoids large negative prior_score when s>=0 if most valid cases
+        torch.zeros_like(u_min) + (0 - v_inp).amin() - z * eps - 1e-3,
+    ]
+    # u_guess.extend(
+    #     s_u_v(s, None, v).topk(
+    #         (alpha * s.shape[1] + 1).clip(None, s.shape[1]).int()
+    #         ).values[:, -3:].T
+    # )
+
     assert (grad_u(u_min, v, s, alpha, eps) <= 0).all()
     assert (grad_u(u_max, v, s, alpha, eps) >= 0).all()
 
     for i in range(n_iters):
-        u = (u_min + u_max) / 2
+        if i < len(u_guess):
+            u = u_guess[i]
+        else:
+            u = (u_min + u_max) / 2
         g = grad_u(u, v, s, alpha, eps)
         assert not u.isnan().any()
         if g.abs().max() < gtol:
@@ -115,7 +124,7 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
         u_min = torch.where(g<0, u, u_min)
         u_max = torch.where(g>0, u, u_max)
 
-    return u
+    return u, (i+1)
 
 
 def dual_clip(u, constraint_type):
@@ -140,7 +149,7 @@ def dual(v, s, alpha, beta, eps, constraint_type='ub'):
          = E_xy [ s(x,y) pi(x,y) + u(x)(alpha(x) - pi(x,y)) + v(y)(beta(y) - pi(x,y)) ]
          >= E_xy [ s(x,y) + v(y)(beta(y) - pi(x,y)) ]
     """
-    u = dual_solve_u(v, s, alpha, eps)
+    u, _ = dual_solve_u(v, s, alpha, eps)
     u = dual_clip(u, constraint_type)
     return dual_complete(u, v, s, alpha, beta, eps)
 
@@ -149,7 +158,7 @@ def dual_iterate(v, s, alpha, beta, eps,
     constraint_type_a='ub', constraint_type_b='eq',
     max_iters=10, stepsize=0):
     for epoch in range(max_iters):
-        u = dual_solve_u(v, s, alpha, eps)
+        u, _ = dual_solve_u(v, s, alpha, eps)
         u = dual_clip(u, constraint_type_a)
 
         yield v, dual_complete(u, v, s, alpha, beta, eps), primal_solution(u, v, s, eps)
@@ -158,7 +167,7 @@ def dual_iterate(v, s, alpha, beta, eps,
             grad_v = grad_u(v, u, s.T, beta, eps)
             v = v - grad_v * stepsize
         else:
-            v = dual_solve_u(u, s.T, beta, eps)
+            v, _ = dual_solve_u(u, s.T, beta, eps)
         v = dual_clip(v, constraint_type_b)
 
 
@@ -250,15 +259,15 @@ if __name__ == '__main__':
     arr = []
     for eps in [1, 0.5, 0.01]:
         for _ in range(3):
-            u = dual_solve_u(v, s, alpha, eps)
+            u, _ = dual_solve_u(v, s, alpha, eps)
             u = dual_clip(u, 'ub')
             y = dual_complete(u, v, s, alpha, beta, eps)
             arr.append([v.numpy(), y.numpy()])
             print(eps, u, v, y)
 
-            v = dual_solve_u(u, s.T, beta, eps)
+            v, _ = dual_solve_u(u, s.T, beta, eps)
 
-            u = dual_solve_u(v, s, alpha, eps)
+            u, _ = dual_solve_u(v, s, alpha, eps)
             u = dual_clip(u, 'ub')
             y = dual_complete(u, v, s, alpha, beta, eps)
             arr.append([v.numpy(), y.numpy()])

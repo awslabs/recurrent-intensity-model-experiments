@@ -5,11 +5,13 @@ except ImportError:
     pass
 
 import functools, collections, torch, dataclasses, warnings, json
+import pandas as pd, numpy as np
 from typing import Dict, List
-from rime.models import *
-from rime.metrics import *
+from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson,
+    LightFM_BPR, ALS, LogisticMF, BPR, GraphConv)
+from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
-from rime.util import _argsort, cached_property
+from rime.util import _argsort, cached_property, RandScore
 
 from pkg_resources import get_distribution, DistributionNotFound
 try:
@@ -26,12 +28,24 @@ class ExperimentResult:
     _c1: int
     _kmax: int
     _cmax: int
-    item_ppl: float
-    user_ppl: float
+
+    item_ppl_baseline: float = None
+    user_ppl_baseline: float = None
+
+    item_ppl: float = None # Deprecated; will be removed
+    user_ppl: float = None # Deprecated; will be removed
 
     item_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
     user_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
     mtch_: Dict[str, List[Dict[str, float]]] = dataclasses.field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.item_ppl_baseline is None:
+            warnings.warn("item_ppl -> item_ppl_baseline", DeprecationWarning)
+            self.item_ppl_baseline = self.item_ppl
+        if self.user_ppl_baseline is None:
+            warnings.warn("user_ppl -> user_ppl_baseline", DeprecationWarning)
+            self.user_ppl_baseline = self.user_ppl
 
     def print_results(self):
         print('\nitem_rec')
@@ -68,7 +82,7 @@ class Experiment:
     then sweeps through multipliers for relevance-diversity curve,
     interpreting mult<1 as item min-exposure and mult>=1 as user max-limit
     """
-    def __init__(self, D, V=None,
+    def __init__(self, D, V=None, *V_extra,
         mult=[], # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
         models_to_run=[
             "Rand", "Pop",
@@ -78,6 +92,7 @@ class Experiment:
             "RNN", "RNN-Pop",
             "RNN-Hawkes", "RNN-HP",
             "EMA", "RNN-EMA", "Transformer-EMA",
+            "BPR", "GraphConv-Base", "GraphConv-Extra",
             "ALS", "LogisticMF",
             "BPR-Item", "BPR-User",
             ],
@@ -85,10 +100,14 @@ class Experiment:
         device="cuda" if torch.cuda.is_available() else "cpu",
         cvx=False,
         online=False,
+        tie_break=0,
+        cache=None,
+        results=None,
         **mtch_kw
         ):
         self.D = D
         self.V = V
+        self.V_extra = V_extra
 
         self.mult = mult
         self.models_to_run = models_to_run
@@ -101,17 +120,22 @@ class Experiment:
                 cvx = True
             assert V is not None, "online cvx is trained with explicit valid_mat"
 
+        self.tie_break = tie_break
+        if cache is not None:
+            self.update_cache(cache)
         self.mtch_kw = mtch_kw
 
-        self.results = ExperimentResult(
-            cvx, online,
-            _k1 = self.D.default_item_rec_top_k,
-            _c1 = self.D.default_user_rec_top_c,
-            _kmax = len(self.D.item_in_test),
-            _cmax = len(self.D.user_in_test),
-            item_ppl = self.D.item_ppl,
-            user_ppl = self.D.user_ppl,
-        )
+        if results is None:
+            results = ExperimentResult(
+                cvx, online,
+                _k1 = self.D.default_item_rec_top_k,
+                _c1 = self.D.default_user_rec_top_c,
+                _kmax = len(self.D.item_in_test),
+                _cmax = len(self.D.user_in_test),
+                item_ppl_baseline = self.D.item_ppl_baseline,
+                user_ppl_baseline = self.D.user_ppl_baseline,
+            )
+        self.results = results
 
         # pass-through references
         self.__dict__.update(self.results.__dict__)
@@ -167,7 +191,9 @@ class Experiment:
         for k, c, constraint_type in confs:
             res = evaluate_mtch(
                 target_csr, score_mat, k, c, constraint_type=constraint_type,
-                cvx=self.cvx, device=self.device, **mtch_kw
+                cvx=self.cvx, device=self.device,
+                item_prior=1+self.D.item_in_test['_hist_len'].values,
+                **mtch_kw
             )
             res.update({'k': k, 'c': c})
             out.append(res)
@@ -227,6 +253,15 @@ class Experiment:
         if model == "BPR-User":
             return self._bpr_user.transform(D)
 
+        if model == "BPR":
+            return self._bpr.transform(D)
+
+        if model == "GraphConv-Base":
+            return self._graph_conv_base.transform(D)
+
+        if model == "GraphConv-Extra":
+            return self._graph_conv_extra.transform(D)
+
         if model == "ALS":
             return self._als.transform(D)
 
@@ -234,13 +269,22 @@ class Experiment:
             return self._logistic_mf.transform(D)
 
 
-    def run(self):
-        for model in self.models_to_run:
+    def run(self, models_to_run=None):
+        if models_to_run is None:
+            models_to_run = self.models_to_run
+        elif isinstance(models_to_run, str):
+            models_to_run = [models_to_run]
+
+        for model in models_to_run:
             print("running", model)
             S = self.transform(model, self.D)
 
             if self.D.prior_score is not None:
                 S = S + self.D.prior_score
+
+            if self.tie_break:
+                warnings.warn("Using experimental RandScore class")
+                S = S + RandScore.like(S) * self.tie_break
 
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
@@ -248,6 +292,11 @@ class Experiment:
 
                 if V.prior_score is not None:
                     T = T + V.prior_score
+
+                if self.tie_break:
+                    warnings.warn("Using experimental RandScore class")
+                    T = T + RandScore.like(T) * self.tie_break
+
             else:
                 T = None
             self.metrics_update(model, S, T)
@@ -300,6 +349,30 @@ class Experiment:
         return LightFM_BPR(user_rec=True).fit(self.D.training_data)
 
     @cached_property
+    def _bpr(self):
+        return BPR(**self.model_hyps.get("BPR", {})).fit(self.D.training_data)
+
+    @cached_property
+    def _graph_conv_base(self):
+        if self.V is not None:
+            return GraphConv(
+                self.D, *self.model_hyps.get("GraphConv-Base", {})
+                ).fit(self.V)
+        else:
+            warnings.warn("Degenerating GraphConv-Base to BPR when self.V is None")
+            return self._bpr
+
+    @cached_property
+    def _graph_conv_extra(self):
+        if self.V is not None:
+            return GraphConv(
+                self.D, **self.model_hyps.get("GraphConv-Extra", {})
+                ).fit(self.V, *self.V_extra)
+        else:
+            warnings.warn("Degenerating GraphConv-Extra to BPR when self.V is None")
+            return self._bpr
+
+    @cached_property
     def _als(self):
         return ALS().fit(self.D.training_data)
 
@@ -307,11 +380,18 @@ class Experiment:
     def _logistic_mf(self):
         return LogisticMF().fit(self.D.training_data)
 
+    def update_cache(self, other):
+        for attr in ['_transformer', '_rnn', '_hawkes', '_hawkes_poisson',
+                     '_bpr_item', '_bpr_user', '_als', '_logistic_mf',
+                     '_bpr', '_graph_conv_base', '_graph_conv_extra']:
+            if attr in other.__dict__:
+                setattr(self, attr, getattr(other, attr))
+
 
 def main(name, *args, **kw):
     prepare_fn = getattr(dataset, name)
-    D, V = prepare_fn(*args)
-    self = Experiment(D, V, **kw)
+    D, *V = prepare_fn(*args)
+    self = Experiment(D, *V, **kw)
     self.run()
     self.results.print_results()
     return self
@@ -340,8 +420,9 @@ def plot_results(self, logy=True):
         ax.set_ylabel(yname)
         if logy:
             ax.set_yscale('log')
+        ax.axhline(getattr(self, yname + '_baseline'), ls='-.', color='gray')
     fig.legend(
-        df.loc['prec'].unstack().index.values,
+        df.loc['prec'].unstack().index.values.tolist() + [yname + '_baseline'],
         bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,
         mode="expand", borderaxespad=0.)
     fig.subplots_adjust(wspace=0.25)

@@ -1,10 +1,10 @@
 import numpy as np, pandas as pd
-import torch, dataclasses, functools, warnings, operator, builtins, numbers
+import torch, dataclasses, functools, warnings, operator, builtins, numbers, os
 from typing import Dict, List
 from torch.utils.data import DataLoader
 import scipy.sparse as sps
 
-def get_batch_size(shape, frac=0.1):
+def get_batch_size(shape, frac=float(os.environ.get("BATCH_SIZE_FRAC", 0.1))):
     """ round to similar batch sizes """
     n_users, n_items = shape
     if torch.cuda.device_count():
@@ -54,10 +54,11 @@ class LazyScoreBase:
         self._type = 'scalar' if isinstance(c, numbers.Number) else \
                      'sparse' if sps.issparse(c) else \
                      'dense' if np.ndim(c) == 2 else \
+                     '_dict' if isinstance(c, dict) else \
                      None
         assert self._type is not None, f"type {type(c)} is not supported"
         self.c = c if self._type != 'sparse' else c.tocsr()
-        self.shape = c.shape if self._type != 'scalar' else None
+        self.shape = getattr(c, "shape", None) # exclude scalar and _dict
 
     # methods to overload
 
@@ -65,6 +66,8 @@ class LazyScoreBase:
         """ LazyScoreBase -> scalar, numpy (device is None), or torch (device) """
         if self._type == 'scalar':
             return self.c
+        elif self._type == '_dict':
+            raise NotImplementedError("internal sparse array representation")
         elif self._type == 'sparse':
             return self.c.toarray() if device is None else \
                    sps_to_torch(self.c, device).to_dense()
@@ -75,17 +78,24 @@ class LazyScoreBase:
     @property
     def T(self):
         """ LazyScoreBase -> LazyScoreBase(transposed) """
-        cT = self.c if self._type == 'scalar' else self.c.T
+        cT = getattr(self.c, "T", self.c)
         return self.__class__(cT)
 
     def __getitem__(self, key):
         """ LazyScoreBase -> LazyScoreBase(sub-rows); used in pytorch dataloader """
-        if np.isscalar(key):
-            key = [key]
-
-        if self._type == 'scalar':
+        if self._type == 'sparse' and np.isscalar(key):
+            slc = slice(self.c.indptr[key], self.c.indptr[key+1])
+            _dict = {
+                "values": self.c.data[slc],
+                "keys": self.c.indices[slc],
+                "shape": self.c.shape[1],
+                }
+            return self.__class__(_dict)
+        elif self._type == 'scalar':
             return self.__class__(self.c)
         else:
+            if np.isscalar(key):
+                key = [key]
             return self.__class__(self.c[key])
 
     def collate_fn(self, D):
@@ -93,6 +103,13 @@ class LazyScoreBase:
         C = [d.c for d in D]
         if self._type == 'scalar':
             return self.__class__(C[0])
+        elif self._type == '_dict':
+            csr = sps.csr_matrix((
+                np.hstack([c['values'] for c in C]), # data
+                np.hstack([c['keys'] for c in C]), # indices
+                np.hstack([[0], np.cumsum([len(c['keys']) for c in C])]), # indptr
+                ), shape=(len(C), C[0]['shape']))
+            return self.__class__(csr)
         elif self._type == 'sparse':
             return self.__class__(sps.vstack(C))
         elif self._type == 'dense':
@@ -158,13 +175,58 @@ class LazyScoreExpression(LazyScoreBase):
 
 
 @dataclasses.dataclass(repr=False)
+class RandScore(LazyScoreBase):
+    """ add random noise to break ties """
+    row_seeds: list # np.array for fast indexing
+    col_seeds: list # np.array for fast indexing
+
+    @property
+    def shape(self):
+        return (len(self.row_seeds), len(self.col_seeds))
+
+    @classmethod
+    def like(cls, other):
+        return cls(np.arange(other.shape[0]), np.arange(other.shape[1]))
+
+    def eval(self, device=None):
+        d1 = len(self.col_seeds)
+        if device is None:
+            return np.vstack([
+                np.random.RandomState(int(s)).rand(d1)
+                for s in self.row_seeds])
+        else:
+            rows = []
+            for s in self.row_seeds:
+                generator = torch.Generator(device).manual_seed(int(s))
+                new = torch.rand(d1, device=device, generator=generator)
+                rows.append(new)
+            return torch.vstack(rows)
+
+    @property
+    def T(self):
+        warnings.warn("transpose changes rand seed; only for evaluate_user_rec")
+        return self.__class__(self.col_seeds, self.row_seeds)
+
+    def __getitem__(self, key):
+        if np.isscalar(key):
+            key = [key]
+        row_seeds = self.row_seeds[key]
+        return self.__class__(row_seeds, self.col_seeds)
+
+    @classmethod
+    def collate_fn(cls, batch):
+        return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds)
+
+
+@dataclasses.dataclass(repr=False)
 class LowRankDataFrame(LazyScoreBase):
-    """ mimics a pandas dataframe with exponentiated low-rank structures
+    """ mimics a pandas dataframe with low-rank structures and
+    nonnegative exp / softplus / sigmoid activation
     """
     ind_logits: List[list]
     col_logits: List[list]
-    index: list
-    columns: list
+    index: list    # np.array for fast indexing
+    columns: list  # np.array for fast indexing
     act: str
     ind_default: list = None
     col_default: list = None
@@ -178,7 +240,8 @@ class LowRankDataFrame(LazyScoreBase):
         assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
         assert self.ind_logits.shape[0] == len(self.index), "check index"
         assert self.col_logits.shape[0] == len(self.columns), "check columns"
-        assert self.act in ['exp', 'sigmoid'], "requires nonnegative act to solve cvx"
+        assert self.act in ['exp', 'softplus', 'sigmoid'], \
+            "requires nonnegative act to model intensity score"
 
     def eval(self, device=None):
         if device is None:
@@ -187,6 +250,8 @@ class LowRankDataFrame(LazyScoreBase):
 
             if self.act == 'exp':
                 return np.exp(z)
+            elif self.act == 'softplus':
+                return np.where(z>0, z + np.log(1 + np.exp(-z)), np.log(1 + np.exp(z)))
             elif self.act == 'sigmoid':
                 return 1./(1+np.exp(-z))
         else:
@@ -197,6 +262,8 @@ class LowRankDataFrame(LazyScoreBase):
 
             if self.act == 'exp':
                 return z.exp()
+            elif self.act == 'softplus':
+                return torch.nn.Softplus()(z)
             elif self.act == 'sigmoid':
                 return z.sigmoid()
 
@@ -208,7 +275,7 @@ class LowRankDataFrame(LazyScoreBase):
         if np.isscalar(key):
             key = [key]
         return self.__class__(self.ind_logits[key], self.col_logits,
-            np.asarray(self.index)[key], self.columns, self.act,
+            self.index[key], self.columns, self.act,
             self.ind_default, self.col_default)
 
     @property
@@ -242,7 +309,7 @@ class LowRankDataFrame(LazyScoreBase):
 
         if fill_value == 0:
             ind_logits[-1, -1] = float("-inf")    # common for exp and sigmoid
-        elif self.act == 'exp':
+        elif self.act in ['exp', 'softplus']:
             ind_logits[-1, -1] = np.log(fill_value)
         elif self.act == 'sigmoid':
             ind_logits[-1, -1] = np.log(fill_value) - np.log(1-fill_value)
@@ -257,6 +324,21 @@ class LowRankDataFrame(LazyScoreBase):
         return self.__class__(
             ind_logits[new_ind], col_logits, index, self.columns, self.act,
             ind_default, col_default)
+
+
+def create_second_order_dataframe(
+    user_embeddings, item_embeddings, user_biases, item_biases,
+    user_index, item_index, act
+    ):
+    if user_biases is not None:
+        user_embeddings = np.hstack([user_embeddings, user_biases[:, None]])
+        item_embeddings = np.hstack([item_embeddings, np.ones_like(item_embeddings[:, :1])])
+
+    if item_biases is not None:
+        user_embeddings = np.hstack([user_embeddings, np.ones_like(user_embeddings[:, :1])])
+        item_embeddings = np.hstack([item_embeddings, item_biases[:, None]])
+
+    return LowRankDataFrame(user_embeddings, item_embeddings, user_index, item_index, act)
 
 
 def score_op(S, op, device=None):

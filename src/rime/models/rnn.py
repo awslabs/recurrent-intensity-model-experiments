@@ -94,8 +94,9 @@ class RNN:
 
         best_model_path = self.model._checkpoint.best_model_path
         best_model_score = self.model._checkpoint.best_model_score
-        print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
-        self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
+        if best_model_score is not None:
+            print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
+            self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
         return self
 
 
@@ -140,10 +141,9 @@ class _LitRNNModel(_LitValidated):
         return last_hidden.cpu().numpy(), log_bias.cpu().numpy()
 
     def configure_optimizers(self):
-        """ TODO: do lr_scheduler and final model load the best checkpoints? """
         optimizer = torch.optim.Adagrad(self.parameters(), eps=1e-3, lr=self.lr)
         lr_scheduler = _ReduceLRLoadCkpt(optimizer, model=self,
-            factor=0.25, patience=4, min_lr=self.lr*1e-3, verbose=True)
+            factor=0.25, patience=4, verbose=True)
         return {"optimizer": optimizer, "lr_scheduler": {
                 "scheduler": lr_scheduler, "monitor": "val_epoch_loss"
             }}

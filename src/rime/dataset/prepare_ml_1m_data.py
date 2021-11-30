@@ -22,7 +22,14 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
     D = create_dataset(event_df, train_df, item_df, horizon, **kw)
     D.print_stats()
     V = create_dataset(event_df, valid_df, item_df, horizon, **kw)
-    return D, V
+    # extract context data from user-split
+    V0 = create_dataset(
+        D.training_data.event_df,
+        D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME') + horizon/2,
+        D.training_data.item_df[['_siz']], # just need the index
+        horizon/2,
+    )
+    return D, V, V0
 
 
 def _load_sort_ml_1m_data(data_path, seed):

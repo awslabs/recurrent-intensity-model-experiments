@@ -2,7 +2,7 @@ import pandas as pd, numpy as np, scipy as sp
 import scipy.sparse as sps
 import functools, collections, warnings, dataclasses, argparse
 from ..util import create_matrix, cached_property, perplexity, \
-                   timed, groupby_collect, matrix_reindex, get_batch_size
+           timed, groupby_collect, matrix_reindex, get_batch_size, fill_factory_inplace
 
 
 def _check_index(event_df, user_df, item_df):
@@ -48,6 +48,20 @@ def _mark_holdout(event_df, user_df, horizon):
     return event_df
 
 
+def _reindex_user_hist(user_df, index, factory={
+        "_hist_items": list,
+        "_timestamps": lambda: [float("inf")],
+        "_hist_len": lambda: 0,
+        "_hist_span": lambda: 0,
+        # other fields not used after initialization
+    }):
+    missing = [i not in user_df.index for i in index]
+    user_df = user_df.reindex(index)
+    if any(missing):
+        fill_factory_inplace(user_df, missing, factory)
+    return user_df
+
+
 def _augment_user_hist(user_df, event_df):
     """ extract user histories from event_df before the respective TEST_START_TIME;
         append columns: _hist_items, _hist_ts, _timestamps, _hist_len, _hist_span
@@ -57,8 +71,7 @@ def _augment_user_hist(user_df, event_df):
         hist = groupby_collect(
             event_df[event_df['_holdout']==0].set_index('USER_ID')[col_name]
             )
-        return hist.reindex(user_df.index).apply(
-            lambda x: x if isinstance(x, collections.abc.Iterable) else [])
+        return _reindex_user_hist(hist, user_df.index, {None: list})
 
     user_df = user_df.join(fn("ITEM_ID").to_frame("_hist_items")) \
                      .join(fn("TIMESTAMP").to_frame("_hist_ts"))
@@ -115,8 +128,8 @@ class Dataset:
 
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
-        self.user_ppl = perplexity(self.user_in_test['_hist_len'])
-        self.item_ppl = perplexity(self.item_in_test['_hist_len'])
+        self.user_ppl_baseline = perplexity(self.user_in_test['_hist_len'])
+        self.item_ppl_baseline = perplexity(self.item_in_test['_hist_len'])
 
     def __hash__(self):
         return id(self)
@@ -142,8 +155,8 @@ class Dataset:
                 '# test events': self.target_csr.sum(),
                 'default_user_rec_top_c': self.default_user_rec_top_c,
                 'default_item_rec_top_k': self.default_item_rec_top_k,
-                "user_ppl": self.user_ppl,
-                "item_ppl": self.item_ppl,
+                "user_ppl_baseline": self.user_ppl_baseline,
+                "item_ppl_baseline": self.item_ppl_baseline,
             },
         }
 
@@ -153,13 +166,12 @@ class Dataset:
             print(self.user_in_test.sample().iloc[0])
             print(self.item_in_test.sample().iloc[0])
 
-    def reindex(self, index, axis=1):
+    def reindex(self, index, axis):
         if axis==0:
             old_index = self.user_in_test.index
-            assert set(index) <= set(old_index), \
-                                "user_in_test reindexing limited to shrinkage"
-            user_in_test = self.user_in_test.reindex(index)
+            user_in_test = _reindex_user_hist(self.user_in_test, index)
             item_in_test = self.item_in_test
+
         else:
             old_index = self.item_in_test.index
             user_in_test = self.user_in_test

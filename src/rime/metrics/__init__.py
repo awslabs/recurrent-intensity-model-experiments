@@ -18,13 +18,15 @@ def _multiply_sum_by_batches(x, s):
         ])
 
 
-def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
+def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None,
+    min_total_recs=0):
     """ compare targets and recommendation assignments on user-item matrix
     """
     hit = _multiply(target_csr, assigned_csr)
+    min_total_recs = max(min_total_recs, assigned_csr.sum())
 
     out = {
-        'prec':     hit.sum() / assigned_csr.sum(),
+        'prec':     hit.sum() / min_total_recs,
         'recs/user': assigned_csr.sum() / assigned_csr.shape[0],
         'item_cov': (assigned_csr.sum(axis=0)>0).mean(),  # 1 by n_items
         'item_ppl': perplexity(assigned_csr.sum(axis=0)),
@@ -37,6 +39,7 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None):
             obj_sum = _multiply_sum_by_batches(assigned_csr, score_mat)
         else:
             obj_sum = _multiply(assigned_csr, score_mat).sum()
+        out['obj_mean'] = float(obj_sum / min_total_recs)
 
     if axis is not None:
         hit_axis = np.ravel(hit.sum(axis=axis))
@@ -56,15 +59,29 @@ def evaluate_user_rec(target_csr, score_mat, C, **kw):
     return evaluate_assigned(target_csr, assigned_csr, score_mat, axis=0)
 
 
-def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None, **kw):
+def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None,
+    relative=False, item_prior=None, constraint_type='ub', **kw):
+    if relative:
+        C = (C * np.asarray(item_prior) / np.mean(item_prior))
+
     if cvx:
-        self = CVX(valid_mat, topk, C, **kw)
+        self = CVX(valid_mat, topk, C, constraint_type, **kw)
         assigned_csr = self.fit(valid_mat).transform(score_mat)
         if assigned_csr.sum() == 0:
             warnings.warn("cvx should not return empty assignments unless in Rand")
     else:
-        assigned_csr = assign_mtch(score_mat, topk, C, **kw)
-    out = evaluate_assigned(target_csr, assigned_csr, score_mat)
-    print('evaluate_mtch prec@{topk}={prec:.1e} item_ppl@{C}={item_ppl:.1e}'.format(
-        **out, **locals()))
+        assigned_csr = assign_mtch(score_mat, topk, C, constraint_type, **kw)
+
+    if constraint_type == 'ub':
+        min_total_recs = np.mean(C) * score_mat.shape[1]
+    else:
+        min_total_recs = topk * score_mat.shape[0]
+    out = evaluate_assigned(target_csr, assigned_csr, score_mat,
+        min_total_recs=min_total_recs)
+
+    for pct in ['25%', '50%', '75%']:
+        out[f'recs/item_{pct}'] = pd.Series(np.ravel(assigned_csr.sum(0))).describe()[pct]
+
+    print('evaluate_mtch prec@{topk}={prec:.1e} item_ppl@{mean_C}={item_ppl:.1e}'.format(
+        **out, mean_C=np.mean(C), **locals()))
     return out

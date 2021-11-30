@@ -6,21 +6,22 @@ from .transformer import Transformer
 from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
+from .bpr import BPR
+from .graph_conv import GraphConv
 try:
     from .implicit import ALS, LogisticMF
 except ImportError:
+    ALS = LogisticMF = None
     warnings.warn("Implicit package not properly installed.")
 
-from rime.util import LowRankDataFrame
+from rime.util import LowRankDataFrame, RandScore
 
 
 class Rand:
     def transform(self, D):
         """ return a constant of one """
         shape = (len(D.user_in_test), len(D.item_in_test))
-        return LowRankDataFrame(
-            np.zeros(shape[0])[:, None], np.zeros(shape[1])[:, None],
-            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
+        return RandScore(np.arange(shape[0]), np.arange(shape[1]))
 
 
 class Pop:
@@ -43,9 +44,10 @@ class Pop:
         ind_logits = np.vstack([np.log(user_scores), np.ones(len(user_scores))]).T
         col_logits = np.vstack([np.ones(len(item_scores)), np.log(item_scores)]).T
 
-        return LowRankDataFrame(
+        S = LowRankDataFrame(
             ind_logits, col_logits,
             index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
+        return S + RandScore.like(S) * 0.01
 
 
 class EMA:

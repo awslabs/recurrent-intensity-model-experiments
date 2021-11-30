@@ -40,7 +40,7 @@ class ALS:
 
         return LowRankDataFrame(
             self.ind_logits, self.col_logits,
-            self.D.user_df.index, self.D.item_df.index, 'sigmoid') \
+            self.D.user_df.index, self.D.item_df.index, 'softplus') \
             .reindex(D.user_in_test.index, fill_value=0) \
             .reindex(D.item_in_test.index, axis=1, fill_value=0)
 

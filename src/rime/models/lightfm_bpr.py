@@ -8,7 +8,7 @@ class LightFM_BPR:
         no_comp=32, user_alpha=1e-5, item_alpha=1e-5):
 
         assert user_rec != item_rec, "specify exactly one side to sample negatives"
-        self.user_rec = user_rec
+        self._transposed = user_rec
 
         self.epochs=epochs
         self.bpr_model = LightFM(
@@ -21,7 +21,7 @@ class LightFM_BPR:
     def fit(self, D):
         df_train = D.event_df
         train_intn = create_matrix(df_train, D.user_df.index, D.item_df.index, 'csr')
-        if self.user_rec:
+        if self._transposed:
             train_intn = train_intn.T
 
         self.bpr_model.fit(train_intn, epochs=self.epochs, verbose=True)
@@ -29,7 +29,7 @@ class LightFM_BPR:
         return self
 
     def transform(self, D):
-        """ (user_embed * item_embed + user_bias + item_bias).sigmoid() """
+        """ (user_embed * item_embed + user_bias + item_bias).softplus() """
 
         ind_logits = np.hstack([
             self.bpr_model.user_embeddings,
@@ -43,11 +43,11 @@ class LightFM_BPR:
             self.bpr_model.item_biases[:, None],
             ])
 
-        if self.user_rec:
+        if self._transposed:
             ind_logits, col_logits = col_logits, ind_logits
 
         return LowRankDataFrame(
-            ind_logits, col_logits, self.D.user_df.index, self.D.item_df.index, 'sigmoid'
+            ind_logits, col_logits, self.D.user_df.index, self.D.item_df.index, 'softplus'
             ) \
             .reindex(D.user_in_test.index, fill_value=0) \
             .reindex(D.item_in_test.index, axis=1, fill_value=0)

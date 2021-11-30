@@ -173,7 +173,8 @@ def groupby_collect(series):
 
     return pd.Series(
         [x.tolist() for x in np.split(series.values, splits)],
-        index=series.index.values[np.hstack([[0], splits])])
+        index=series.index.values[np.hstack([[0], splits])]
+        ) if len(series) else pd.Series()
 
 
 def create_matrix(event_df, user_index, item_index, return_type='csr'):
@@ -193,6 +194,18 @@ def create_matrix(event_df, user_index, item_index, return_type='csr'):
         return csr
     elif return_type == 'df':
         return pd.DataFrame.sparse.from_spmatrix(csr, user_index, item_index)
+    elif return_type == 'ij':
+        return (i, j)
+
+
+def fill_factory_inplace(df, isna, kv):
+    for k,v in kv.items():
+        if k is None: # series
+            df[:] = [v() if do else x for do, x in zip(isna, df.values)]
+        elif k in df.columns:
+            df[k] = [v() if do else x for do, x in zip(isna, df[k])]
+        else:
+            warnings.warn(f"fill_factory_inplace missing {k}")
 
 
 def split_by_time(user_df, test_start, valid_start):
@@ -245,7 +258,7 @@ class _LitValidated(LightningModule):
 
     @cached_property
     def _checkpoint(self):
-        return ModelCheckpoint(monitor="val_epoch_loss")
+        return ModelCheckpoint(monitor="val_epoch_loss", save_weights_only=True)
 
 
 class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):

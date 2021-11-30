@@ -27,7 +27,7 @@ def _assign_sorted(shape, k, c, argsort_ij, blocked={(-1, -1)}):
 
 
 def assign_mtch(score_mat, topk, C,
-    argsort_ij=None, constraint_type='ub', device="cpu"):
+    constraint_type='ub', argsort_ij=None, device="cpu"):
 
     n_users, n_items = score_mat.shape
 
@@ -37,9 +37,15 @@ def assign_mtch(score_mat, topk, C,
     if constraint_type == 'ub':
         assigned_csr, _ = _assign_sorted((n_users, n_items), topk, C, argsort_ij)
     else: # lb
-        min_total_recs = min(n_users * topk, C * n_items)
-        min_k = min(topk, np.ceil(min_total_recs / n_users).astype(int))
-        min_C = min(C,    np.ceil(min_total_recs / n_items).astype(int))
+        if np.isscalar(C):
+            min_total_recs = min(n_users * topk, C * n_items)
+            min_k = min(topk, np.ceil(min_total_recs / n_users).astype(int))
+            min_C = min(C,    np.ceil(min_total_recs / n_items).astype(int))
+        else:
+            assert np.broadcast_to(topk, (n_users,)).sum() > C.sum(), \
+                "relative only on item_rec"
+            min_k = np.round(C.sum() / n_users).astype(int)
+            min_C = C
         min_csr, blocked = _assign_sorted((n_users, n_items), min_k, min_C, argsort_ij)
 
         if topk > min_k:
