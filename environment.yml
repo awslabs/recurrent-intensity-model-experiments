@@ -2,7 +2,6 @@ name: rime36
 channels:
   - conda-forge
 dependencies:
-  # - python=3.6
   - numpy>=1.9.*
   - numpydoc>=0.7.0
   - scipy>=0.19.*
