@@ -1,5 +1,6 @@
 # Copy from https://github.com/pytorch/examples/tree/master/word_language_model
 # BSD 3-Clause License (see THIRD-PARTY)
+# flake8: noqa
 
 import math
 import torch

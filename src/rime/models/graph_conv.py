@@ -109,9 +109,9 @@ class GraphConv:
         item_proposal = np.ravel(V.target_csr.sum(axis=0) + 0.1) ** 0.5
 
         user_proposal = pd.Series(user_proposal, V.user_in_test.index) \
-            .reindex(self._user_list, fill_value=0).values
+                        .reindex(self._user_list, fill_value=0).values
         item_proposal = pd.Series(item_proposal, V.item_in_test.index) \
-            .reindex(self._padded_item_list, fill_value=0).values
+                        .reindex(self._padded_item_list, fill_value=0).values
 
         V = V.reindex(self._user_list, axis=0).reindex(self._padded_item_list, axis=1)
         target_coo = V.target_csr.tocoo()

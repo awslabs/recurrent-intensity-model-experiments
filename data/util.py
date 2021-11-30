@@ -1,9 +1,9 @@
-import urllib.request, zipfile, os, io, pandas
+import urllib.request, zipfile, io, pandas
 
 
 def download_ml_1m(
     url="https://files.grouplens.org/datasets/movielens/ml-1m.zip",
-    ):
+):
     with urllib.request.urlopen(url) as html:
         file_like = io.BytesIO(html.read())
         with zipfile.ZipFile(file_like) as z:
@@ -13,7 +13,7 @@ def download_ml_1m(
 def extract_netflix(
     input_archive_split_by_movies="Netflix/archive.zip",
     output_file="Netflix/nf.parquet",
-    ):
+):
     user_item_time = []
     with zipfile.ZipFile(input_archive_split_by_movies) as z:
         print(z.namelist())
@@ -41,13 +41,13 @@ def extract_netflix(
 def combine_yoochoose(
     input_archive="yoochoose-data/archive.zip",
     output_file="yoochoose-data/yoochoose-combined.csv",
-    ):
+):
     with zipfile.ZipFile(input_archive) as z:
         print(z.namelist())
         clicks = pandas.read_csv(z.open("yoochoose-data/yoochoose-clicks.dat"),
-            names=["USER_ID", "TIMESTAMP", "ITEM_ID", "_category"])
+                                 names=["USER_ID", "TIMESTAMP", "ITEM_ID", "_category"])
         buys = pandas.read_csv(z.open("yoochoose-data/yoochoose-buys.dat"),
-            names=["USER_ID", "TIMESTAMP", "ITEM_ID", "_price", "_quantity"])
+                               names=["USER_ID", "TIMESTAMP", "ITEM_ID", "_price", "_quantity"])
 
     df = pandas.concat([clicks.iloc[:, :3], buys.iloc[:, :3]])
     df['TIMESTAMP'] = df['TIMESTAMP'].astype('datetime64') \

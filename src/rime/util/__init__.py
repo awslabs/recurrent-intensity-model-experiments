@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from backports.cached_property import cached_property
-from .score_array import *
+from .score_array import *  # noqa: F401, F403
 
 
 class timed(contextlib.ContextDecorator):

@@ -193,7 +193,7 @@ class Experiment:
             res = evaluate_mtch(
                 target_csr, score_mat, k, c, constraint_type=constraint_type,
                 cvx=self.cvx, device=self.device,
-                item_prior=1+self.D.item_in_test['_hist_len'].values,
+                item_prior=1 + self.D.item_in_test['_hist_len'].values,
                 **mtch_kw
             )
             res.update({'k': k, 'c': c})
@@ -407,7 +407,7 @@ def plot_results(self, logy=True):
 
     for ax, df, xname, yname in zip(ax, df, xname, yname):
         ax.set_prop_cycle('color', [
-            plt.get_cmap('tab20')(i/20) for i in range(20)])
+            plt.get_cmap('tab20')(i / 20) for i in range(20)])
         if df is not None:
             ax.plot(
                 df.loc['prec'].unstack().values.T,
