@@ -45,7 +45,7 @@ def prepare_minimal_dataset():
             '_hist_len', '_hist_span',    # for dataset visualization
         ]], ['u1', 'u3', 'u4'])
 
-    item_in_test = item_df[['_hist_len']].reindex(['i1', 'i5'], fill_value=0)
+    item_in_test = item_df[['_hist_len']].reindex(['i1', 'i4', 'i5'], fill_value=0)
 
     target_csr = create_matrix(event_df[event_df['_holdout']==1],
         user_in_test.index, item_in_test.index, 'csr')
