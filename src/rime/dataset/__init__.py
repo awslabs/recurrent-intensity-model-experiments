@@ -1,7 +1,8 @@
 import pandas as pd, numpy as np, scipy.sparse as sps
 import argparse
-from ..util import extract_user_item, split_by_time, split_by_user
-from .base import create_dataset, Dataset, _augment_user_hist, _augment_item_hist
+from ..util import extract_user_item, split_by_time, split_by_user, create_matrix
+from .base import create_dataset, Dataset, _mark_holdout, _reindex_user_hist, \
+                    _augment_user_hist, _augment_item_hist
 from .prepare_netflix_data import prepare_netflix_data
 from .prepare_ml_1m_data import prepare_ml_1m_data
 from .prepare_yoochoose_data import prepare_yoochoose_data
@@ -9,47 +10,58 @@ from .prepare_yoochoose_data import prepare_yoochoose_data
 
 def prepare_minimal_dataset():
     """ minimal dataset to enable main workflow in unit tests """
-    T_split = 10
-
     event_df = pd.DataFrame([
-        ["u1", "i1", 3, False],
-        ["u2", "i2", 5, False],
-        ["u3", "i3", 7, False],
-        ["u3", "i4", 9, False],
-        ], columns=["USER_ID", "ITEM_ID", "TIMESTAMP", "_holdout"])
+        ["u1", "i1", 3],
+        ["u2", "i2", 5],
+        ["u3", "i3", 7],
+        ["u3", "i4", 9],
+        ], columns=["USER_ID", "ITEM_ID", "TIMESTAMP"])
 
-    user_df, item_df = extract_user_item(event_df)
-    # optionally include cold-start users/items if non-zero prediction scores are desired
+    user_df = pd.Series({
+        "u1": 4,
+        "u2": float("inf"), # +inf=training-only user, unless added after create_dataset
+        "u3": 9,
+        }).to_frame("TEST_START_TIME")
 
-    user_df['TEST_START_TIME'] = T_split
-    user_df = _augment_user_hist(user_df, event_df) # add user history information
-    del user_df['TEST_START_TIME'] # the last in _timestamps is set to TEST_START_TIME
+    item_df = pd.DataFrame(index=["i1", "i2", "i3", "i4"])
 
-    item_df = _augment_item_hist(item_df, event_df) # add item statistics
+    horizon = 100
 
-    user_in_test = pd.DataFrame.from_dict({
-        "u1": [["i1"],       [3, T_split]   ],
-        "u3": [["i3", "i4"], [7, 9, T_split]],
-        "u4": [[],           [T_split]      ],
-        }, columns=["_hist_items", "_timestamps"], orient="index")
-    user_in_test["_hist_len"] = user_in_test["_hist_items"].apply(len)
-    user_in_test["_hist_span"] = user_in_test["_timestamps"].apply(lambda x: x[-1] - x[0])
+    # mark _holdout by [TEST_START_TIME, TEST_START_TIME + horizon)
+    # can be customized by setting _holdout as 0=training, 1=testing, 2=ignore.
+    event_df = _mark_holdout(event_df, user_df, horizon)
+    user_df = _augment_user_hist(user_df, event_df) # add _hist_items, _timestamps, etc.
+    item_df = _augment_item_hist(item_df, event_df) # add _hist_len
 
-    item_in_test = pd.Series({
-        "i1": 1,
-        "i5": 0,
-        }).to_frame("_hist_len")
+    training_data = argparse.Namespace(
+        user_df=user_df, item_df=item_df, event_df=event_df
+    )
 
-    # aggregate ground-truth targets in this scipy.sparse matrix
-    target_csr = sps.csr_matrix(np.ones((len(user_in_test), len(item_in_test))))
+    # Here is a walk-through of create_dataset function, except that the function
+    # automatically includes users and items by min_user/item_len and TEST_START_TIME<inf,
+    # whereas we manually choose them.
+    # New users/items will get zero prediction scores; they are better included in
+    # training data, albeit having empty lists of events.
+    user_in_test = _reindex_user_hist(user_df[[
+            '_hist_items', '_timestamps', # input data to sequence / intensity models
+            '_hist_len', '_hist_span',    # for dataset visualization
+        ]], ['u1', 'u3', 'new_user'])
+
+    item_in_test = item_df[['_hist_len']].reindex(['i1', 'i4', 'new_item'], fill_value=0)
+
+    target_csr = create_matrix(event_df[event_df['_holdout']==1],
+        user_in_test.index, item_in_test.index, 'csr')
+
+    # excluding seen user-item pairs leads to performance with matrix factorization methods
+    prior_score = create_matrix(event_df[event_df['_holdout']==0],
+        user_in_test.index, item_in_test.index, 'csr') * -1e10
+
+    # test targets should only include predictable user-item pairs
+    target_csr = target_csr.multiply(target_csr.astype(bool) > (prior_score<0))
 
     D = Dataset(
         user_in_test=user_in_test, item_in_test=item_in_test, target_csr=target_csr,
-        training_data=argparse.Namespace(
-            user_df=user_df, item_df=item_df, event_df=event_df
-        ),
-        # optional sparse negative prior for exclusions or positive prior for approvals
-        prior_score = None,
+        horizon=horizon, prior_score=prior_score, training_data=training_data
     )
     D.print_stats()
     return (D, None)

@@ -1,6 +1,6 @@
 try:
     import matplotlib.pyplot as plt
-    plt.plot(); plt.show() # tick behaves weirdly with matplotlib
+    plt.figure(figsize=(1, 1)); plt.plot(); plt.title("make sure plot shows"); plt.show()
 except ImportError:
     pass
 
@@ -423,7 +423,7 @@ def plot_results(self, logy=True):
         ax.axhline(getattr(self, yname + '_baseline'), ls='-.', color='gray')
     fig.legend(
         df.loc['prec'].unstack().index.values.tolist() + [yname + '_baseline'],
-        bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,
+        bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=3,
         mode="expand", borderaxespad=0.)
     fig.subplots_adjust(wspace=0.25)
     return fig
