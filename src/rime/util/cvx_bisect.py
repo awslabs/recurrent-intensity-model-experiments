@@ -6,7 +6,7 @@
 """
 
 import numpy as np
-import torch, warnings, os
+import torch, os
 
 
 def lagrangian(pi, u, v, s, alpha, beta, eps):
@@ -17,7 +17,7 @@ def lagrangian(pi, u, v, s, alpha, beta, eps):
     """
     grad_u = alpha - pi.mean(1)
     grad_v = beta - pi.mean(0)
-    ent = - pi * pi.clip(1e-10, None).log() - (1-pi) * (1-pi).clip(1e-10, None).log()
+    ent = - pi * pi.clip(1e-10, None).log() - (1 - pi) * (1 - pi).clip(1e-10, None).log()
     return (s * pi).mean() + (u * grad_u).mean() + (v * grad_v).mean() + eps * ent.mean()
 
 
@@ -49,7 +49,7 @@ def dual_complete(u, v, s, alpha, beta, eps):
     u = torch.as_tensor(u, device=s.device).reshape((-1, 1))
     v = torch.as_tensor(v, device=s.device).reshape((1, -1))
     if eps > 0:
-        sp = torch.nn.Softplus(1./eps)(s - u - v)
+        sp = torch.nn.Softplus(1. / eps)(s - u - v)
     else:
         sp = torch.nn.ReLU()(s - u - v)
     return (u * alpha).mean() + (v * beta).mean() + sp.mean()
@@ -60,7 +60,7 @@ def grad_u(u, v, s, alpha, eps):
     find u = min{u>=0 : E_y[pi(x,y)] <= alpha(x)}
     """
     pi = primal_solution(u, v, s, eps)
-    if eps>0:
+    if eps > 0:
         return alpha - pi.mean(1)
     else:
         return _subgradient(alpha, pi)
@@ -84,9 +84,9 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
     alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
     eps = torch.as_tensor(eps, device=s.device)
 
-    z = alpha.log() - (1-alpha).log()
+    z = alpha.log() - (1 - alpha).log()
 
-    if alpha.amax() <= 0 or alpha.amin() >= 1: # z = +-infinity
+    if alpha.amax() <= 0 or alpha.amin() >= 1:  # z = +-infinity
         u = -z * torch.ones_like(s[:, 0])
         return u, 0
 
@@ -100,7 +100,7 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
     u_min = s_u_v(s, None, v).amin(1) - z * eps - 1e-3
     u_max = s_u_v(s, None, v).amax(1) - z * eps + 1e-3
 
-    u_guess = [ # avoids large negative prior_score when s>=0 if most valid cases
+    u_guess = [  # avoids large negative prior_score when s>=0 if most valid cases
         torch.zeros_like(u_min) + (0 - v_inp).amin() - z * eps - 1e-3,
     ]
     # u_guess.extend(
@@ -121,10 +121,10 @@ def dual_solve_u(v, s, alpha, eps, verbose=False, n_iters=100, gtol=0):
         assert not u.isnan().any()
         if g.abs().max() < gtol:
             break
-        u_min = torch.where(g<0, u, u_min)
-        u_max = torch.where(g>0, u, u_max)
+        u_min = torch.where(g < 0, u, u_min)
+        u_max = torch.where(g > 0, u, u_max)
 
-    return u, (i+1)
+    return u, (i + 1)
 
 
 def dual_clip(u, constraint_type):
@@ -155,8 +155,8 @@ def dual(v, s, alpha, beta, eps, constraint_type='ub'):
 
 
 def dual_iterate(v, s, alpha, beta, eps,
-    constraint_type_a='ub', constraint_type_b='eq',
-    max_iters=10, stepsize=0):
+                 constraint_type_a='ub', constraint_type_b='eq',
+                 max_iters=10, stepsize=0):
     for epoch in range(max_iters):
         u, _ = dual_solve_u(v, s, alpha, eps)
         u = dual_clip(u, constraint_type_a)
@@ -183,7 +183,6 @@ if 'CVX_STABLE' in os.environ and int(os.environ['CVX_STABLE']):
         sign = torch.sign(a - b)
         return sign, log
 
-
     def _log_diff_sigmoid(z, x):
         """ sigmoid(z) - sigmoid(x)
         = (e^-x - e^-z) / (1+e^-z) / (1+e^-x)
@@ -200,27 +199,26 @@ if 'CVX_STABLE' in os.environ and int(os.environ['CVX_STABLE']):
         x_pos = lambda: x.clip(0, None)
         x_neg = lambda: -x.clip(None, 0)
 
-        sign, log_nom = _log_diff_exp( -z_neg() - x_pos(), -x_neg() - z_pos() )
+        sign, log_nom = _log_diff_exp(-z_neg() - x_pos(), -x_neg() - z_pos())
         return sign, log_nom - \
             torch.logaddexp(-z_neg(), -z_pos()) - torch.logaddexp(-x_neg(), -x_pos())
 
-
-    def grad_u(u, v, s, alpha, eps):
+    def grad_u(u, v, s, alpha, eps):  # noqa: F811
         """ alpha - pi.mean(1)
         be more precise if eps->0 while there are a lot of ties
         """
-        if eps==0:
+        if eps == 0:
             pi = torch.sign(s_u_v(s, u, v)) * 0.5 + 0.5
             return _subgradient(alpha, pi)
 
         alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
 
-        z = alpha.log() - (1-alpha).log()
+        z = alpha.log() - (1 - alpha).log()
         x = s_u_v(s, u, v) / eps
         sign, log = _log_diff_sigmoid(z, x)
 
-        pos = torch.logsumexp((sign>0).log() + log, dim=1)
-        neg = torch.logsumexp((sign<0).log() + log, dim=1)
+        pos = torch.logsumexp((sign > 0).log() + log, dim=1)
+        neg = torch.logsumexp((sign < 0).log() + log, dim=1)
 
         sign, log = _log_diff_exp(pos, neg)
         return sign * log.exp() / s.shape[1]
@@ -236,23 +234,27 @@ if __name__ == '__main__':
     beta = 0.4
     eps = 1
 
-    fig, ax = pl.subplots(figsize=(4,3))
+    fig, ax = pl.subplots(figsize=(4, 3))
     v_list = np.linspace(-1, 3.8, 100)
     colors = []
     for i, eps in enumerate([1, 0.5, 0.01]):
         f = [dual(torch.as_tensor([v]), s, alpha, beta, eps).tolist()
              for v in v_list]
-        p = pl.plot(v_list, f, ls=':', label=f'$\epsilon$={eps}')
+        p = pl.plot(v_list, f, ls=':', label=f'$\epsilon$={eps}')  # noqa: W605
         colors.append(p[0].get_color())
 
     for i, eps in enumerate([1, 0.5, 0.01]):
-        pl.plot(*zip(*[(v.cpu().numpy(), y.cpu().numpy())
-          for v, y in dual_iterate(
-              torch.as_tensor([-0.5]), s, alpha, beta, eps, stepsize=2,
-          )]), 'o-', mfc='none', color=colors[i], label=f'(sub)gradient' if i==2 else None)
+        pl.plot(
+            *zip(*[
+                (v.cpu().numpy(), y.cpu().numpy())
+                for v, y in dual_iterate(
+                    torch.as_tensor([-0.5]), s, alpha, beta, eps, stepsize=2,
+                )]),
+            'o-', mfc='none', color=colors[i], label='(sub)gradient' if i == 2 else None
+        )
         for v, y in dual_iterate(
-              torch.as_tensor([-0.5]), s, alpha, beta, eps, stepsize=2,
-          ):
+            torch.as_tensor([-0.5]), s, alpha, beta, eps, stepsize=2,
+        ):
             print(eps, v, y)
 
     v = torch.as_tensor([-0.5])

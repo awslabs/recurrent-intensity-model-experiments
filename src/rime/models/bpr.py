@@ -1,6 +1,5 @@
 import torch, argparse, numpy as np
 from torch.utils.data import DataLoader, random_split
-from torch.distributions.categorical import Categorical
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import _LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, create_matrix
@@ -9,9 +8,9 @@ from .lightfm_bpr import LightFM_BPR
 
 class _BPR(_LitValidated):
     def __init__(self, user_proposal, item_proposal,
-        user_rec=True, item_rec=True, no_components=32,
-        n_negatives=10, lr=1, weight_decay=1e-5,
-        encode_user_ids=True):
+                 user_rec=True, item_rec=True, no_components=32,
+                 n_negatives=10, lr=1, weight_decay=1e-5,
+                 encode_user_ids=True):
         super().__init__()
         self.register_buffer("user_proposal", torch.as_tensor(user_proposal))
         self.register_buffer("item_proposal", torch.as_tensor(item_proposal))
@@ -62,13 +61,13 @@ class _BPR(_LitValidated):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adagrad(self.parameters(),
-            eps=1e-3, lr=self.lr, weight_decay=self.weight_decay)
-        lr_scheduler = _ReduceLRLoadCkpt(optimizer, model=self,
-            factor=0.25, patience=4, verbose=True)
+        optimizer = torch.optim.Adagrad(
+            self.parameters(), eps=1e-3, lr=self.lr, weight_decay=self.weight_decay)
+        lr_scheduler = _ReduceLRLoadCkpt(
+            optimizer, model=self, factor=0.25, patience=4, verbose=True)
         return {"optimizer": optimizer, "lr_scheduler": {
                 "scheduler": lr_scheduler, "monitor": "val_epoch_loss"
-            }}
+                }}
 
 
 class BPR(LightFM_BPR):
@@ -78,7 +77,7 @@ class BPR(LightFM_BPR):
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
-        self._transposed=False
+        self._transposed = False
 
     @empty_cache_on_exit
     def fit(self, D):
@@ -87,7 +86,7 @@ class BPR(LightFM_BPR):
 
         N = len(dataset)
         if len(dataset) > 5:
-            train_set, valid_set = random_split(dataset, [N*4//5, (N - N*4//5)])
+            train_set, valid_set = random_split(dataset, [N * 4 // 5, (N - N * 4 // 5)])
         else:
             train_set = valid_set = dataset
 
@@ -96,11 +95,14 @@ class BPR(LightFM_BPR):
 
         model = _BPR(user_proposal, item_proposal, **self._model_kw)
 
-        trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
+        trainer = Trainer(
+            max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
-        trainer.fit(model,
-            DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N>1e4)*4),
-            DataLoader(valid_set, self.batch_size, num_workers=(N>1e4)*4))
+
+        trainer.fit(
+            model,
+            DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
+            DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
 
         best_model_path = model._checkpoint.best_model_path
         best_model_score = model._checkpoint.best_model_score
@@ -113,5 +115,5 @@ class BPR(LightFM_BPR):
             item_embeddings=model.item_encoder.weight.detach().cpu().numpy(),
             user_biases=model.user_bias_vec.weight.squeeze(-1).detach().cpu().numpy(),
             item_biases=model.item_bias_vec.weight.squeeze(-1).detach().cpu().numpy(),
-            )
+        )
         return self

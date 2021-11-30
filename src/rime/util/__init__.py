@@ -1,7 +1,6 @@
 import pandas as pd, numpy as np, scipy as sp
-import functools, collections, time, contextlib, os, torch, gc, warnings
+import functools, collections, time, contextlib, torch, gc, warnings
 from torch.utils.data import DataLoader
-from datetime import datetime
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from backports.cached_property import cached_property
@@ -46,8 +45,8 @@ def _get_cuda_objs():
     objs = []
     for obj in gc.get_objects():
         try:
-            flag = torch.is_tensor(obj) # or \
-                # (hasattr(obj, 'data') and torch.is_tensor(obj.data))
+            flag = torch.is_tensor(obj)  # or \
+            # (hasattr(obj, 'data') and torch.is_tensor(obj.data))
         except Exception:
             flag = False
         if flag and torch.device(obj.device) != torch.device("cpu"):
@@ -69,7 +68,7 @@ def empty_cache_on_exit(func):
         end_list = _get_cuda_objs()
         for obj in set(end_list) - set(start_list):
             print(func.__name__, "memory leak",
-                type(obj), obj.size(), obj.device, flush=True)
+                  type(obj), obj.size(), obj.device, flush=True)
 
         del start_list
         del end_list
@@ -80,7 +79,7 @@ def empty_cache_on_exit(func):
 
 def perplexity(x):
     x = np.ravel(x) / x.sum()
-    return float(np.exp(- x @ np.log(np.where(x>0, x, 1e-10))))
+    return float(np.exp(- x @ np.log(np.where(x > 0, x, 1e-10))))
 
 
 @empty_cache_on_exit
@@ -110,7 +109,7 @@ def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
     return sp.sparse.csr_matrix((
         np.ones(indices.size),
         np.ravel(indices),
-        np.arange(0, indices.size+1, indices.shape[1]),
+        np.arange(0, indices.size + 1, indices.shape[1]),
     ), shape=S.shape)
 
 
@@ -130,14 +129,14 @@ def _argsort(S, tie_breaker=1e-10, device="cpu"):
     shape = S.shape
 
     if device is None:
-        if tie_breaker>0:
+        if tie_breaker > 0:
             S = S + np.random.rand(*S.shape) * tie_breaker
         S = -S.reshape(-1)
         _empty_cache()
         argsort_ind = np.argsort(S)
     else:
         S = torch.as_tensor(S, device=device)
-        if tie_breaker>0:
+        if tie_breaker > 0:
             S = S + torch.rand(*S.shape, device=device) * tie_breaker
         S = -S.reshape(-1)
         _empty_cache()
@@ -161,7 +160,7 @@ def groupby_collect(series):
     """
     last_i = None
     for i in series.index.values:
-        if last_i is not None and last_i>i:
+        if last_i is not None and last_i > i:
             warnings.warn("unsorted input to groupby_collect may be inefficient")
             series = series.sort_index(kind='mergesort')
             break
@@ -169,18 +168,18 @@ def groupby_collect(series):
 
     splits = np.where(
         np.array(series.index.values[1:]) != np.array(series.index.values[:-1])
-        )[0] + 1
+    )[0] + 1
 
     return pd.Series(
         [x.tolist() for x in np.split(series.values, splits)],
         index=series.index.values[np.hstack([[0], splits])]
-        ) if len(series) else pd.Series()
+    ) if len(series) else pd.Series()
 
 
 def create_matrix(event_df, user_index, item_index, return_type='csr'):
     """ create matrix and prune unknown indices """
-    user2ind = {k:i for i,k in enumerate(user_index)}
-    item2ind = {k:i for i,k in enumerate(item_index)}
+    user2ind = {k: i for i, k in enumerate(user_index)}
+    item2ind = {k: i for i, k in enumerate(item_index)}
     event_df = event_df[
         event_df['USER_ID'].isin(set(user_index)) &
         event_df['ITEM_ID'].isin(set(item_index))
@@ -189,7 +188,7 @@ def create_matrix(event_df, user_index, item_index, return_type='csr'):
     i = [user2ind[k] for k in event_df['USER_ID']]
     j = [item2ind[k] for k in event_df['ITEM_ID']]
     shape = (len(user_index), len(item_index))
-    csr = sp.sparse.coo_matrix((data, (i,j)), shape=shape).tocsr()
+    csr = sp.sparse.coo_matrix((data, (i, j)), shape=shape).tocsr()
     if return_type == 'csr':
         return csr
     elif return_type == 'df':
@@ -199,8 +198,8 @@ def create_matrix(event_df, user_index, item_index, return_type='csr'):
 
 
 def fill_factory_inplace(df, isna, kv):
-    for k,v in kv.items():
-        if k is None: # series
+    for k, v in kv.items():
+        if k is None:  # series
             df[:] = [v() if do else x for do, x in zip(isna, df.values)]
         elif k in df.columns:
             df[k] = [v() if do else x for do, x in zip(isna, df[k])]
@@ -238,8 +237,8 @@ def filter_min_len(event_df, min_user_len, min_item_len):
     users = event_df.groupby('USER_ID').size()
     items = event_df.groupby('ITEM_ID').size()
     return event_df[
-        event_df['USER_ID'].isin(users[users>=min_user_len].index) &
-        event_df['ITEM_ID'].isin(items[items>=min_item_len].index)
+        event_df['USER_ID'].isin(users[users >= min_user_len].index) &
+        event_df['ITEM_ID'].isin(items[items >= min_item_len].index)
     ]
 
 

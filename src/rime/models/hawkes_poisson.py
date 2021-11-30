@@ -1,7 +1,8 @@
-import numpy as np, pandas as pd
+import numpy as np
 import scipy.optimize
 import functools
 from ..util import LowRankDataFrame
+
 
 class HawkesPoisson:
     """ intensity is additive function over non-negative states """
@@ -16,7 +17,7 @@ class HawkesPoisson:
 
         self.coeffs = scipy.optimize.minimize(
             loss, np.zeros(X.shape[1]), (X, Y), options={"disp": True}
-        ) #, method='Nelder-Mead')
+        )  # , method='Nelder-Mead')
         print(f"fit loss {loss(self.coeffs.x, X, Y, 0)}")
         return self
 
@@ -39,4 +40,4 @@ def loss(x, H, Y, alpha=1e-3):
     w = np.log(1 + np.exp(x))
     Lamb = H @ w
     loglik = Y * np.log(1e-10 + Lamb) - Lamb
-    return -loglik.mean() + alpha/2*(w**2).sum()
+    return -loglik.mean() + alpha / 2 * (w**2).sum()

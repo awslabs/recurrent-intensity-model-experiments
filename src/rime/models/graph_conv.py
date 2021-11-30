@@ -1,10 +1,9 @@
-import torch, argparse, numpy as np, warnings, pandas as pd
+import torch, numpy as np, warnings, pandas as pd
 from torch.utils.data import DataLoader, random_split
-from torch.distributions.categorical import Categorical
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import (_LitValidated, _ReduceLRLoadCkpt,
-    empty_cache_on_exit, create_matrix, create_second_order_dataframe)
+from ..util import (_LitValidated, empty_cache_on_exit, create_matrix,
+                    create_second_order_dataframe)
 from .bpr import BPR, _BPR
 try:
     import dgl, dgl.function as fn
@@ -16,19 +15,19 @@ class _GraphConv(_BPR, _LitValidated):
     """ module to compute user RFM embedding.
     """
     def __init__(self, *args, no_components=32, encode_user_ids="n/a",
-        recency_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
-        **kw):
+                 recency_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
+                 **kw):
 
         super().__init__(*args,
-            no_components=no_components, encode_user_ids=False,
-            **kw)
+                         no_components=no_components, encode_user_ids=False,
+                         **kw)
 
         self.register_buffer("recency_boundaries",
-            torch.as_tensor(recency_multipliers) * horizon)
+                             torch.as_tensor(recency_multipliers) * horizon)
 
         self.conv = dgl.nn.pytorch.conv.GraphConv(no_components, no_components, "none")
         self.layer_norm = torch.nn.LayerNorm(no_components)
-        self.recency_encoder = torch.nn.Embedding(len(self.recency_boundaries)+1, 1)
+        self.recency_encoder = torch.nn.Embedding(len(self.recency_boundaries) + 1, 1)
 
         self.init_weights()
 
@@ -60,8 +59,8 @@ class _GraphConv(_BPR, _LitValidated):
         loss_list = []
         for s, (G, u_p, i_p) in enumerate(zip(
             self.G_list, self.user_proposal, self.item_proposal
-            )):
-            single_loss = self._bpr_training_step(batch[k==s, :-1], u_p, i_p, G=G)
+        )):
+            single_loss = self._bpr_training_step(batch[k == s, :-1], u_p, i_p, G=G)
             loss_list.append(single_loss)
 
         loss = torch.stack(loss_list).mean()
@@ -88,11 +87,11 @@ class GraphConv:
         i, j = create_matrix(
             D.user_in_test['_hist_items'].explode().dropna().to_frame('ITEM_ID').reset_index(),
             D.user_in_test.index, D.item_in_test.index, 'ij'
-            )
+        )
         t = np.hstack(D.user_in_test['_timestamps'].apply(lambda x: x[:-1]))
 
         G = dgl.heterograph(
-            {('user','source','item'): (i, j)},
+            {('user', 'source', 'item'): (i, j)},
             {'user': len(D.user_in_test.index), 'item': len(D.item_in_test.index)}
         )
         G.edata['t'] = torch.as_tensor(t).double()
@@ -110,16 +109,16 @@ class GraphConv:
         item_proposal = np.ravel(V.target_csr.sum(axis=0) + 0.1) ** 0.5
 
         user_proposal = pd.Series(user_proposal, V.user_in_test.index) \
-                        .reindex(self._user_list, fill_value=0).values
+            .reindex(self._user_list, fill_value=0).values
         item_proposal = pd.Series(item_proposal, V.item_in_test.index) \
-                        .reindex(self._padded_item_list, fill_value=0).values
+            .reindex(self._padded_item_list, fill_value=0).values
 
         V = V.reindex(self._user_list, axis=0).reindex(self._padded_item_list, axis=1)
         target_coo = V.target_csr.tocoo()
 
         dataset = np.transpose([
             target_coo.row, target_coo.col, k * np.ones_like(target_coo.row),
-            ]).astype(int)
+        ]).astype(int)
 
         G = self._extract_features(V)
 
@@ -129,7 +128,7 @@ class GraphConv:
     def fit(self, *V_arr):
         dataset, G_list, user_proposal, item_proposal = zip(*[
             self._extract_task(k, V) for k, V in enumerate(V_arr)
-            ])
+        ])
 
         print("GraphConv label sizes", [len(d) for d in dataset])
         dataset = np.vstack(dataset)
@@ -137,17 +136,19 @@ class GraphConv:
 
         N = len(dataset)
         if len(dataset) > 5:
-            train_set, valid_set = random_split(dataset, [N*4//5, (N - N*4//5)])
+            train_set, valid_set = random_split(dataset, [N * 4 // 5, (N - N * 4 // 5)])
         else:
             train_set = valid_set = dataset
 
-        trainer = Trainer(max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
+        trainer = Trainer(
+            max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
         model.G_list = G_list
-        trainer.fit(model,
-            DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N>1e4)*4),
-            DataLoader(valid_set, self.batch_size, num_workers=(N>1e4)*4))
+        trainer.fit(
+            model,
+            DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
+            DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
         delattr(model, "G_list")
 
         best_model_path = model._checkpoint.best_model_path

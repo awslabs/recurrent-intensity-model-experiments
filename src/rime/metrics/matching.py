@@ -1,5 +1,5 @@
-import time, numba, functools
-import numpy as np, pandas as pd, scipy as sp
+import numba
+import numpy as np, scipy as sp
 from ..util import timed, _argsort
 
 
@@ -7,10 +7,10 @@ from ..util import timed, _argsort
 def _assign_sorted_numba(argsort_i, argsort_j, k_vec, c_vec, blocked):
     assigned = []
     for i, j in zip(argsort_i, argsort_j):
-        if k_vec[i] > 0 and c_vec[j] > 0 and (i,j) not in blocked:
+        if k_vec[i] > 0 and c_vec[j] > 0 and (i, j) not in blocked:
             k_vec[i] -= 1
             c_vec[j] -= 1
-            assigned.append((i,j))
+            assigned.append((i, j))
     return assigned
 
 
@@ -22,12 +22,12 @@ def _assign_sorted(shape, k, c, argsort_ij, blocked={(-1, -1)}):
 
     assigned = _assign_sorted_numba(*argsort_ij, k_vec, c_vec, blocked)
     i, j = np.asarray(assigned).reshape((-1, 2)).T
-    csr = sp.sparse.coo_matrix((np.ones(len(i)), (i,j)), shape=shape).tocsr()
+    csr = sp.sparse.coo_matrix((np.ones(len(i)), (i, j)), shape=shape).tocsr()
     return (csr, assigned)
 
 
 def assign_mtch(score_mat, topk, C,
-    constraint_type='ub', argsort_ij=None, device="cpu"):
+                constraint_type='ub', argsort_ij=None, device="cpu"):
 
     n_users, n_items = score_mat.shape
 
@@ -36,7 +36,7 @@ def assign_mtch(score_mat, topk, C,
 
     if constraint_type == 'ub':
         assigned_csr, _ = _assign_sorted((n_users, n_items), topk, C, argsort_ij)
-    else: # lb
+    else:  # lb
         if np.isscalar(C):
             min_total_recs = min(n_users * topk, C * n_items)
             min_k = min(topk, np.ceil(min_total_recs / n_users).astype(int))
