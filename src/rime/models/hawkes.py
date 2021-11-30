@@ -54,7 +54,8 @@ class Hawkes:
 def _input_fn(raw_ts, horizon, training, training_eps, hetero):
     """ format to data and ctrl channels relative to the first observation """
     data = (np.array(raw_ts[1:-1]) - raw_ts[0]) / horizon
-    end_time = (raw_ts[-1] - raw_ts[0]) / horizon
+    end_time = float('inf') if len(raw_ts) <= 1 else \
+                (raw_ts[-1] - raw_ts[0]) / horizon
 
     ctrl = np.array([0.0, end_time]) if hetero else np.array([end_time])
 
