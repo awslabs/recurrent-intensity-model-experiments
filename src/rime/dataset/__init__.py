@@ -1,8 +1,8 @@
 import pandas as pd, numpy as np, scipy.sparse as sps
 import argparse
 from ..util import extract_user_item, split_by_time, split_by_user, create_matrix
-from .base import create_dataset, Dataset, _mark_holdout, \
-                    _reindex_user_hist, _augment_user_hist, _augment_item_hist
+from .base import create_dataset, Dataset, _mark_holdout, _reindex_user_hist, \
+                    _augment_user_hist, _augment_item_hist
 from .prepare_netflix_data import prepare_netflix_data
 from .prepare_ml_1m_data import prepare_ml_1m_data
 from .prepare_yoochoose_data import prepare_yoochoose_data
@@ -39,13 +39,15 @@ def prepare_minimal_dataset():
 
     # Here is a walk-through of create_dataset function, except that the function
     # automatically includes users and items by min_user/item_len and TEST_START_TIME<inf,
-    # whereas we manually choose them and also test out new users and items.
+    # whereas we manually choose them.
+    # New users/items will get zero prediction scores; they are better included in
+    # training data, albeit having empty lists of events.
     user_in_test = _reindex_user_hist(user_df[[
             '_hist_items', '_timestamps', # input data to sequence / intensity models
             '_hist_len', '_hist_span',    # for dataset visualization
-        ]], ['u1', 'u3', 'u4'])
+        ]], ['u1', 'u3', 'new_user'])
 
-    item_in_test = item_df[['_hist_len']].reindex(['i1', 'i4', 'i5'], fill_value=0)
+    item_in_test = item_df[['_hist_len']].reindex(['i1', 'i4', 'new_item'], fill_value=0)
 
     target_csr = create_matrix(event_df[event_df['_holdout']==1],
         user_in_test.index, item_in_test.index, 'csr')
