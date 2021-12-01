@@ -1,16 +1,19 @@
-import torch, warnings, numpy as np, pandas as pd
+import torch, warnings
 from ..util import create_matrix, LowRankDataFrame
 try:
     from implicit.als import AlternatingLeastSquares
     from implicit.lmf import LogisticMatrixFactorization
 except ImportError:
     warnings.warn("package `implicit` import error; to install: "
-        "`conda install -c conda-forge implicit implicit-proc=*=gpu -y`")
+                  "`conda install -c conda-forge implicit implicit-proc=*=gpu -y`")
+
 
 _to_numpy = lambda x: x.to_numpy() if hasattr(x, 'to_numpy') else x
 
+
 class ALS:
-    def __init__(self, factors=32, iterations=50,regularization=0.01, random_state=None,use_native=True,use_cg=True,use_gpu=torch.cuda.is_available()):
+    def __init__(self, factors=32, iterations=50, regularization=0.01, random_state=None,
+                 use_native=True, use_cg=True, use_gpu=torch.cuda.is_available()):
 
         self.als_model = AlternatingLeastSquares(
             factors=factors,
@@ -20,11 +23,11 @@ class ALS:
             use_native=use_native,
             use_cg=use_cg,
             use_gpu=use_gpu
-            )
+        )
 
     def fit(self, D):
         df_train = D.event_df
-        #create matrix create user-item matrix, whereas implicit takes in item-user matrix
+        # create matrix create user-item matrix, whereas implicit takes in item-user matrix
         train_item_user = create_matrix(df_train, D.user_df.index, D.item_df.index, 'csr').T
 
         self.als_model.fit(train_item_user)
@@ -55,7 +58,7 @@ class LogisticMF:
             regularization=regularization,
             neg_prop=neg_prop,
             random_state=random_state,
-            use_gpu=False #gpu version of lmf is not implemented yet
+            use_gpu=False  # gpu version of lmf is not implemented yet
         )
 
     def fit(self, D):

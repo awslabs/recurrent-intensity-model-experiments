@@ -1,16 +1,16 @@
 import pytest, torch, tempfile
-import pandas as pd, numpy as np, scipy as sp
+import numpy as np, scipy as sp
 import scipy.sparse as sps
 
 
 def test_rime_importable():
-    import rime
+    import rime  # noqa: F401
 
 
 def do_synthetic_common(*args, prepare_data_name="prepare_synthetic_data", **kw):
     from rime import main, plot_results
     self = main(prepare_data_name, *args, mult=[1.0], **kw)
-    fig = plot_results(self.results)
+    fig = plot_results(self.results)  # noqa: F841
 
     with tempfile.NamedTemporaryFile("r") as fp:
         self.results.save_results(fp.name)
@@ -59,7 +59,7 @@ def test_solve_cvx(maximization, expect, **kw):
     from rime.metrics.cvx import CVX
     score_mat = np.array([[1, 2, 3], [2, 4, 6], [3, 6, 9]])
     if not maximization:
-        score_mat = 10-score_mat
+        score_mat = 10 - score_mat
 
     solver = CVX(score_mat, 1, 1, **kw)
     pi = solver.fit(score_mat).transform(score_mat)
@@ -81,7 +81,7 @@ def test_score_array(shape=(3, 4), device="cpu"):
 
     a = LowRankDataFrame(
         np.zeros((len(index), 2)), np.zeros((len(columns), 2)), index, columns, 'exp'
-        )
+    )
     b = sps.eye(len(index), len(columns), 1)
     c = 3
 

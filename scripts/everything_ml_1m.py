@@ -2,11 +2,10 @@
 # coding: utf-8
 
 import os
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-from rime import *
-from rime.dataset import *
+from rime import *  # noqa: E402, F403
+from rime.dataset import *  # noqa: E402, F403
 
 kw = {
     # "mult": [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
@@ -22,8 +21,8 @@ kw = {
     ],
     # "model_hyps" : {"RNN": {
     #     "max_epochs": 0,
-        # "load_from_checkpoint": load_from_pt_log + '/checkpoints/'
-        #     + os.listdir(load_from_pt_log + '/checkpoints/')[0],
+    #     "load_from_checkpoint": load_from_pt_log + '/checkpoints/'
+    #         + os.listdir(load_from_pt_log + '/checkpoints/')[0],
     # }},
 }
 
@@ -79,7 +78,7 @@ for i, (ax, df) in enumerate(zip(ax, [
     offline.get_mtch_(k=offline._k1),
     cvx.get_mtch_(k=cvx._k1),
     online.get_mtch_(k=online._k1),
-    ])):
+])):
     for name, (label, marker, ls) in plot_names.items():
         if name == 'BPR':
             name = 'BPR-Item'
@@ -89,11 +88,11 @@ for i, (ax, df) in enumerate(zip(ax, [
         )
     ax.grid()
     ax.set_xlabel(xname)
-    if i==0:
+    if i == 0:
         ax.set_ylabel(ylabel)
         ax.set_yscale("log")
 fig_item_rec.legend(
-    hdl, [k for k,*_ in plot_names.values()],
+    hdl, [k for k, *_ in plot_names.values()],
     bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,
     mode="expand", borderaxespad=0.)
 fig_item_rec.subplots_adjust(wspace=0.1)
@@ -111,7 +110,7 @@ for i, (ax, df) in enumerate(zip(ax, [
     offline.get_mtch_(c=offline._c1),
     cvx.get_mtch_(c=cvx._c1),
     online.get_mtch_(c=online._c1),
-    ])):
+])):
     for name, (label, marker, ls) in plot_names.items():
         if name == 'BPR':
             name = 'BPR-User'
@@ -121,11 +120,11 @@ for i, (ax, df) in enumerate(zip(ax, [
         )
     ax.grid()
     ax.set_xlabel(xname)
-    if i==0:
+    if i == 0:
         ax.set_ylabel(ylabel)
         ax.set_yscale("log")
 fig_user_rec.legend(
-    hdl, [k for k,*_ in plot_names.values()],
+    hdl, [k for k, *_ in plot_names.values()],
     bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=4,
     mode="expand", borderaxespad=0.)
 fig_user_rec.subplots_adjust(wspace=0.1)

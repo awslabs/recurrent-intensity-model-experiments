@@ -1,5 +1,5 @@
-import pandas as pd, numpy as np
-import functools, collections, warnings
+import numpy as np
+import warnings
 
 from .rnn import RNN
 from .transformer import Transformer

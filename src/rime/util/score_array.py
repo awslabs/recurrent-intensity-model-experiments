@@ -1,8 +1,9 @@
 import numpy as np, pandas as pd
-import torch, dataclasses, functools, warnings, operator, builtins, numbers, os
-from typing import Dict, List
+import torch, dataclasses, warnings, operator, builtins, numbers, os
+from typing import List
 from torch.utils.data import DataLoader
 import scipy.sparse as sps
+
 
 def get_batch_size(shape, frac=float(os.environ.get("BATCH_SIZE_FRAC", 0.1))):
     """ round to similar batch sizes """
@@ -18,7 +19,7 @@ def get_batch_size(shape, frac=float(os.environ.get("BATCH_SIZE_FRAC", 0.1))):
 
 def matrix_reindex(csr, old_index, new_index, axis, fill_value=0):
     """ pandas.reindex functionality on sparse or dense matrices """
-    if axis==1:
+    if axis == 1:
         return matrix_reindex(csr.T, old_index, new_index, 0, fill_value).T.copy()
     assert csr.shape[0] == len(old_index), "shape must match between csr and old_index"
 
@@ -29,8 +30,8 @@ def matrix_reindex(csr, old_index, new_index, axis, fill_value=0):
         csr = np.vstack([csr, csr[:1] * 0 + fill_value])
 
     iloc = pd.Series(
-            np.arange(len(old_index)), index=old_index
-            ).reindex(new_index, fill_value=-1).values
+        np.arange(len(old_index)), index=old_index
+    ).reindex(new_index, fill_value=-1).values
     return csr[iloc].copy()
 
 
@@ -58,7 +59,7 @@ class LazyScoreBase:
                      None
         assert self._type is not None, f"type {type(c)} is not supported"
         self.c = c if self._type != 'sparse' else c.tocsr()
-        self.shape = getattr(c, "shape", None) # exclude scalar and _dict
+        self.shape = getattr(c, "shape", None)  # exclude scalar and _dict
 
     # methods to overload
 
@@ -70,10 +71,10 @@ class LazyScoreBase:
             raise NotImplementedError("internal sparse array representation")
         elif self._type == 'sparse':
             return self.c.toarray() if device is None else \
-                   sps_to_torch(self.c, device).to_dense()
+                sps_to_torch(self.c, device).to_dense()
         elif self._type == 'dense':
             return self.c if device is None else \
-                   torch.as_tensor(self.c, device=device)
+                torch.as_tensor(self.c, device=device)
 
     @property
     def T(self):
@@ -84,12 +85,12 @@ class LazyScoreBase:
     def __getitem__(self, key):
         """ LazyScoreBase -> LazyScoreBase(sub-rows); used in pytorch dataloader """
         if self._type == 'sparse' and np.isscalar(key):
-            slc = slice(self.c.indptr[key], self.c.indptr[key+1])
+            slc = slice(self.c.indptr[key], self.c.indptr[key + 1])
             _dict = {
                 "values": self.c.data[slc],
                 "keys": self.c.indices[slc],
                 "shape": self.c.shape[1],
-                }
+            }
             return self.__class__(_dict)
         elif self._type == 'scalar':
             return self.__class__(self.c)
@@ -105,10 +106,10 @@ class LazyScoreBase:
             return self.__class__(C[0])
         elif self._type == '_dict':
             csr = sps.csr_matrix((
-                np.hstack([c['values'] for c in C]), # data
-                np.hstack([c['keys'] for c in C]), # indices
-                np.hstack([[0], np.cumsum([len(c['keys']) for c in C])]), # indptr
-                ), shape=(len(C), C[0]['shape']))
+                np.hstack([c['values'] for c in C]),  # data
+                np.hstack([c['keys'] for c in C]),  # indices
+                np.hstack([[0], np.cumsum([len(c['keys']) for c in C])]),  # indptr
+            ), shape=(len(C), C[0]['shape']))
             return self.__class__(csr)
         elif self._type == 'sparse':
             return self.__class__(sps.vstack(C))
@@ -177,8 +178,8 @@ class LazyScoreExpression(LazyScoreBase):
 @dataclasses.dataclass(repr=False)
 class RandScore(LazyScoreBase):
     """ add random noise to break ties """
-    row_seeds: list # np.array for fast indexing
-    col_seeds: list # np.array for fast indexing
+    row_seeds: list  # np.array for fast indexing
+    col_seeds: list  # np.array for fast indexing
 
     @property
     def shape(self):
@@ -251,9 +252,9 @@ class LowRankDataFrame(LazyScoreBase):
             if self.act == 'exp':
                 return np.exp(z)
             elif self.act == 'softplus':
-                return np.where(z>0, z + np.log(1 + np.exp(-z)), np.log(1 + np.exp(z)))
+                return np.where(z > 0, z + np.log(1 + np.exp(-z)), np.log(1 + np.exp(z)))
             elif self.act == 'sigmoid':
-                return 1./(1+np.exp(-z))
+                return 1. / (1 + np.exp(-z))
         else:
             ind_logits = torch.as_tensor(self.ind_logits, device=device)
             col_logits = torch.as_tensor(self.col_logits, device=device)
@@ -274,13 +275,15 @@ class LowRankDataFrame(LazyScoreBase):
     def __getitem__(self, key):
         if np.isscalar(key):
             key = [key]
-        return self.__class__(self.ind_logits[key], self.col_logits,
+        return self.__class__(
+            self.ind_logits[key], self.col_logits,
             self.index[key], self.columns, self.act,
             self.ind_default, self.col_default)
 
     @property
     def T(self):
-        return self.__class__(self.col_logits, self.ind_logits,
+        return self.__class__(
+            self.col_logits, self.ind_logits,
             self.columns, self.index, self.act, self.col_default, self.ind_default)
 
     @classmethod
@@ -293,14 +296,15 @@ class LowRankDataFrame(LazyScoreBase):
             ind_logits.append(elm.ind_logits)
             index.extend(elm.index)
 
-        return cls(np.vstack(ind_logits), first.col_logits, index,
+        return cls(
+            np.vstack(ind_logits), first.col_logits, index,
             first.columns, first.act, first.ind_default, first.col_default)
 
     # new method only for this class
 
     def reindex(self, index, axis=0, fill_value=float("nan")):
         """ reindex with new hidden dim to express fill_value(0) as act(-inf * 1) """
-        if axis==1:
+        if axis == 1:
             return self.T.reindex(index, fill_value=fill_value).T
 
         ind_logits = np.vstack([self.ind_logits, self.ind_default])
@@ -312,14 +316,14 @@ class LowRankDataFrame(LazyScoreBase):
         elif self.act in ['exp', 'softplus']:
             ind_logits[-1, -1] = np.log(fill_value)
         elif self.act == 'sigmoid':
-            ind_logits[-1, -1] = np.log(fill_value) - np.log(1-fill_value)
+            ind_logits[-1, -1] = np.log(fill_value) - np.log(1 - fill_value)
 
         col_logits = np.hstack([self.col_logits, np.ones_like(self.col_logits[:, :1])])
         col_default = np.hstack([self.col_default, np.ones_like(self.col_default[:1])])
 
         new_ind = pd.Series(
             np.arange(len(self)), index=self.index
-            ).reindex(index, fill_value=-1).values
+        ).reindex(index, fill_value=-1).values
 
         return self.__class__(
             ind_logits[new_ind], col_logits, index, self.columns, self.act,
@@ -329,7 +333,7 @@ class LowRankDataFrame(LazyScoreBase):
 def create_second_order_dataframe(
     user_embeddings, item_embeddings, user_biases, item_biases,
     user_index, item_index, act
-    ):
+):
     if user_biases is not None:
         user_embeddings = np.hstack([user_embeddings, user_biases[:, None]])
         item_embeddings = np.hstack([item_embeddings, np.ones_like(item_embeddings[:, :1])])

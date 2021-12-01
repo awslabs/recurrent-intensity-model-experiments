@@ -4,11 +4,11 @@ try:
 except ImportError:
     pass
 
-import functools, collections, torch, dataclasses, warnings, json
-import pandas as pd, numpy as np
+import torch, dataclasses, warnings, json
+import pandas as pd
 from typing import Dict, List
 from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson,
-    LightFM_BPR, ALS, LogisticMF, BPR, GraphConv)
+                         LightFM_BPR, ALS, LogisticMF, BPR, GraphConv)
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
 from rime.util import _argsort, cached_property, RandScore
@@ -19,6 +19,7 @@ try:
     print("recurrent-intensity-model-experiments (rime)", __version__)
 except DistributionNotFound:
     warnings.warn("rime version configuration issues in setuptools_scm")
+
 
 @dataclasses.dataclass
 class ExperimentResult:
@@ -32,8 +33,8 @@ class ExperimentResult:
     item_ppl_baseline: float = None
     user_ppl_baseline: float = None
 
-    item_ppl: float = None # Deprecated; will be removed
-    user_ppl: float = None # Deprecated; will be removed
+    item_ppl: float = None  # Deprecated; will be removed
+    user_ppl: float = None  # Deprecated; will be removed
 
     item_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
     user_rec: Dict[str, Dict[str, float]] = dataclasses.field(default_factory=dict)
@@ -82,8 +83,9 @@ class Experiment:
     then sweeps through multipliers for relevance-diversity curve,
     interpreting mult<1 as item min-exposure and mult>=1 as user max-limit
     """
-    def __init__(self, D, V=None, *V_extra,
-        mult=[], # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
+    def __init__(
+        self, D, V=None, *V_extra,
+        mult=[],  # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
         models_to_run=[
             "Rand", "Pop",
             "Hawkes", "HP",
@@ -95,7 +97,7 @@ class Experiment:
             "BPR", "GraphConv-Base", "GraphConv-Extra",
             "ALS", "LogisticMF",
             "BPR-Item", "BPR-User",
-            ],
+        ],
         model_hyps={},
         device="cuda" if torch.cuda.is_available() else "cpu",
         cvx=False,
@@ -104,7 +106,8 @@ class Experiment:
         cache=None,
         results=None,
         **mtch_kw
-        ):
+    ):
+
         self.D = D
         self.V = V
         self.V_extra = V_extra
@@ -128,12 +131,12 @@ class Experiment:
         if results is None:
             results = ExperimentResult(
                 cvx, online,
-                _k1 = self.D.default_item_rec_top_k,
-                _c1 = self.D.default_user_rec_top_c,
-                _kmax = len(self.D.item_in_test),
-                _cmax = len(self.D.user_in_test),
-                item_ppl_baseline = self.D.item_ppl_baseline,
-                user_ppl_baseline = self.D.user_ppl_baseline,
+                _k1=self.D.default_item_rec_top_k,
+                _c1=self.D.default_user_rec_top_c,
+                _kmax=len(self.D.item_in_test),
+                _cmax=len(self.D.user_in_test),
+                item_ppl_baseline=self.D.item_ppl_baseline,
+                user_ppl_baseline=self.D.user_ppl_baseline,
             )
         self.results = results
 
@@ -141,7 +144,6 @@ class Experiment:
         self.__dict__.update(self.results.__dict__)
         self.print_results = self.results.print_results
         self.get_mtch_ = self.results.get_mtch_
-
 
     def metrics_update(self, name, S, T=None):
         target_csr = self.D.target_csr
@@ -162,11 +164,10 @@ class Experiment:
         print(pd.DataFrame({
             'item_rec': self.item_rec[name],
             'user_rec': self.user_rec[name],
-            }).T)
+        }).T)
 
         if len(self.mult):
             self.mtch_[name] = self._mtch_update(target_csr, score_mat, valid_mat, name)
-
 
     def _mtch_update(self, target_csr, score_mat, valid_mat, name):
         """ assign user/item matches and return evaluation results.
@@ -192,7 +193,7 @@ class Experiment:
             res = evaluate_mtch(
                 target_csr, score_mat, k, c, constraint_type=constraint_type,
                 cvx=self.cvx, device=self.device,
-                item_prior=1+self.D.item_in_test['_hist_len'].values,
+                item_prior=1 + self.D.item_in_test['_hist_len'].values,
                 **mtch_kw
             )
             res.update({'k': k, 'c': c})
@@ -200,8 +201,7 @@ class Experiment:
 
         return out
 
-
-    def transform(self, model, D):
+    def transform(self, model, D):  # noqa: C901
         if model == "Rand":
             return Rand().transform(D)
 
@@ -268,7 +268,6 @@ class Experiment:
         if model == "LogisticMF":
             return self._logistic_mf.transform(D)
 
-
     def run(self, models_to_run=None):
         if models_to_run is None:
             models_to_run = self.models_to_run
@@ -301,7 +300,6 @@ class Experiment:
                 T = None
             self.metrics_update(model, S, T)
 
-
     @cached_property
     def _pop(self):
         return Pop().fit(self.D.training_data)
@@ -312,8 +310,8 @@ class Experiment:
 
     @cached_property
     def _rnn(self):
-        fitted = RNN(self.D.training_data.item_df,
-            **self.model_hyps.get("RNN", {})
+        fitted = RNN(
+            self.D.training_data.item_df, **self.model_hyps.get("RNN", {})
         ).fit(self.D.training_data)
         for name, param in fitted.model.named_parameters():
             print(name, param.data.shape)
@@ -321,8 +319,8 @@ class Experiment:
 
     @cached_property
     def _transformer(self):
-        fitted = Transformer(self.D.training_data.item_df,
-            **self.model_hyps.get("Transformer", {})
+        fitted = Transformer(
+            self.D.training_data.item_df, **self.model_hyps.get("Transformer", {})
         ).fit(self.D.training_data)
         for name, param in fitted.model.named_parameters():
             print(name, param.data.shape)
@@ -357,7 +355,7 @@ class Experiment:
         if self.V is not None:
             return GraphConv(
                 self.D, *self.model_hyps.get("GraphConv-Base", {})
-                ).fit(self.V)
+            ).fit(self.V)
         else:
             warnings.warn("Degenerating GraphConv-Base to BPR when self.V is None")
             return self._bpr
@@ -367,7 +365,7 @@ class Experiment:
         if self.V is not None:
             return GraphConv(
                 self.D, **self.model_hyps.get("GraphConv-Extra", {})
-                ).fit(self.V, *self.V_extra)
+            ).fit(self.V, *self.V_extra)
         else:
             warnings.warn("Degenerating GraphConv-Extra to BPR when self.V is None")
             return self._bpr
@@ -409,7 +407,7 @@ def plot_results(self, logy=True):
 
     for ax, df, xname, yname in zip(ax, df, xname, yname):
         ax.set_prop_cycle('color', [
-            plt.get_cmap('tab20')(i/20) for i in range(20)])
+            plt.get_cmap('tab20')(i / 20) for i in range(20)])
         if df is not None:
             ax.plot(
                 df.loc['prec'].unstack().values.T,

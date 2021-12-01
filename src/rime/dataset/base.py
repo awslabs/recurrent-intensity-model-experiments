@@ -1,25 +1,25 @@
-import pandas as pd, numpy as np, scipy as sp
+import pandas as pd, numpy as np
 import scipy.sparse as sps
-import functools, collections, warnings, dataclasses, argparse
-from ..util import create_matrix, cached_property, perplexity, \
-           timed, groupby_collect, matrix_reindex, get_batch_size, fill_factory_inplace
+import warnings, dataclasses, argparse
+from ..util import (create_matrix, perplexity, timed, groupby_collect,
+                    matrix_reindex, fill_factory_inplace)
 
 
 def _check_index(event_df, user_df, item_df):
     assert not user_df.index.has_duplicates, "simplify to one test window per user"
     assert not item_df.index.has_duplicates, "assume one entry per item"
     assert event_df['USER_ID'].isin(user_df.index).all(), \
-                                "user_df must include all users in event_df"
+        "user_df must include all users in event_df"
     assert event_df['ITEM_ID'].isin(item_df.index).all(), \
-                                "item_df must include all items in event_df"
+        "item_df must include all items in event_df"
 
 
 def _check_more_inputs(event_df, user_df, item_df):
     assert user_df['TEST_START_TIME'].notnull().all(), \
-                    "user_df must include TEST_START_TIME for all users"
+        "user_df must include TEST_START_TIME for all users"
 
     with timed("checking whether the events are sorted via necessary conditions"):
-        user_time = event_df[['USER_ID','TIMESTAMP']].values
+        user_time = event_df[['USER_ID', 'TIMESTAMP']].values
         if not (user_time[1:] >= user_time[:-1]).any(axis=1).all():
             warnings.warn("please sort events in [user, time] for best efficiency.")
 
@@ -40,10 +40,10 @@ def _mark_holdout(event_df, user_df, horizon):
         event_df['TIMESTAMP'] >= event_df['TEST_START_TIME'] + horizon
     ).astype(int)
 
-    post_test = (event_df['_holdout']==2).mean()
-    if post_test>0:
+    post_test = (event_df['_holdout'] == 2).mean()
+    if post_test > 0:
         warnings.warn("Post-test events with _holdout=2 should be ignored; "
-            f"they account for {post_test:.1%} of all events")
+                      f"they account for {post_test:.1%} of all events")
     del event_df['TEST_START_TIME']
     return event_df
 
@@ -54,7 +54,7 @@ def _reindex_user_hist(user_df, index, factory={
         "_hist_len": lambda: 0,
         "_hist_span": lambda: 0,
         # other fields not used after initialization
-    }):
+}):
     missing = [i not in user_df.index for i in index]
     user_df = user_df.reindex(index)
     if any(missing):
@@ -69,8 +69,8 @@ def _augment_user_hist(user_df, event_df):
     @timed("groupby, collect, reindex")
     def fn(col_name):
         hist = groupby_collect(
-            event_df[event_df['_holdout']==0].set_index('USER_ID')[col_name]
-            )
+            event_df[event_df['_holdout'] == 0].set_index('USER_ID')[col_name]
+        )
         return _reindex_user_hist(hist, user_df.index, {None: list})
 
     user_df = user_df.join(fn("ITEM_ID").to_frame("_hist_items")) \
@@ -87,7 +87,7 @@ def _augment_user_hist(user_df, event_df):
 def _augment_item_hist(item_df, event_df):
     """ augment history inferred from training set """
     return item_df.join(
-        event_df[event_df['_holdout']==0]
+        event_df[event_df['_holdout'] == 0]
         .groupby('ITEM_ID').size().to_frame('_hist_len')
     ).fillna({'_hist_len': 0})
 
@@ -106,7 +106,7 @@ class Dataset:
     target_csr: sps.spmatrix        # index=USER_ID, column=ITEM_ID
     user_in_test: pd.DataFrame      # index=USER_ID
     item_in_test: pd.DataFrame      # index=ITEM_ID
-    training_data: argparse.Namespace # mock this class with the first four attributes
+    training_data: argparse.Namespace  # mock this class with the first four attributes
     horizon: float = float("inf")
     prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
 
@@ -120,11 +120,11 @@ class Dataset:
             warnings.warn(f"{self} not applicable for temporal models.")
 
         _check_index(self.training_data.event_df,
-            self.training_data.user_df, self.training_data.item_df)
+                     self.training_data.user_df, self.training_data.item_df)
 
         if self.prior_score is not None:
             assert (self.prior_score.shape == self.target_csr.shape), \
-                        "prior_score shape must match with test target_csr"
+                "prior_score shape must match with test target_csr"
 
         self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
@@ -167,7 +167,7 @@ class Dataset:
             print(self.item_in_test.sample().iloc[0])
 
     def reindex(self, index, axis):
-        if axis==0:
+        if axis == 0:
             old_index = self.user_in_test.index
             user_in_test = _reindex_user_hist(self.user_in_test, index)
             item_in_test = self.item_in_test
@@ -187,11 +187,11 @@ class Dataset:
                 self.prior_score, old_index, index, axis, fill_value=0)
 
         return self.__class__(target_csr, user_in_test, item_in_test,
-            self.training_data, self.horizon, prior_score)
+                              self.training_data, self.horizon, prior_score)
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
-    min_user_len=1, min_item_len=1, prior_score=None, exclude_train=False):
+                   min_user_len=1, min_item_len=1, prior_score=None, exclude_train=False):
     """ Create a labeled dataset from 3 related tables and additional configurations.
 
     :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
@@ -217,18 +217,18 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
 
     print("marking and cleaning test data")
     user_in_test = user_df[
-        (user_df['_hist_len']>=min_user_len) &
-        (user_df['TEST_START_TIME']<float("inf")) # training-only users have inf start time
+        (user_df['_hist_len'] >= min_user_len) &
+        (user_df['TEST_START_TIME'] < float("inf"))  # training-only users have inf start time
     ].copy()
     item_in_test = item_df[
-        item_df['_hist_len']>=min_item_len
+        item_df['_hist_len'] >= min_item_len
     ].copy()
     target_csr = create_matrix(
-        event_df[event_df['_holdout']==1].copy(),
+        event_df[event_df['_holdout'] == 1].copy(),
         user_in_test.index, item_in_test.index
     )
     training_data = argparse.Namespace(
-        event_df=event_df[event_df['_holdout']==0].copy(),
+        event_df=event_df[event_df['_holdout'] == 0].copy(),
         user_df=user_df, item_df=item_df
     )
 
@@ -237,7 +237,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         assert prior_score is None, "double configuration for prior score"
 
         exclude_csr = create_matrix(
-            event_df[event_df['_holdout']==0].copy(),
+            event_df[event_df['_holdout'] == 0].copy(),
             user_in_test.index, item_in_test.index
         ).astype(bool)
         prior_score = exclude_csr * -1e10    # clip -inf to avoid nan
@@ -247,6 +247,6 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         target_csr.eliminate_zeros()
 
     D = Dataset(target_csr, user_in_test, item_in_test, training_data,
-        horizon, prior_score)
+                horizon, prior_score)
     print("Dataset created!")
     return D

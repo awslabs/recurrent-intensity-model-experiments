@@ -1,16 +1,16 @@
 from ..util import create_matrix, LowRankDataFrame
-import numpy as np, pandas as pd
+import numpy as np
 from lightfm import LightFM
 
 
 class LightFM_BPR:
     def __init__(self, user_rec=False, item_rec=False, epochs=50,
-        no_comp=32, user_alpha=1e-5, item_alpha=1e-5):
+                 no_comp=32, user_alpha=1e-5, item_alpha=1e-5):
 
         assert user_rec != item_rec, "specify exactly one side to sample negatives"
         self._transposed = user_rec
 
-        self.epochs=epochs
+        self.epochs = epochs
         self.bpr_model = LightFM(
             no_components=no_comp,
             loss='bpr',
@@ -35,19 +35,19 @@ class LightFM_BPR:
             self.bpr_model.user_embeddings,
             self.bpr_model.user_biases[:, None],
             np.ones_like(self.bpr_model.user_biases)[:, None],
-            ])
+        ])
 
         col_logits = np.hstack([
             self.bpr_model.item_embeddings,
             np.ones_like(self.bpr_model.item_biases)[:, None],
             self.bpr_model.item_biases[:, None],
-            ])
+        ])
 
         if self._transposed:
             ind_logits, col_logits = col_logits, ind_logits
 
         return LowRankDataFrame(
             ind_logits, col_logits, self.D.user_df.index, self.D.item_df.index, 'softplus'
-            ) \
+        ) \
             .reindex(D.user_in_test.index, fill_value=0) \
             .reindex(D.item_in_test.index, axis=1, fill_value=0)

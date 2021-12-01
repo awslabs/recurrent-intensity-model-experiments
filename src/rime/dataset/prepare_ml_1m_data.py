@@ -4,7 +4,7 @@ from .base import create_dataset
 
 
 def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
-    seed=0, second_half_only=True, **kw):
+                       seed=0, second_half_only=True, **kw):
 
     event_df = _load_sort_ml_1m_data(data_path, seed)
     if second_half_only:
@@ -12,7 +12,7 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
             event_df.groupby("USER_ID")["TIMESTAMP"].rank(method="first", pct=True) >= 0.5]
 
     user_df, item_df = extract_user_item(event_df)
-    in_groupA = sample_groupA(user_df, seed=seed+888)
+    in_groupA = sample_groupA(user_df, seed=seed + 888)
 
     test_start_rel = (user_df['_Tmax'] - user_df['_Tmin']).quantile(0.5)
     horizon = test_start_rel * 1.0
@@ -25,9 +25,9 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
     # extract context data from user-split
     V0 = create_dataset(
         D.training_data.event_df,
-        D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME') + horizon/2,
-        D.training_data.item_df[['_siz']], # just need the index
-        horizon/2,
+        D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME') + horizon / 2,
+        D.training_data.item_df[['_siz']],  # just need the index
+        horizon / 2,
     )
     return D, V, V0
 
