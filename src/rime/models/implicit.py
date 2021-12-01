@@ -8,8 +8,7 @@ except ImportError:
                   "`conda install -c conda-forge implicit implicit-proc=*=gpu -y`")
 
 
-def _to_numpy(x):
-    return x.to_numpy() if hasattr(x, 'to_numpy') else x
+_to_numpy = lambda x: x.to_numpy() if hasattr(x, 'to_numpy') else x
 
 
 class ALS:
