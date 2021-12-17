@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 
-from .word_language_model.model import RNNModel
+from .third_party.word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
@@ -14,13 +14,13 @@ from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame, _Reduce
 
 class RNN:
     def __init__(
-        self, item_df,
+        self, item_df, max_item_size=int(30e3),
         num_hidden=128, nlayers=2, max_epochs=20, gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, truncated_bptt_steps=32, batch_size=64,
         load_from_checkpoint=None
     ):
-
-        self._padded_item_list = [None] + item_df.index.tolist()
+        sorted_item_df = item_df['_hist_len'].sort_values(ascending=False)
+        self._padded_item_list = [None] + sorted_item_df.index.tolist()[:max_item_size]
         self._truncated_input_steps = truncated_input_steps
         self._collate_fn = functools.partial(
             _collate_fn,
@@ -108,7 +108,7 @@ class RNN:
 def _collate_fn(batch, tokenize, truncated_input_steps, training):
     if truncated_input_steps > 0:
         batch = [seq[-truncated_input_steps:] for seq in batch]
-    batch = [[0] + [tokenize[x] for x in seq] for seq in batch]
+    batch = [[0] + [tokenize[x] for x in seq if x in tokenize] for seq in batch]
     batch = [torch.tensor(seq, dtype=torch.int64) for seq in batch]
     batch, lengths = pad_packed_sequence(pack_sequence(batch, False))
     if training:

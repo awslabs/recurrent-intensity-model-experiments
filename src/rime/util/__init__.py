@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, time, contextlib, torch, gc, warnings
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from backports.cached_property import cached_property
@@ -272,3 +272,17 @@ class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):
         if self.verbose:
             print(f"loading checkpoint {best_model_path} with score {best_model_score}")
         self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
+
+
+def default_random_split(data):
+    N = len(data)
+    if N < 5:
+        return data, data
+    else:
+        return random_split(data, [N * 4 // 5, (N - N * 4 // 5)])
+
+
+def default_train_valid_loaders(data, batch_size, **kw):
+    train, valid = default_random_split(data)
+    return (DataLoader(train, batch_size=batch_size, shuffle=True, **kw),
+            DataLoader(valid, batch_size=batch_size, **kw))

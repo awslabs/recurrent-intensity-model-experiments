@@ -8,9 +8,10 @@ import torch, dataclasses, warnings, json
 import pandas as pd
 from typing import Dict, List
 from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson,
-                         LightFM_BPR, ALS, LogisticMF, BPR, GraphConv)
+                         LightFM_BPR, ALS, LogisticMF, BPR, GraphConv, LDA)
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
+from rime.dataset import Dataset
 from rime.util import _argsort, cached_property, RandScore
 
 from pkg_resources import get_distribution, DistributionNotFound
@@ -86,18 +87,7 @@ class Experiment:
     def __init__(
         self, D, V=None, *V_extra,
         mult=[],  # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
-        models_to_run=[
-            "Rand", "Pop",
-            "Hawkes", "HP",
-            "Transformer", "Transformer-Pop",
-            "Transformer-Hawkes", "Transformer-HP",
-            "RNN", "RNN-Pop",
-            "RNN-Hawkes", "RNN-HP",
-            "EMA", "RNN-EMA", "Transformer-EMA",
-            "BPR", "GraphConv-Base", "GraphConv-Extra",
-            "ALS", "LogisticMF",
-            "BPR-Item", "BPR-User",
-        ],
+        models_to_run=None,
         model_hyps={},
         device="cuda" if torch.cuda.is_available() else "cpu",
         cvx=False,
@@ -113,7 +103,11 @@ class Experiment:
         self.V_extra = V_extra
 
         self.mult = mult
+
+        if models_to_run is None:
+            models_to_run = self.registered.keys()
         self.models_to_run = models_to_run
+
         self.model_hyps = model_hyps
         self.device = device
 
@@ -201,72 +195,39 @@ class Experiment:
 
         return out
 
-    def transform(self, model, D):  # noqa: C901
-        if model == "Rand":
-            return Rand().transform(D)
+    @property
+    def registered(self):
+        return {
+            "Rand": lambda D: Rand().transform(D),
+            "Pop": lambda D: self._pop.transform(D),
+            "EMA": lambda D: EMA(D.horizon).transform(D) * self._pop_item.transform(D),
+            "Hawkes": lambda D: self._hawkes.transform(D) * self._pop_item.transform(D),
+            "HP": lambda D: self._hawkes_poisson.transform(D) * self._pop_item.transform(D),
 
-        if model == "Pop":
-            return self._pop.transform(D)
+            "RNN": lambda D: self._rnn.transform(D),
+            "RNN-Pop": lambda D: self._rnn.transform(D) * Pop(1, 0).transform(D),
+            "RNN-EMA": lambda D: self._rnn.transform(D) * EMA(D.horizon).transform(D),
+            "RNN-Hawkes": lambda D: self._rnn.transform(D) * self._hawkes.transform(D),
+            "RNN-HP": lambda D: self._rnn.transform(D) * self._hawkes_poisson.transform(D),
 
-        if model == "EMA":
-            return EMA(D.horizon).transform(D) * self._pop_item.transform(D)
+            "Transformer": lambda D: self._transformer.transform(D),
+            "Transformer-Pop": lambda D: self._transformer.transform(D) * Pop(1, 0).transform(D),
+            "Transformer-EMA": lambda D: self._transformer.transform(D) * EMA(D.horizon).transform(D),
+            "Transformer-Hawkes": lambda D: self._transformer.transform(D) * self._hawkes.transform(D),
+            "Transformer-HP": lambda D: self._transformer.transform(D) * self._hawkes_poisson.transform(D),
 
-        if model == "Hawkes":
-            return self._hawkes.transform(D) * self._pop_item.transform(D)
+            "BPR-Item": lambda D: self._bpr_item.transform(D),
+            "BPR-User": lambda D: self._bpr_user.transform(D),
+            "BPR": lambda D: self._bpr.transform(D),
 
-        if model == "HP":
-            return self._hawkes_poisson.transform(D) * self._pop_item.transform(D)
+            "GraphConv-Base": lambda D: self._graph_conv_base.transform(D),
+            "GraphConv-Extra": lambda D: self._graph_conv_extra.transform(D),
 
-        if model == "RNN":
-            return self._rnn.transform(D)
+            "LDA": lambda D: self._lda.transform(D),
 
-        if model == "RNN-Pop":
-            return self._rnn.transform(D) * Pop(1, 0).transform(D)
-
-        if model == "RNN-EMA":
-            return self._rnn.transform(D) * EMA(D.horizon).transform(D)
-
-        if model == "RNN-Hawkes":
-            return self._rnn.transform(D) * self._hawkes.transform(D)
-
-        if model == "RNN-HP":
-            return self._rnn.transform(D) * self._hawkes_poisson.transform(D)
-
-        if model == "Transformer":
-            return self._transformer.transform(D)
-
-        if model == "Transformer-Pop":
-            return self._transformer.transform(D) * Pop(1, 0).transform(D)
-
-        if model == "Transformer-EMA":
-            return self._transformer.transform(D) * EMA(D.horizon).transform(D)
-
-        if model == "Transformer-Hawkes":
-            return self._transformer.transform(D) * self._hawkes.transform(D)
-
-        if model == "Transformer-HP":
-            return self._transformer.transform(D) * self._hawkes_poisson.transform(D)
-
-        if model == "BPR-Item":
-            return self._bpr_item.transform(D)
-
-        if model == "BPR-User":
-            return self._bpr_user.transform(D)
-
-        if model == "BPR":
-            return self._bpr.transform(D)
-
-        if model == "GraphConv-Base":
-            return self._graph_conv_base.transform(D)
-
-        if model == "GraphConv-Extra":
-            return self._graph_conv_extra.transform(D)
-
-        if model == "ALS":
-            return self._als.transform(D)
-
-        if model == "LogisticMF":
-            return self._logistic_mf.transform(D)
+            "ALS": lambda D: self._als.transform(D),
+            "LogisticMF": lambda D: self._logistic_mf.transform(D),
+        }
 
     def run(self, models_to_run=None):
         if models_to_run is None:
@@ -276,7 +237,7 @@ class Experiment:
 
         for model in models_to_run:
             print("running", model)
-            S = self.transform(model, self.D)
+            S = self.registered[model](self.D)
 
             if self.D.prior_score is not None:
                 S = S + self.D.prior_score
@@ -287,7 +248,7 @@ class Experiment:
 
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
-                T = self.transform(model, V)
+                T = self.registered[model](V)
 
                 if V.prior_score is not None:
                     T = T + V.prior_score
@@ -369,6 +330,12 @@ class Experiment:
         else:
             warnings.warn("Degenerating GraphConv-Extra to BPR when self.V is None")
             return self._bpr
+
+    @cached_property
+    def _lda(self):
+        return LDA(
+            self.D.training_data, **self.model_hyps.get("LDA", {})
+        ).fit(self.D.training_data)
 
     @cached_property
     def _als(self):

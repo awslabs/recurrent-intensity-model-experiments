@@ -82,10 +82,13 @@ class GraphConv:
     def _extract_features(self, D):
         """ create item -> user graph """
         D = D.reindex(self._user_list, axis=0).reindex(self._padded_item_list, axis=1)
-        D.user_in_test.index.name = 'USER_ID'
+
+        # create matrix from user_in_test history; avoid na in explode
+        user_in_test_hist = D.user_in_test[D.user_in_test['_hist_len'] > 0]['_hist_items'].copy()
+        user_in_test_hist.index.name = 'USER_ID'
 
         i, j = create_matrix(
-            D.user_in_test['_hist_items'].explode().dropna().to_frame('ITEM_ID').reset_index(),
+            user_in_test_hist.explode().to_frame('ITEM_ID').reset_index(),
             D.user_in_test.index, D.item_in_test.index, 'ij'
         )
         t = np.hstack(D.user_in_test['_timestamps'].apply(lambda x: x[:-1]))
@@ -96,6 +99,7 @@ class GraphConv:
         )
         G.edata['t'] = torch.as_tensor(t).double()
 
+        # add padding item to avoid empty users
         n_users = G.num_nodes('user')
         pad_time = -np.inf * torch.ones(n_users).double()
         G = dgl.add_edges(G, range(n_users), [0] * n_users, {'t': pad_time})
