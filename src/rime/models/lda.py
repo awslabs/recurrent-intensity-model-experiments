@@ -42,11 +42,11 @@ class LDA:
         self._item_list = D.item_df.index.tolist()
 
         if batch_size is None:
-            batch_size = get_batch_size((len(D.user_df), len(D.item_df))) * 20  # sparsity
+            batch_size = get_batch_size((len(D.user_df), len(D.item_df))) * 20  # sparse graph
         self.batch_size = batch_size
 
         if rho is None:
-            rho = min(1, batch_size / len(D.user_df))
+            rho = np.clip(batch_size / len(D.user_df), 0.01, 1)
         self.model = LatentDirichletAllocation(
             len(self._item_list), n_components, mult=mult, rho=rho, **kw)
 
