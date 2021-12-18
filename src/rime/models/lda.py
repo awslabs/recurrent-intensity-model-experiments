@@ -52,6 +52,7 @@ class LDA:
             len(self._item_list), n_components, mult=mult, rho=rho, **kw)
 
         self.max_epochs = max_epochs
+        print(f"LDA initiated, batch_size={batch_size}, rho={rho}")
 
     @empty_cache_on_exit
     def fit(self, D):
@@ -73,6 +74,7 @@ class LDA:
         trainer.fit(lit, *default_train_valid_loaders(
             np.arange(G.num_nodes('doc')), batch_size=self.batch_size
         ))
+        print('LDA val_epoch_loss={lit.val_epoch_loss:.2f}')
         self.model.to('cpu')
         return self
 

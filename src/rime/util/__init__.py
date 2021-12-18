@@ -184,17 +184,20 @@ def create_matrix(event_df, user_index, item_index, return_type='csr'):
         event_df['USER_ID'].isin(set(user_index)) &
         event_df['ITEM_ID'].isin(set(item_index))
     ]
-    data = np.ones(len(event_df))
     i = [user2ind[k] for k in event_df['USER_ID']]
     j = [item2ind[k] for k in event_df['ITEM_ID']]
+
+    if return_type == 'ij':
+        return (i, j)
+
+    data = np.ones(len(event_df))
     shape = (len(user_index), len(item_index))
     csr = sp.sparse.coo_matrix((data, (i, j)), shape=shape).tocsr()
+
     if return_type == 'csr':
         return csr
     elif return_type == 'df':
         return pd.DataFrame.sparse.from_spmatrix(csr, user_index, item_index)
-    elif return_type == 'ij':
-        return (i, j)
 
 
 def fill_factory_inplace(df, isna, kv):
