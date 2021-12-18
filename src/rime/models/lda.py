@@ -36,17 +36,18 @@ class _LitLDA(_LitValidated):
 class LDA:
     """ run lda example in dgl codebase; use gpus and mini-batches for scalability """
     def __init__(
-        self, D, n_components=128, batch_size=None, rho=None, max_epochs=20,
-        mult={'doc': 1, 'word': 100}, **kw
+        self, D, n_components=128, batch_size=None, rho=None, max_epochs=10,
+        mult={'doc': 1, 'word': 1000}, **kw
     ):
         self._item_list = D.item_df.index.tolist()
+        nnz_users = (D.user_df['_hist_len'] > 0).sum()
 
         if batch_size is None:
-            batch_size = get_batch_size((len(D.user_df), len(D.item_df))) * 20  # sparse graph
+            batch_size = get_batch_size((nnz_users, len(self._item_list))) * 50  # sparse graph
         self.batch_size = batch_size
 
         if rho is None:
-            rho = np.clip(batch_size / len(D.user_df), 0.01, 1)
+            rho = np.clip(batch_size / nnz_users, 0.01, 1)
         self.model = LatentDirichletAllocation(
             len(self._item_list), n_components, mult=mult, rho=rho, **kw)
 
@@ -56,10 +57,11 @@ class LDA:
     def fit(self, D):
         """ learn from training_data on gpu w/ mini-batches; clear gpu in the end """
 
-        i, j = create_matrix(D.event_df, D.user_df.index, self._item_list, 'ij')
+        user_index = D.user_df[D.user_df['_hist_len'] > 0].index  # prune empty users
+        i, j = create_matrix(D.event_df, user_index, self._item_list, 'ij')
         G = dgl.heterograph(
             {('doc', '', 'word'): (i, j)},
-            {'doc': len(D.user_df.index), 'word': len(self._item_list)},
+            {'doc': len(user_index), 'word': len(self._item_list)},
         )
 
         lit = _LitLDA(self.model, G)
@@ -77,13 +79,12 @@ class LDA:
     def transform(self, D):
         """ run e-step to get doc data; output as low-rank nonnegative matrix """
 
-        # create matrix from user_in_test history; avoid na in explode
-        user_in_test_hist = D.user_in_test[D.user_in_test['_hist_len'] > 0]['_hist_items'].copy()
-        user_in_test_hist.index.name = 'USER_ID'
-        i, j = create_matrix(
-            user_in_test_hist.explode().to_frame('ITEM_ID').reset_index(),
-            D.user_in_test.index, self._item_list, 'ij'
-        )
+        # create past event df from user_in_test history; _hist_len > 0 avoids na in explode
+        past_event_df = D.user_in_test[D.user_in_test['_hist_len'] > 0]['_hist_items'].copy()
+        past_event_df.index.name = 'USER_ID'
+        past_event_df = past_event_df.explode().to_frame('ITEM_ID').reset_index()
+
+        i, j = create_matrix(past_event_df, D.user_in_test.index, self._item_list, 'ij')
         G = dgl.heterograph(
             {('doc', '', 'word'): (i, j)},
             {'doc': len(D.user_in_test.index), 'word': len(self._item_list)}

@@ -83,15 +83,13 @@ class GraphConv:
         """ create item -> user graph """
         D = D.reindex(self._user_list, axis=0).reindex(self._padded_item_list, axis=1)
 
-        # create matrix from user_in_test history; avoid na in explode
-        user_in_test_hist = D.user_in_test[D.user_in_test['_hist_len'] > 0]['_hist_items'].copy()
-        user_in_test_hist.index.name = 'USER_ID'
+        # create past event df from user_in_test history; _hist_len > 0 avoids na in explode
+        past_event_df = D.user_in_test[D.user_in_test['_hist_len'] > 0]['_hist_items'].copy()
+        past_event_df.index.name = 'USER_ID'
+        past_event_df = past_event_df.explode().to_frame('ITEM_ID').reset_index()
 
-        i, j = create_matrix(
-            user_in_test_hist.explode().to_frame('ITEM_ID').reset_index(),
-            D.user_in_test.index, D.item_in_test.index, 'ij'
-        )
-        t = np.hstack(D.user_in_test['_timestamps'].apply(lambda x: x[:-1]))
+        i, j = create_matrix(past_event_df, D.user_in_test.index, D.item_in_test.index, 'ij')
+        t = np.hstack(D.user_in_test['_timestamps'].apply(lambda x: x[:-1]))  # empty is okay
 
         G = dgl.heterograph(
             {('user', 'source', 'item'): (i, j)},
