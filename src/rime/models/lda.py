@@ -1,7 +1,7 @@
 import torch, dgl, numpy as np
 from pytorch_lightning import LightningModule, Trainer
 from torch.utils.data import DataLoader
-from .third_party.lda.lda_model import LatentDirichletAllocation, WordData, doc_subgraph
+from .third_party.lda.lda_model import LatentDirichletAllocation, DocData, WordData, doc_subgraph
 from ..util import (empty_cache_on_exit, LowRankDataFrame, create_matrix,
                     _LitValidated, default_random_split, get_batch_size)
 
@@ -14,6 +14,8 @@ class _LitLDA(_LitValidated):
         self.model = model
         self.G = G
 
+        # TODO: this should help checkpoint parameters, but I don't know how
+        # pytorch lightning works with distributed parameters.
         for i, w in enumerate(self.model.word_data):
             self.register_buffer(f"word_{i}_nphi", w.nphi)
 
@@ -25,7 +27,7 @@ class _LitLDA(_LitValidated):
     def forward(self, batch, op=None):
         B = doc_subgraph(self.G, batch.tolist()).to(batch.device)
         if op is None:
-            op = lambda B: self.model.transform(B)._expectation().to('cpu').numpy()
+            op = lambda B: self.model.transform(B).nphi.to("cpu")
         return op(B)
 
     @torch.no_grad()
@@ -91,7 +93,7 @@ class LDA:
 
         return self
 
-    def transform(self, D):
+    def transform(self, D, return_doc_data=False):
         """ run e-step to get doc data; output as low-rank nonnegative matrix """
 
         # create past event df from user_in_test history; _hist_len > 0 avoids na in explode
@@ -106,12 +108,18 @@ class LDA:
         )
 
         trainer = Trainer(gpus=int(torch.cuda.is_available()))
-        doc_exp = trainer.predict(
+        doc_nphi = trainer.predict(
             _LitLDA(self.model, G),
             DataLoader(np.arange(G.num_nodes('doc')), self.batch_size),
         )
-        u = np.vstack(doc_exp)
+        doc_data = DocData(self.model.prior['doc'], torch.vstack(doc_nphi))
+
+        u = doc_data._expectation().numpy()
         v = np.vstack([w._expectation().numpy() for w in self.model.word_data])
-        return LowRankDataFrame(
+        out = LowRankDataFrame(
             u, v.T, D.user_in_test.index, np.array(self._item_list), '_nnmf'
         ).reindex(D.item_in_test.index, axis=1, fill_value=0)
+
+        if return_doc_data:
+            out = (out, doc_data)
+        return out
