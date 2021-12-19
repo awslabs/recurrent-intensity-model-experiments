@@ -9,7 +9,8 @@ from .third_party.word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame, _ReduceLRLoadCkpt
+from ..util import (_LitValidated, empty_cache_on_exit, LowRankDataFrame, _ReduceLRLoadCkpt,
+                    default_random_split)
 
 
 class RNN:
@@ -83,25 +84,15 @@ class RNN:
               f"truncated@{self._truncated_input_steps} per user")
         print(f"sample_y={sample_y}")
 
-        if len(dataset) >= 5:
-            train_set, valid_set = random_split(dataset, [m * 4 // 5, (m - m * 4 // 5)])
-        else:
-            warnings.warn(f"short dataset len={len(dataset)}; "
-                          "setting valid_set identical to train_set")
-            train_set, valid_set = dataset, dataset
+        train_set, valid_set = default_random_split(dataset)
         self.trainer.fit(
             self.model,
             DataLoader(train_set, self.batch_size, collate_fn=collate_fn, shuffle=True),
             DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
+        self.model._load_best_checkpoint("best")
 
         delattr(self.model, 'train_dataloader')
         delattr(self.model, 'val_dataloader')
-
-        best_model_path = self.model._checkpoint.best_model_path
-        best_model_score = self.model._checkpoint.best_model_score
-        if best_model_score is not None:
-            print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
-            self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
         return self
 
 

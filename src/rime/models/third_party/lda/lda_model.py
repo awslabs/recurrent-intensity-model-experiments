@@ -268,12 +268,6 @@ class LatentDirichletAllocation:
             (n_docs, self.n_components), device)
         return DocData(self.prior['doc'], doc_nphi)
 
-    def to(self, *device_list):
-        self.device_list = [device_list[i % len(device_list)]
-                            for i in range(len(self.device_list))]
-
-        word_nphi = [w.nphi.to(d) for w, d in zip(self.word_data, self.device_list)]
-        self.word_data = WordData(self.prior['word'], word_nphi)
 
     def save(self, f):
         for w in self.word_data:

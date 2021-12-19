@@ -262,6 +262,13 @@ class _LitValidated(LightningModule):
     def _checkpoint(self):
         return ModelCheckpoint(monitor="val_epoch_loss", save_weights_only=True)
 
+    def _load_best_checkpoint(self, msg="loading"):
+        best_model_path = self._checkpoint.best_model_path
+        best_model_score = self._checkpoint.best_model_score
+        if best_model_score is not None:
+            print(f"{msg} checkpoint {best_model_path} with score {best_model_score}")
+            self.load_state_dict(torch.load(best_model_path)['state_dict'])
+
 
 class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):
     def __init__(self, *args, model, **kw):
@@ -270,22 +277,14 @@ class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):
 
     def _reduce_lr(self, epoch):
         super()._reduce_lr(epoch)
-        best_model_path = self.model._checkpoint.best_model_path
-        best_model_score = self.model._checkpoint.best_model_score
-        if self.verbose:
-            print(f"loading checkpoint {best_model_path} with score {best_model_score}")
-        self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
+        self.model._load_best_checkpoint()
 
 
-def default_random_split(data):
-    N = len(data)
-    if N < 5:
-        return data, data
+def default_random_split(dataset):
+    N = len(dataset)
+    if N >= 5:
+        return random_split(dataset, [N * 4 // 5, N - N * 4 // 5])
     else:
-        return random_split(data, [N * 4 // 5, (N - N * 4 // 5)])
-
-
-def default_train_valid_loaders(data, batch_size, **kw):
-    train, valid = default_random_split(data)
-    return (DataLoader(train, batch_size=batch_size, shuffle=True, **kw),
-            DataLoader(valid, batch_size=batch_size, **kw))
+        warnings.warn(f"short dataset len={len(dataset)}; "
+                      "setting valid_set identical to train_set")
+        return dataset, dataset

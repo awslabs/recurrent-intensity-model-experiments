@@ -1,9 +1,9 @@
 import torch, dgl, numpy as np
 from pytorch_lightning import LightningModule, Trainer
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from .third_party.lda.lda_model import LatentDirichletAllocation, WordData, doc_subgraph
 from ..util import (empty_cache_on_exit, LowRankDataFrame, create_matrix,
-                    _LitValidated, default_train_valid_loaders, get_batch_size)
+                    _LitValidated, default_random_split, get_batch_size)
 
 
 class _LitLDA(_LitValidated):
@@ -13,6 +13,14 @@ class _LitLDA(_LitValidated):
         self.automatic_optimization = False
         self.model = model
         self.G = G
+
+        for i, w in enumerate(self.model.word_data):
+            self.register_buffer(f"word_{i}_nphi", w.nphi)
+
+    def _update_model_from_buffer_change_device(self):
+        word_nphi = [getattr(self, f"word_{i}_nphi") for i in range(len(self.model.word_data))]
+        self.model.word_data = WordData(self.model.prior['word'], word_nphi)
+        self.model.device_list = [nphi.device for nphi in word_nphi]  # cpu
 
     def forward(self, batch, op=None):
         B = doc_subgraph(self.G, batch.tolist()).to(batch.device)
@@ -36,7 +44,7 @@ class _LitLDA(_LitValidated):
 class LDA:
     """ run lda example in dgl codebase; use gpus and mini-batches for scalability """
     def __init__(
-        self, D, n_components=128, batch_size=None, rho=None, max_epochs=10,
+        self, D, n_components=128, batch_size=None, rho=None, max_epochs=20,
         mult={'doc': 1, 'word': 1000}, **kw
     ):
         self._item_list = D.item_df.index.tolist()
@@ -68,14 +76,19 @@ class LDA:
         lit = _LitLDA(self.model, G)
         trainer = Trainer(
             max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
-            limit_val_batches=2
+            limit_val_batches=2, callbacks=[lit._checkpoint],
         )
         print(trainer.log_dir)
-        trainer.fit(lit, *default_train_valid_loaders(
-            np.arange(G.num_nodes('doc')), batch_size=self.batch_size
-        ))
-        print('LDA val_epoch_loss={lit.val_epoch_loss:.2f}')
-        self.model.to('cpu')
+
+        train_set, valid_set = default_random_split(np.arange(G.num_nodes('doc')))
+        trainer.fit(
+            lit,
+            DataLoader(train_set, self.batch_size, shuffle=True),
+            DataLoader(valid_set, self.batch_size),
+        )
+        lit._load_best_checkpoint("best")
+        lit._update_model_from_buffer_change_device()
+
         return self
 
     def transform(self, D):
@@ -95,7 +108,7 @@ class LDA:
         trainer = Trainer(gpus=int(torch.cuda.is_available()))
         doc_exp = trainer.predict(
             _LitLDA(self.model, G),
-            DataLoader(np.arange(G.num_nodes('doc')), batch_size=self.batch_size),
+            DataLoader(np.arange(G.num_nodes('doc')), self.batch_size),
         )
         u = np.vstack(doc_exp)
         v = np.vstack([w._expectation().numpy() for w in self.model.word_data])
