@@ -257,6 +257,7 @@ class Experiment:
 
         for model in models_to_run:
             assert model in self.registered, f"{model} disabled or unregistered"
+        print("models to run", models_to_run)
 
         for model in models_to_run:
             print("running", model)
