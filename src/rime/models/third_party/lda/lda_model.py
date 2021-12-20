@@ -1,5 +1,5 @@
 # original file: https://github.com/dmlc/dgl/blob/master/examples/pytorch/lda/lda_model.py
-# with minor modifications
+# with minor modifications (to be considered upstream)
 
 # Copyright 2021 Yifei Ma
 # with references from "sklearn.decomposition.LatentDirichletAllocation"
