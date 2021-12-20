@@ -99,7 +99,7 @@ class RNN:
 
 
 def _top_item_list(item_hist_len, max_item_size):
-    sorted_items = item_hist_len.sort_values(ascending=False)
+    sorted_items = item_hist_len.sort_values(ascending=False, kind='mergesort')  # stable clip
     if len(sorted_items) > max_item_size:
         warnings.warn(f"clipping item size from {len(sorted_items)} to {max_item_size}")
     return sorted_items.iloc[:max_item_size].index.tolist()
