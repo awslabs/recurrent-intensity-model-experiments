@@ -5,22 +5,22 @@ import torch
 from torch.utils.data import DataLoader, random_split
 from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 
-from .word_language_model.model import RNNModel
+from .third_party.word_language_model.model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import _LitValidated, empty_cache_on_exit, LowRankDataFrame, _ReduceLRLoadCkpt
+from ..util import (_LitValidated, empty_cache_on_exit, LowRankDataFrame, _ReduceLRLoadCkpt,
+                    default_random_split)
 
 
 class RNN:
     def __init__(
-        self, item_df,
+        self, item_df, max_item_size=int(30e3),
         num_hidden=128, nlayers=2, max_epochs=20, gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, truncated_bptt_steps=32, batch_size=64,
         load_from_checkpoint=None
     ):
-
-        self._padded_item_list = [None] + item_df.index.tolist()
+        self._padded_item_list = [None] + _top_item_list(item_df['_hist_len'], max_item_size)
         self._truncated_input_steps = truncated_input_steps
         self._collate_fn = functools.partial(
             _collate_fn,
@@ -83,32 +83,32 @@ class RNN:
               f"truncated@{self._truncated_input_steps} per user")
         print(f"sample_y={sample_y}")
 
-        if len(dataset) >= 5:
-            train_set, valid_set = random_split(dataset, [m * 4 // 5, (m - m * 4 // 5)])
-        else:
-            warnings.warn(f"short dataset len={len(dataset)}; "
-                          "setting valid_set identical to train_set")
-            train_set, valid_set = dataset, dataset
+        train_set, valid_set = default_random_split(dataset)
         self.trainer.fit(
             self.model,
             DataLoader(train_set, self.batch_size, collate_fn=collate_fn, shuffle=True),
             DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
+        self.model._load_best_checkpoint("best")
 
         delattr(self.model, 'train_dataloader')
         delattr(self.model, 'val_dataloader')
 
-        best_model_path = self.model._checkpoint.best_model_path
-        best_model_score = self.model._checkpoint.best_model_score
-        if best_model_score is not None:
-            print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
-            self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
+        for name, param in self.model.named_parameters():
+            print(name, param.data.shape)
         return self
+
+
+def _top_item_list(item_hist_len, max_item_size):
+    sorted_items = item_hist_len.sort_values(ascending=False, kind='mergesort')  # stable clip
+    if len(sorted_items) > max_item_size:
+        warnings.warn(f"clipping item size from {len(sorted_items)} to {max_item_size}")
+    return sorted_items.iloc[:max_item_size].index.tolist()
 
 
 def _collate_fn(batch, tokenize, truncated_input_steps, training):
     if truncated_input_steps > 0:
         batch = [seq[-truncated_input_steps:] for seq in batch]
-    batch = [[0] + [tokenize[x] for x in seq] for seq in batch]
+    batch = [[0] + [tokenize[x] for x in seq if x in tokenize] for seq in batch]
     batch = [torch.tensor(seq, dtype=torch.int64) for seq in batch]
     batch, lengths = pad_packed_sequence(pack_sequence(batch, False))
     if training:

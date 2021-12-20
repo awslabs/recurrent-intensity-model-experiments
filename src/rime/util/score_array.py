@@ -241,7 +241,7 @@ class LowRankDataFrame(LazyScoreBase):
         assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
         assert self.ind_logits.shape[0] == len(self.index), "check index"
         assert self.col_logits.shape[0] == len(self.columns), "check columns"
-        assert self.act in ['exp', 'softplus', 'sigmoid'], \
+        assert self.act in ['exp', 'softplus', 'sigmoid', '_nnmf'], \
             "requires nonnegative act to model intensity score"
 
     def eval(self, device=None):
@@ -255,6 +255,10 @@ class LowRankDataFrame(LazyScoreBase):
                 return np.where(z > 0, z + np.log(1 + np.exp(-z)), np.log(1 + np.exp(z)))
             elif self.act == 'sigmoid':
                 return 1. / (1 + np.exp(-z))
+            elif self.act == '_nnmf':
+                return z
+            else:
+                raise NotImplementedError
         else:
             ind_logits = torch.as_tensor(self.ind_logits, device=device)
             col_logits = torch.as_tensor(self.col_logits, device=device)
@@ -267,6 +271,10 @@ class LowRankDataFrame(LazyScoreBase):
                 return torch.nn.Softplus()(z)
             elif self.act == 'sigmoid':
                 return z.sigmoid()
+            elif self.act == '_nnmf':
+                return z
+            else:
+                raise NotImplementedError
 
     @property
     def shape(self):
@@ -311,12 +319,17 @@ class LowRankDataFrame(LazyScoreBase):
         ind_logits = np.hstack([ind_logits, np.zeros_like(ind_logits[:, :1])])
         ind_default = np.hstack([self.ind_default, np.zeros_like(self.ind_default[:1])])
 
-        if fill_value == 0:
-            ind_logits[-1, -1] = float("-inf")    # common for exp and sigmoid
-        elif self.act in ['exp', 'softplus']:
-            ind_logits[-1, -1] = np.log(fill_value)
-        elif self.act == 'sigmoid':
-            ind_logits[-1, -1] = np.log(fill_value) - np.log(1 - fill_value)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "divide by zero encountered in log")
+
+            if self.act in ['exp', 'softplus']:
+                ind_logits[-1, -1] = np.log(fill_value)
+            elif self.act == 'sigmoid':
+                ind_logits[-1, -1] = np.log(fill_value) - np.log(1 - fill_value)
+            elif self.act == '_nnmf':
+                ind_logits[-1, -1] = fill_value
+            else:
+                raise NotImplementedError
 
         col_logits = np.hstack([self.col_logits, np.ones_like(self.col_logits[:, :1])])
         col_default = np.hstack([self.col_default, np.ones_like(self.col_default[:1])])
@@ -351,5 +364,5 @@ def score_op(S, op, device=None):
     for batch in DataLoader(S, S.batch_size, collate_fn=S.collate_fn):
         val = batch.eval(device)
         new = getattr(val, op)()
-        out = new if out is None else getattr(builtins, op)(out, new)
+        out = new if out is None else getattr(builtins, op)([out, new])
     return out

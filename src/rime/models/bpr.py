@@ -1,8 +1,9 @@
 import torch, argparse, numpy as np
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import _LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, create_matrix
+from ..util import (_LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, create_matrix,
+                    default_random_split)
 from .lightfm_bpr import LightFM_BPR
 
 
@@ -85,10 +86,7 @@ class BPR(LightFM_BPR):
         dataset = np.array(ij_target, dtype=int).T
 
         N = len(dataset)
-        if len(dataset) > 5:
-            train_set, valid_set = random_split(dataset, [N * 4 // 5, (N - N * 4 // 5)])
-        else:
-            train_set = valid_set = dataset
+        train_set, valid_set = default_random_split(dataset)
 
         user_proposal = (D.user_df['_hist_len'].values + 0.1) ** 0.5
         item_proposal = (D.item_df['_hist_len'].values + 0.1) ** 0.5
@@ -103,11 +101,7 @@ class BPR(LightFM_BPR):
             model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
             DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
-
-        best_model_path = model._checkpoint.best_model_path
-        best_model_score = model._checkpoint.best_model_score
-        if best_model_score is not None:
-            print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
+        model._load_best_checkpoint("best")
 
         self.D = D
         self.bpr_model = argparse.Namespace(

@@ -1,9 +1,9 @@
 import torch, numpy as np, warnings, pandas as pd
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, empty_cache_on_exit, create_matrix,
-                    create_second_order_dataframe)
+                    create_second_order_dataframe, default_random_split)
 from .bpr import BPR, _BPR
 try:
     import dgl, dgl.function as fn
@@ -82,13 +82,14 @@ class GraphConv:
     def _extract_features(self, D):
         """ create item -> user graph """
         D = D.reindex(self._user_list, axis=0).reindex(self._padded_item_list, axis=1)
-        D.user_in_test.index.name = 'USER_ID'
 
-        i, j = create_matrix(
-            D.user_in_test['_hist_items'].explode().dropna().to_frame('ITEM_ID').reset_index(),
-            D.user_in_test.index, D.item_in_test.index, 'ij'
-        )
-        t = np.hstack(D.user_in_test['_timestamps'].apply(lambda x: x[:-1]))
+        # create past event df from user_in_test history; _hist_len > 0 avoids na in explode
+        past_event_df = D.user_in_test[D.user_in_test['_hist_len'] > 0]['_hist_items'].copy()
+        past_event_df.index.name = 'USER_ID'
+        past_event_df = past_event_df.explode().to_frame('ITEM_ID').reset_index()
+
+        i, j = create_matrix(past_event_df, D.user_in_test.index, D.item_in_test.index, 'ij')
+        t = np.hstack(D.user_in_test['_timestamps'].apply(lambda x: x[:-1]))  # empty is okay
 
         G = dgl.heterograph(
             {('user', 'source', 'item'): (i, j)},
@@ -96,6 +97,7 @@ class GraphConv:
         )
         G.edata['t'] = torch.as_tensor(t).double()
 
+        # add padding item to avoid empty users
         n_users = G.num_nodes('user')
         pad_time = -np.inf * torch.ones(n_users).double()
         G = dgl.add_edges(G, range(n_users), [0] * n_users, {'t': pad_time})
@@ -135,10 +137,7 @@ class GraphConv:
         model = _GraphConv(np.array(user_proposal), np.array(item_proposal), **self._model_kw)
 
         N = len(dataset)
-        if len(dataset) > 5:
-            train_set, valid_set = random_split(dataset, [N * 4 // 5, (N - N * 4 // 5)])
-        else:
-            train_set = valid_set = dataset
+        train_set, valid_set = default_random_split(dataset)
 
         trainer = Trainer(
             max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
@@ -149,12 +148,8 @@ class GraphConv:
             model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
             DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
+        model._load_best_checkpoint("best")
         delattr(model, "G_list")
-
-        best_model_path = model._checkpoint.best_model_path
-        best_model_score = model._checkpoint.best_model_score
-        if best_model_score is not None:
-            print(f"done fit; best checkpoint {best_model_path} with score {best_model_score}")
 
         self.item_index = self._padded_item_list
         self.item_embeddings = model.item_encoder.weight.detach().cpu().numpy()

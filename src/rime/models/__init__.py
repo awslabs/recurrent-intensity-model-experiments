@@ -8,6 +8,7 @@ from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
 from .bpr import BPR
 from .graph_conv import GraphConv
+from .lda import LDA
 try:
     from .implicit import ALS, LogisticMF
 except ImportError:

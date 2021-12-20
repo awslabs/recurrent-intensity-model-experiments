@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, time, contextlib, torch, gc, warnings
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from backports.cached_property import cached_property
@@ -184,17 +184,20 @@ def create_matrix(event_df, user_index, item_index, return_type='csr'):
         event_df['USER_ID'].isin(set(user_index)) &
         event_df['ITEM_ID'].isin(set(item_index))
     ]
-    data = np.ones(len(event_df))
     i = [user2ind[k] for k in event_df['USER_ID']]
     j = [item2ind[k] for k in event_df['ITEM_ID']]
+
+    if return_type == 'ij':
+        return (i, j)
+
+    data = np.ones(len(event_df))
     shape = (len(user_index), len(item_index))
     csr = sp.sparse.coo_matrix((data, (i, j)), shape=shape).tocsr()
+
     if return_type == 'csr':
         return csr
     elif return_type == 'df':
         return pd.DataFrame.sparse.from_spmatrix(csr, user_index, item_index)
-    elif return_type == 'ij':
-        return (i, j)
 
 
 def fill_factory_inplace(df, isna, kv):
@@ -259,6 +262,13 @@ class _LitValidated(LightningModule):
     def _checkpoint(self):
         return ModelCheckpoint(monitor="val_epoch_loss", save_weights_only=True)
 
+    def _load_best_checkpoint(self, msg="loading"):
+        best_model_path = self._checkpoint.best_model_path
+        best_model_score = self._checkpoint.best_model_score
+        if best_model_score is not None:
+            print(f"{msg} checkpoint {best_model_path} with score {best_model_score}")
+            self.load_state_dict(torch.load(best_model_path)['state_dict'])
+
 
 class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):
     def __init__(self, *args, model, **kw):
@@ -267,8 +277,14 @@ class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):
 
     def _reduce_lr(self, epoch):
         super()._reduce_lr(epoch)
-        best_model_path = self.model._checkpoint.best_model_path
-        best_model_score = self.model._checkpoint.best_model_score
-        if self.verbose:
-            print(f"loading checkpoint {best_model_path} with score {best_model_score}")
-        self.model.load_state_dict(torch.load(best_model_path)['state_dict'])
+        self.model._load_best_checkpoint()
+
+
+def default_random_split(dataset):
+    N = len(dataset)
+    if N >= 5:
+        return random_split(dataset, [N * 4 // 5, N - N * 4 // 5])
+    else:
+        warnings.warn(f"short dataset len={len(dataset)}; "
+                      "setting valid_set identical to train_set")
+        return dataset, dataset

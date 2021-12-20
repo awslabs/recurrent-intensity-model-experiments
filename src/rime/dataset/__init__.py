@@ -1,7 +1,7 @@
 import pandas as pd, numpy as np
 import argparse
 from ..util import extract_user_item, split_by_time, split_by_user, create_matrix
-from .base import (create_dataset, Dataset, _mark_holdout, _reindex_user_hist,
+from .base import (create_dataset, Dataset, _mark_and_trim_holdout, _reindex_user_hist,
                    _augment_user_hist, _augment_item_hist)
 from .prepare_netflix_data import prepare_netflix_data
 from .prepare_ml_1m_data import prepare_ml_1m_data
@@ -27,9 +27,9 @@ def prepare_minimal_dataset():
 
     horizon = 100
 
-    # mark _holdout by [TEST_START_TIME, TEST_START_TIME + horizon)
-    # can be customized by setting _holdout as 0=training, 1=testing, 2=ignore.
-    event_df = _mark_holdout(event_df, user_df, horizon)
+    # mark and trim _holdout by [TEST_START_TIME, TEST_START_TIME + horizon)
+    # can be customized by setting _holdout as 0=training and 1=testing.
+    event_df = _mark_and_trim_holdout(event_df, user_df, horizon)
     user_df = _augment_user_hist(user_df, event_df)  # add _hist_items, _timestamps, etc.
     item_df = _augment_item_hist(item_df, event_df)  # add _hist_len
 
@@ -43,8 +43,7 @@ def prepare_minimal_dataset():
     # New users/items will get zero prediction scores; they are better included in
     # training data, albeit having empty lists of events.
     user_in_test = _reindex_user_hist(user_df[[
-        '_hist_items', '_timestamps',  # input data to sequence / intensity models
-        '_hist_len', '_hist_span',     # for dataset visualization
+        '_hist_items', '_timestamps', '_hist_len',
     ]], ['u1', 'u3', 'new_user'])
 
     item_in_test = item_df[['_hist_len']].reindex(['i1', 'i4', 'new_item'], fill_value=0)

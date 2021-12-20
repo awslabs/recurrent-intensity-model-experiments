@@ -29,8 +29,8 @@ def _check_more_inputs(event_df, user_df, item_df):
             warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
 
 
-def _mark_holdout(event_df, user_df, horizon):
-    """ mark _holdout=1 on test [start, end); mark _holdout=2 on post-test events
+def _mark_and_trim_holdout(event_df, user_df, horizon):
+    """ mark _holdout=1 on test [start, end); remove post-test events
     training-only (Group-A) users should have TEST_START_TIME=+inf
     """
     event_df = event_df.join(user_df[['TEST_START_TIME']], on='USER_ID')
@@ -39,12 +39,15 @@ def _mark_holdout(event_df, user_df, horizon):
     ).astype(int) + (
         event_df['TIMESTAMP'] >= event_df['TEST_START_TIME'] + horizon
     ).astype(int)
-
-    post_test = (event_df['_holdout'] == 2).mean()
-    if post_test > 0:
-        warnings.warn("Post-test events with _holdout=2 should be ignored; "
-                      f"they account for {post_test:.1%} of all events")
     del event_df['TEST_START_TIME']
+
+    if (event_df['_holdout'] == 2).any():
+        warnings.warn("Removing trailing events after the test horizons; "
+                      "number of total events decreases "
+                      f"by {(event_df['_holdout'] == 2).mean():.1%} "
+                      f"to {(event_df['_holdout'] < 2).sum():,}.")
+        event_df = event_df[event_df['_holdout'] < 2].copy()
+
     return event_df
 
 
@@ -52,7 +55,6 @@ def _reindex_user_hist(user_df, index, factory={
         "_hist_items": list,
         "_timestamps": lambda: [float("inf")],
         "_hist_len": lambda: 0,
-        "_hist_span": lambda: 0,
         # other fields not used after initialization
 }):
     missing = [i not in user_df.index for i in index]
@@ -64,7 +66,7 @@ def _reindex_user_hist(user_df, index, factory={
 
 def _augment_user_hist(user_df, event_df):
     """ extract user histories from event_df before the respective TEST_START_TIME;
-        append columns: _hist_items, _hist_ts, _timestamps, _hist_len, _hist_span
+        append columns: _hist_items, _hist_ts, _timestamps, _hist_len
     """
     @timed("groupby, collect, reindex")
     def fn(col_name):
@@ -80,7 +82,6 @@ def _augment_user_hist(user_df, event_df):
         lambda x: x['_hist_ts'] + [x['TEST_START_TIME']], axis=1)
 
     user_df['_hist_len'] = user_df['_hist_items'].apply(len)
-    user_df['_hist_span'] = user_df['_timestamps'].apply(lambda x: x[-1] - x[0])
     return user_df
 
 
@@ -135,12 +136,15 @@ class Dataset:
         return id(self)
 
     def get_stats(self):
+        def _get_hist_span(df):
+            return (df['_timestamps'].apply(lambda x: x[-1] - x[0]).mean()
+                    if '_timestamps' in df else float("NaN"))
         return {
             'user_df': {
                 '# test users': len(self.user_in_test),
                 '# train users': len(self.training_data.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
-                'avg hist span': self.user_in_test['_hist_span'].mean(),
+                'avg hist span': _get_hist_span(self.user_in_test),
                 'horizon': self.horizon,
                 'avg target items': self.target_csr.sum(axis=1).mean(),
             },
@@ -211,7 +215,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     _check_more_inputs(event_df, user_df, item_df)
 
     print("augmenting and data tables")
-    event_df = _mark_holdout(event_df, user_df, horizon)
+    event_df = _mark_and_trim_holdout(event_df, user_df, horizon)
     user_df = _augment_user_hist(user_df, event_df)
     item_df = _augment_item_hist(item_df, event_df)
 

@@ -1,6 +1,7 @@
 import torch, functools, numpy as np
-from .word_language_model.model import TransformerModel
-from .rnn import (RNN, Trainer, _LitRNNModel, _LitValidated, _collate_fn, LearningRateMonitor)
+from .third_party.word_language_model.model import TransformerModel
+from .rnn import (RNN, Trainer, _LitRNNModel, _LitValidated, _collate_fn, LearningRateMonitor,
+                  _top_item_list)
 
 
 class _LitTransformerModel(_LitRNNModel, _LitValidated):
@@ -33,14 +34,14 @@ class _LitTransformerModel(_LitRNNModel, _LitValidated):
 
 class Transformer(RNN):
     def __init__(
-        self, item_df,
+        self, item_df, max_item_size=int(30e3),
         num_hidden=128, nlayers=2, max_epochs=20, nhead=2, lr=0.1 / 4,
         gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, batch_size=64,
         load_from_checkpoint=None
     ):
 
-        self._padded_item_list = [None] + item_df.index.tolist()
+        self._padded_item_list = [None] + _top_item_list(item_df['_hist_len'], max_item_size)
         self._truncated_input_steps = truncated_input_steps
         self._collate_fn = functools.partial(
             _collate_fn,
