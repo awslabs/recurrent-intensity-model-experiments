@@ -93,6 +93,9 @@ class RNN:
 
         delattr(self.model, 'train_dataloader')
         delattr(self.model, 'val_dataloader')
+
+        for name, param in self.model.named_parameters():
+            print(name, param.data.shape)
         return self
 
 

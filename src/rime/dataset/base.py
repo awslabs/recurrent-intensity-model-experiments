@@ -29,8 +29,8 @@ def _check_more_inputs(event_df, user_df, item_df):
             warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
 
 
-def _mark_holdout(event_df, user_df, horizon):
-    """ mark _holdout=1 on test [start, end); mark _holdout=2 on post-test events
+def _mark_and_trim_holdout(event_df, user_df, horizon):
+    """ mark _holdout=1 on test [start, end); remove post-test events
     training-only (Group-A) users should have TEST_START_TIME=+inf
     """
     event_df = event_df.join(user_df[['TEST_START_TIME']], on='USER_ID')
@@ -39,12 +39,15 @@ def _mark_holdout(event_df, user_df, horizon):
     ).astype(int) + (
         event_df['TIMESTAMP'] >= event_df['TEST_START_TIME'] + horizon
     ).astype(int)
-
-    post_test = (event_df['_holdout'] == 2).mean()
-    if post_test > 0:
-        warnings.warn("Post-test events with _holdout=2 should be ignored; "
-                      f"they account for {post_test:.1%} of all events")
     del event_df['TEST_START_TIME']
+
+    if (event_df['_holdout'] == 2).any():
+        warnings.warn("Removing trailing events after the test horizons; "
+                      "number of total events decreases "
+                      f"by {(event_df['_holdout'] == 2).mean():.1%} "
+                      f"to {(event_df['_holdout'] < 2).sum():,}.")
+        event_df = event_df[event_df['_holdout'] < 2].copy()
+
     return event_df
 
 
@@ -212,7 +215,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     _check_more_inputs(event_df, user_df, item_df)
 
     print("augmenting and data tables")
-    event_df = _mark_holdout(event_df, user_df, horizon)
+    event_df = _mark_and_trim_holdout(event_df, user_df, horizon)
     user_df = _augment_user_hist(user_df, event_df)
     item_df = _augment_item_hist(item_df, event_df)
 

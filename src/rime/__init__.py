@@ -195,9 +195,9 @@ class Experiment:
 
         return out
 
-    @property
+    @cached_property
     def registered(self):
-        return {
+        registered = {
             "Rand": lambda D: Rand().transform(D),
             "Pop": lambda D: self._pop.transform(D),
             "EMA": lambda D: EMA(D.horizon).transform(D) * self._pop_item.transform(D),
@@ -229,11 +229,34 @@ class Experiment:
             "LogisticMF": lambda D: self._logistic_mf.transform(D),
         }
 
+        # disable models due to missing inputs
+
+        if not ('_timestamps' in self.D.user_in_test and self.D.horizon < float("inf")):
+            warnings.warn("disabling temporal models due to missing _timestamps or horizon")
+            for method in ['EMA', 'Hawkes', 'HP', 'RNN-EMA', 'RNN-Hawkes', 'RNN-HP',
+                           'Transformer-EMA', 'Transformer-Hawkes', 'Transformer-HP']:
+                registered.pop(method, None)
+
+        if self.V is None:
+            warnings.warn("disabling HP and GraphConv due to missing validation set")
+            for method in ['HP', 'RNN-HP', 'Transformer-HP',
+                           'GraphConv-Base', 'GraphConv-Extra']:
+                registered.pop(method, None)
+
+        if len(self.V_extra) == 0:
+            warnings.warn("disabling GraphConv-Extra due to lack of extra validation sets")
+            registered.pop("GraphConv-Extra", None)
+
+        return registered
+
     def run(self, models_to_run=None):
         if models_to_run is None:
             models_to_run = self.models_to_run
         elif isinstance(models_to_run, str):
             models_to_run = [models_to_run]
+
+        for model in models_to_run:
+            assert model in self.registered, f"{model} disabled or unregistered"
 
         for model in models_to_run:
             print("running", model)
@@ -271,21 +294,15 @@ class Experiment:
 
     @cached_property
     def _rnn(self):
-        fitted = RNN(
+        return RNN(
             self.D.training_data.item_df, **self.model_hyps.get("RNN", {})
         ).fit(self.D.training_data)
-        for name, param in fitted.model.named_parameters():
-            print(name, param.data.shape)
-        return fitted
 
     @cached_property
     def _transformer(self):
-        fitted = Transformer(
+        return Transformer(
             self.D.training_data.item_df, **self.model_hyps.get("Transformer", {})
         ).fit(self.D.training_data)
-        for name, param in fitted.model.named_parameters():
-            print(name, param.data.shape)
-        return fitted
 
     @cached_property
     def _hawkes(self):
@@ -293,11 +310,8 @@ class Experiment:
 
     @cached_property
     def _hawkes_poisson(self):
-        if self.V is not None:
-            return HawkesPoisson(self._hawkes).fit(self.V)
-        else:
-            warnings.warn("Degenerating HawkesPoisson to Hawkes when self.V is None")
-            return self._hawkes
+        assert self.V is not None, "_hawkes_poisson requires self.V"
+        return HawkesPoisson(self._hawkes).fit(self.V)
 
     @cached_property
     def _bpr_item(self):
@@ -313,23 +327,18 @@ class Experiment:
 
     @cached_property
     def _graph_conv_base(self):
-        if self.V is not None:
-            return GraphConv(
-                self.D, *self.model_hyps.get("GraphConv-Base", {})
-            ).fit(self.V)
-        else:
-            warnings.warn("Degenerating GraphConv-Base to BPR when self.V is None")
-            return self._bpr
+        assert self.V is not None, "_graph_conv_base requires self.V"
+        return GraphConv(
+            self.D, *self.model_hyps.get("GraphConv-Base", {})
+        ).fit(self.V)
 
     @cached_property
     def _graph_conv_extra(self):
-        if self.V is not None:
-            return GraphConv(
-                self.D, **self.model_hyps.get("GraphConv-Extra", {})
-            ).fit(self.V, *self.V_extra)
-        else:
-            warnings.warn("Degenerating GraphConv-Extra to BPR when self.V is None")
-            return self._bpr
+        assert self.V is not None and len(self.V_extra), \
+                            "_graph_conv_extra requires self.V and self.V_extra"
+        return GraphConv(
+            self.D, **self.model_hyps.get("GraphConv-Extra", {})
+        ).fit(self.V, *self.V_extra)
 
     @cached_property
     def _lda(self):
@@ -346,9 +355,9 @@ class Experiment:
         return LogisticMF().fit(self.D.training_data)
 
     def update_cache(self, other):
-        for attr in ['_transformer', '_rnn', '_hawkes', '_hawkes_poisson',
+        for attr in ['registered', '_transformer', '_rnn', '_hawkes', '_hawkes_poisson',
                      '_bpr_item', '_bpr_user', '_als', '_logistic_mf',
-                     '_bpr', '_graph_conv_base', '_graph_conv_extra']:
+                     '_bpr', '_graph_conv_base', '_graph_conv_extra', '_lda']:
             if attr in other.__dict__:
                 setattr(self, attr, getattr(other, attr))
 
