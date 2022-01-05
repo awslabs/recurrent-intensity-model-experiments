@@ -19,6 +19,7 @@ setup(
         # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu -y
         "backports.cached-property",
         "dgl",  # pip install dgl-cu111 # or matching cuda version with torch
+        "transformers>=4.12.2",
     ],
     use_scm_version=True,
     setup_requires=['setuptools_scm'],

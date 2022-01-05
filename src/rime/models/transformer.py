@@ -1,7 +1,7 @@
 import torch, functools, numpy as np
 from .third_party.word_language_model.model import TransformerModel
 from .rnn import (RNN, Trainer, _LitRNNModel, _LitValidated, _collate_fn, LearningRateMonitor,
-                  _top_item_list)
+                  get_top_items)
 
 
 class _LitTransformerModel(_LitRNNModel, _LitValidated):
@@ -41,7 +41,7 @@ class Transformer(RNN):
         load_from_checkpoint=None
     ):
 
-        self._padded_item_list = [None] + _top_item_list(item_df['_hist_len'], max_item_size)
+        self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
         self._truncated_input_steps = truncated_input_steps
         self._collate_fn = functools.partial(
             _collate_fn,

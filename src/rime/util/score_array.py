@@ -252,7 +252,9 @@ class LowRankDataFrame(LazyScoreBase):
             if self.act == 'exp':
                 return np.exp(z)
             elif self.act == 'softplus':
-                return np.where(z > 0, z + np.log(1 + np.exp(-z)), np.log(1 + np.exp(z)))
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', 'overflow encountered in exp')
+                    return np.where(z > 0, z + np.log(1 + np.exp(-z)), np.log(1 + np.exp(z)))
             elif self.act == 'sigmoid':
                 return 1. / (1 + np.exp(-z))
             elif self.act == '_nnmf':

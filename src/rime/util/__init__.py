@@ -77,6 +77,17 @@ def empty_cache_on_exit(func):
     return wrapped
 
 
+@contextlib.contextmanager
+def _to_cuda(model):
+    if torch.cuda.is_available():
+        orig_device = model.device
+        print("running model on cuda device")
+        yield model.to("cuda")
+        model.to(orig_device)
+    else:
+        yield model
+
+
 def perplexity(x):
     x = np.ravel(x) / x.sum()
     return float(np.exp(- x @ np.log(np.where(x > 0, x, 1e-10))))
@@ -243,6 +254,33 @@ def filter_min_len(event_df, min_user_len, min_item_len):
         event_df['USER_ID'].isin(users[users >= min_user_len].index) &
         event_df['ITEM_ID'].isin(items[items >= min_item_len].index)
     ]
+
+
+def get_top_items(item_df, max_item_size, sort_by='_hist_len'):
+    sorted_items = item_df.sort_values(sort_by, ascending=False, kind='mergesort')
+    if len(sorted_items) > max_item_size:
+        warnings.warn(f"clipping item size from {len(sorted_items)} to {max_item_size}")
+    return sorted_items.iloc[:max_item_size]
+
+
+def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_title='???'):
+    """ explode last few user events and match with item titles;
+    return splits and discount weights """
+
+    keep_last = int(np.log(min_gamma) / np.log(gamma)) + 1  # default=4
+
+    explode_titles = user_hist.apply(lambda x: x[-keep_last:]).explode().to_frame('ITEM_ID') \
+        .join(item_titles.to_frame('TITLE'), on='ITEM_ID')['TITLE'].fillna(pad_title)
+
+    splits = np.where(
+        np.array(explode_titles.index.values[1:]) != np.array(explode_titles.index.values[:-1])
+    )[0] + 1
+
+    weights = np.hstack([gamma ** (np.cumsum(x) - np.sum(x))  # -2, -1, 0
+                        for x in np.split(np.ones(len(explode_titles)), splits)])
+    weights = np.hstack([x / x.sum() for x in np.split(weights, splits)])
+
+    return explode_titles, splits, weights
 
 
 class _LitValidated(LightningModule):

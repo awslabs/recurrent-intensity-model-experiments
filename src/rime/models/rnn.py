@@ -10,7 +10,7 @@ from .third_party.word_language_model.model import RNNModel
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, empty_cache_on_exit, LowRankDataFrame, _ReduceLRLoadCkpt,
-                    default_random_split)
+                    default_random_split, get_top_items)
 
 
 class RNN:
@@ -20,7 +20,7 @@ class RNN:
         truncated_input_steps=256, truncated_bptt_steps=32, batch_size=64,
         load_from_checkpoint=None
     ):
-        self._padded_item_list = [None] + _top_item_list(item_df['_hist_len'], max_item_size)
+        self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
         self._truncated_input_steps = truncated_input_steps
         self._collate_fn = functools.partial(
             _collate_fn,
@@ -96,13 +96,6 @@ class RNN:
         for name, param in self.model.named_parameters():
             print(name, param.data.shape)
         return self
-
-
-def _top_item_list(item_hist_len, max_item_size):
-    sorted_items = item_hist_len.sort_values(ascending=False, kind='mergesort')  # stable clip
-    if len(sorted_items) > max_item_size:
-        warnings.warn(f"clipping item size from {len(sorted_items)} to {max_item_size}")
-    return sorted_items.iloc[:max_item_size].index.tolist()
 
 
 def _collate_fn(batch, tokenize, truncated_input_steps, training):
