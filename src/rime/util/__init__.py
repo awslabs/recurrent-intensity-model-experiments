@@ -77,6 +77,17 @@ def empty_cache_on_exit(func):
     return wrapped
 
 
+@contextlib.contextmanager
+def _to_cuda(model):
+    if torch.cuda.is_available():
+        orig_device = model.device
+        print("running model on cuda device")
+        yield model.to("cuda")
+        model.to(orig_device)
+    else:
+        yield model
+
+
 def perplexity(x):
     x = np.ravel(x) / x.sum()
     return float(np.exp(- x @ np.log(np.where(x > 0, x, 1e-10))))
@@ -243,6 +254,18 @@ def filter_min_len(event_df, min_user_len, min_item_len):
         event_df['USER_ID'].isin(users[users >= min_user_len].index) &
         event_df['ITEM_ID'].isin(items[items >= min_item_len].index)
     ]
+
+
+def get_top_items(item_df, max_item_size, sort_by='_hist_len'):
+    sorted_items = item_df.sort_values(sort_by, ascending=False, kind='mergesort')
+    if len(sorted_items) > max_item_size:
+        warnings.warn(f"clipping item size from {len(sorted_items)} to {max_item_size}")
+    return sorted_items.iloc[:max_item_size]
+
+
+def extract_last_titles(user_hist, all_titles, pad_title='???'):
+    user_hist = user_hist.apply(lambda x: [t for t in x if t in all_titles.index])
+    return user_hist.apply(lambda x: all_titles.loc[x[-1]] if len(x) else pad_title)
 
 
 class _LitValidated(LightningModule):

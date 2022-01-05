@@ -12,7 +12,7 @@ def _multiply(x, y):
 
 @empty_cache_on_exit
 def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None,
-                      min_total_recs=0, device=None):
+                      min_total_recs=0, device="cpu"):
     """ compare targets and recommendation assignments on user-item matrix
     """
     hit = _multiply(target_csr, assigned_csr)
@@ -42,18 +42,18 @@ def evaluate_assigned(target_csr, assigned_csr, score_mat=None, axis=None,
     return out
 
 
-def evaluate_item_rec(target_csr, score_mat, topk, device=None, **kw):
+def evaluate_item_rec(target_csr, score_mat, topk, device="cpu", **kw):
     assigned_csr = _assign_topk(score_mat, topk, device=device, **kw)
     return evaluate_assigned(target_csr, assigned_csr, score_mat, axis=1, device=device)
 
 
-def evaluate_user_rec(target_csr, score_mat, C, device=None, **kw):
+def evaluate_user_rec(target_csr, score_mat, C, device="cpu", **kw):
     assigned_csr = _assign_topk(score_mat.T, C, device=device, **kw).T
     return evaluate_assigned(target_csr, assigned_csr, score_mat, axis=0, device=device)
 
 
 def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None,
-                  relative=False, item_prior=None, constraint_type='ub', device=None, **kw):
+                  relative=False, item_prior=None, constraint_type='ub', device="cpu", **kw):
     if relative:
         C = (C * np.asarray(item_prior) / np.mean(item_prior))
 

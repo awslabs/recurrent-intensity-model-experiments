@@ -1,4 +1,4 @@
-import pandas as pd
+import os, pandas as pd
 from datetime import datetime
 from ..util import extract_user_item, split_by_time
 from .base import create_dataset
@@ -12,6 +12,8 @@ def prepare_netflix_data(
     test_end=datetime(2005, 6, 29).timestamp(),
     user_mod=10,
     item_mod=1,
+    num_V_extra=10,
+    title_path=None,
     **kw
 ):
     event_df = pd.read_parquet(data_path)
@@ -26,6 +28,16 @@ def prepare_netflix_data(
     print(f"{event_df.describe()}")
 
     user_df, item_df = extract_user_item(event_df)
+
+    if title_path is None:
+        title_path = os.path.join(os.path.dirname(data_path), 'movie_titles.csv')
+    if os.path.exists(title_path):
+        movie_titles = pd.read_csv(title_path, encoding='latin1',
+                                   names=['_ITEM_ID_number', '_', 'TITLE'])
+        movie_titles.index = movie_titles['_ITEM_ID_number'].apply(lambda x: "{:d}.txt".format(x))
+        item_df = item_df.join(movie_titles[['TITLE']])
+        assert item_df['TITLE'].notnull().all(), "movie titles should not be missing"
+
     user_df, valid_df = split_by_time(user_df, test_start, valid_start)
 
     D = create_dataset(event_df, user_df, item_df, test_end - test_start, **kw)
@@ -33,7 +45,7 @@ def prepare_netflix_data(
     V = create_dataset(event_df, valid_df, item_df, test_start - valid_start, **kw)
 
     V_extra = []
-    for k in range(10):
+    for k in range(num_V_extra):
         extra_df = valid_df.copy()
         extra_df['TEST_START_TIME'] = valid_start - (test_start - valid_start) * (k + 1)
         V_extra.append(create_dataset(

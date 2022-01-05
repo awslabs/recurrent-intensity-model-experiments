@@ -9,6 +9,7 @@ import pandas as pd
 from typing import Dict, List
 from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson,
                          LightFM_BPR, ALS, LogisticMF, BPR, GraphConv, LDA)
+from rime.models.zero_shot import BayesLM, ItemKNN
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
 from rime.dataset import Dataset
@@ -227,29 +228,40 @@ class Experiment:
 
             "ALS": lambda D: self._als.transform(D),
             "LogisticMF": lambda D: self._logistic_mf.transform(D),
+
+            "BayesLM-0": lambda D: self._bayes_lm_0.transform(D),
+            "BayesLM-1": lambda D: self._bayes_lm_1.transform(D),
+
+            "ItemKNN-0": lambda D: self._item_knn_0.transform(D),
+            "ItemKNN-1": lambda D: self._item_knn_1.transform(D),
         }
 
         # disable models due to missing inputs
 
         if not ('_timestamps' in self.D.user_in_test and self.D.horizon < float("inf")):
             warnings.warn("disabling temporal models due to missing _timestamps or horizon")
-            for method in ['EMA', 'Hawkes', 'HP', 'RNN-EMA', 'RNN-Hawkes', 'RNN-HP',
+            for model in ['EMA', 'Hawkes', 'HP', 'RNN-EMA', 'RNN-Hawkes', 'RNN-HP',
                            'Transformer-EMA', 'Transformer-Hawkes', 'Transformer-HP']:
-                registered.pop(method, None)
+                registered.pop(model, None)
 
         if self.V is None:
             warnings.warn("disabling HP and GraphConv due to missing validation set")
-            for method in ['HP', 'RNN-HP', 'Transformer-HP',
+            for model in ['HP', 'RNN-HP', 'Transformer-HP',
                            'GraphConv-Base', 'GraphConv-Extra']:
-                registered.pop(method, None)
+                registered.pop(model, None)
 
         if len(self.V_extra) == 0:
             warnings.warn("disabling GraphConv-Extra due to lack of extra validation sets")
             registered.pop("GraphConv-Extra", None)
 
+        if 'TITLE' not in self.D.training_data.item_df:
+            warnings.warn("disabling zero-shot models due to lack of item title")
+            for model in ['BayesLM-0', 'BayesLM-1', 'ItemKNN-0', 'ItemKNN-1']:
+                registered.pop(model, None)
+
         return registered
 
-    def run(self, models_to_run=None):
+    def run(self, models_to_run=None, models_to_exclude=[]):
         if models_to_run is None:
             models_to_run = self.models_to_run
         elif isinstance(models_to_run, str):
@@ -260,6 +272,9 @@ class Experiment:
         print("models to run", models_to_run)
 
         for model in models_to_run:
+            if model in models_to_exclude:
+                continue
+
             print("running", model)
             S = self.registered[model](self.D)
 
@@ -354,6 +369,26 @@ class Experiment:
     @cached_property
     def _logistic_mf(self):
         return LogisticMF().fit(self.D.training_data)
+
+    @cached_property
+    def _bayes_lm_0(self):
+        return BayesLM(self.D.training_data.item_df, item_pop_power=0,
+                        **self.model_hyps.get("BayesLM-0", {}))
+
+    @cached_property
+    def _bayes_lm_1(self):
+        return BayesLM(self.D.training_data.item_df, item_pop_power=1,
+                        **self.model_hyps.get("BayesLM-1", {}))
+
+    @cached_property
+    def _item_knn_0(self):
+        return ItemKNN(self.D.training_data.item_df, item_pop_power=0,
+                        **self.model_hyps.get("ItemKNN-0", {}))
+
+    @cached_property
+    def _item_knn_1(self):
+        return ItemKNN(self.D.training_data.item_df, item_pop_power=1,
+                        **self.model_hyps.get("ItemKNN-1", {}))
 
     def update_cache(self, other):
         for attr in ['registered', '_transformer', '_rnn', '_hawkes', '_hawkes_poisson',
