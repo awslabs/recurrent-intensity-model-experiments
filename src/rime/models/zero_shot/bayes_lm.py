@@ -14,7 +14,7 @@ class BayesLM:
     def __init__(self, item_df, max_num_candidates=None, batch_size=100,
                  prompt="a user will watch {y} after watching {x}",
                  item_pop_power=1, item_pop_pseudo=0.01, temperature=1,
-                 candidate_selection_method=None, model='gpt2', text_column_name='TITLE'):
+                 candidate_selection_method=None, model_name='gpt2', text_column_name='TITLE'):
 
         assert text_column_name in item_df, f"require {text_column_name} as data(y)"
 
@@ -36,11 +36,12 @@ class BayesLM:
         self.candidate_selection_method = candidate_selection_method
 
         # huggingface model initialization
-        self.tokenizer = AutoTokenizer.from_pretrained(model)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.tokenizer.padding_side = 'right'
-        self.tokenizer.pad_token = self.tokenizer.eos_token
+        if model_name == 'gpt2':
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        self.model = AutoModelForCausalLM.from_pretrained(model)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name)
         self.model.eval()  # eval mode
 
         self.loss = torch.nn.CrossEntropyLoss(reduction='none')
