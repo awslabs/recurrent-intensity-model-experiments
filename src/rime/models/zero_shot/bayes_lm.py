@@ -1,6 +1,6 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer, GPT2LMHeadModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, BertForMaskedLM
 import torch, pandas as pd, numpy as np, warnings, functools
-from rime.util import matrix_reindex, _to_cuda, empty_cache_on_exit, extract_last_titles
+from rime.util import matrix_reindex, _to_cuda, empty_cache_on_exit, explode_user_titles
 from tqdm import tqdm
 
 
@@ -14,7 +14,8 @@ class BayesLM:
     def __init__(self, item_df, max_num_candidates=None, batch_size=100,
                  prompt="a user will watch {y} after watching {x}",
                  item_pop_power=1, item_pop_pseudo=0.01, temperature=1,
-                 candidate_selection_method=None, model_name='gpt2', text_column_name='TITLE'):
+                 candidate_selection_method=None, model_name='gpt2',  # bert-base-uncased
+                 text_column_name='TITLE'):
 
         assert text_column_name in item_df, f"require {text_column_name} as data(y)"
 
@@ -37,11 +38,14 @@ class BayesLM:
 
         # huggingface model initialization
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.tokenizer.padding_side = 'right'
+        assert self.tokenizer.padding_side == 'right', "expect right padding"
         if model_name == 'gpt2':
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        self.model = AutoModelForCausalLM.from_pretrained(model_name)
+        if model_name.startswith('bert'):
+            self.model = BertForMaskedLM.from_pretrained(model_name)
+        else:  # gpt2
+            self.model = AutoModelForCausalLM.from_pretrained(model_name)
         self.model.eval()  # eval mode
 
         self.loss = torch.nn.CrossEntropyLoss(reduction='none')
@@ -53,32 +57,42 @@ class BayesLM:
         batch_size = len(Y)
         sequences = [self.prompt.format(y=y, x=x) for y in Y]
         inputs = self.tokenizer(sequences, padding=True, return_tensors='pt').to(device)
-        labels = self.tokenizer(x, return_tensors='pt')['input_ids'].to(device)
-        labels = torch.vstack([labels for _ in range(batch_size)])
+        targets = self.tokenizer(x, return_tensors='pt')['input_ids'].to(device)
+        targets = torch.vstack([targets for _ in range(batch_size)])
 
         seq_len = inputs['attention_mask'].sum(1).tolist()
-        target_len = labels.shape[1]
+        target_len = targets.shape[1]
 
-        if hasattr(self.model, "lm_head"):  # 20% faster
+        if hasattr(self.model, "transformer"):  # gpt causal lm
             hidden_states = self.model.transformer(**inputs)[0]
             hidden_states = torch.vstack([x[n - target_len - 1: n - 1]
                                           for x, n in zip(hidden_states, seq_len)])
             logits = self.model.lm_head(hidden_states)
-        else:
+
+        elif hasattr(self.model, "bert"):  # bert [CLS] sequence [SEP], performs similarly
+            targets = targets[:, 1:-1]
+            target_len = target_len - 2
+
+            hidden_states = self.model.bert(**inputs)[0]
+            hidden_states = torch.vstack([x[n - target_len - 1: n - 1]  # [3-1-1 : 3-1]
+                                          for x, n in zip(hidden_states, seq_len)])
+            logits = self.model.cls(hidden_states)
+
+        else:  # decoding non-target items can lead to 20% longer compute time
             logits = self.model(**inputs).logits
             logits = torch.vstack([x[n - target_len - 1: n - 1]
                                    for x, n in zip(logits, seq_len)])
 
-        loss = self.loss(logits, labels.reshape(-1))
-        return (-loss).reshape(labels.shape).mean(1).tolist()
+        loss = self.loss(logits, targets.reshape(-1))
+        return (-loss).reshape(targets.shape).mean(1).tolist()
 
-    @functools.lru_cache(1)
+    @functools.lru_cache(2)
     @empty_cache_on_exit
     def transform(self, D):
         """ generate score matrix by evaluating top or random items in test """
 
-        user_last_titles = extract_last_titles(D.user_in_test['_hist_items'],
-                                               self.item_df[self.text_column_name])
+        user_last_titles, *_ = explode_user_titles(
+            D.user_in_test['_hist_items'], self.item_df[self.text_column_name], gamma=0)
 
         sorted_items = self.item_df[self.item_df.index.isin(D.item_in_test.index)] \
                            .sort_values('_hist_len', ascending=False, kind='mergesort')

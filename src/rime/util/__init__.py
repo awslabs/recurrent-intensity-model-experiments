@@ -263,9 +263,24 @@ def get_top_items(item_df, max_item_size, sort_by='_hist_len'):
     return sorted_items.iloc[:max_item_size]
 
 
-def extract_last_titles(user_hist, all_titles, pad_title='???'):
-    user_hist = user_hist.apply(lambda x: [t for t in x if t in all_titles.index])
-    return user_hist.apply(lambda x: all_titles.loc[x[-1]] if len(x) else pad_title)
+def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_title='???'):
+    """ explode last few user events and match with item titles;
+    return splits and discount weights """
+
+    keep_last = int(np.ceil(np.log(min_gamma) / np.log(gamma))) + 1  # default=5
+
+    explode_titles = user_hist.apply(lambda x: x[-keep_last:]).explode().to_frame('ITEM_ID') \
+        .join(item_titles.to_frame('TITLE'), on='ITEM_ID')['TITLE'].fillna(pad_title)
+
+    splits = np.where(
+        np.array(explode_titles.index.values[1:]) != np.array(explode_titles.index.values[:-1])
+    )[0] + 1
+
+    weights = np.hstack([gamma ** (np.cumsum(x) - np.sum(x))  # -2, -1, 0
+                        for x in np.split(np.ones(len(explode_titles)), splits)])
+    weights = np.hstack([x / x.sum() for x in np.split(weights, splits)])
+
+    return explode_titles, splits, weights
 
 
 class _LitValidated(LightningModule):
