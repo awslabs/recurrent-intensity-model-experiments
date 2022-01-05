@@ -267,7 +267,7 @@ def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_ti
     """ explode last few user events and match with item titles;
     return splits and discount weights """
 
-    keep_last = int(np.ceil(np.log(min_gamma) / np.log(gamma))) + 1  # default=5
+    keep_last = int(np.log(min_gamma) / np.log(gamma)) + 1  # default=4
 
     explode_titles = user_hist.apply(lambda x: x[-keep_last:]).explode().to_frame('ITEM_ID') \
         .join(item_titles.to_frame('TITLE'), on='ITEM_ID')['TITLE'].fillna(pad_title)

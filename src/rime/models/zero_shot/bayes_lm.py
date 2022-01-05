@@ -13,7 +13,7 @@ class BayesLM:
 
     def __init__(self, item_df, max_num_candidates=None, batch_size=100,
                  prompt="a user will watch {y} after watching {x}",
-                 item_pop_power=1, item_pop_pseudo=0.01, temperature=1,
+                 item_pop_power=1, item_pop_pseudo=0.01, temperature=1, gamma=0,
                  candidate_selection_method=None, model_name='gpt2',  # bert-base-uncased
                  text_column_name='TITLE'):
 
@@ -30,6 +30,7 @@ class BayesLM:
         self.batch_size = batch_size
         self.prompt = prompt
         self.temperature = temperature
+        self.gamma = gamma
         self.text_column_name = text_column_name
  
         if candidate_selection_method is None:
@@ -51,7 +52,7 @@ class BayesLM:
         self.loss = torch.nn.CrossEntropyLoss(reduction='none')
 
     @torch.no_grad()
-    def _log_p_x_given_y(self, Y, x, device):
+    def _compute_log_p_x_given_y(self, Y, x, device):
         """ evaluate p_x_given_y for each y in Y; label = x.expand(...) """
 
         batch_size = len(Y)
@@ -91,34 +92,41 @@ class BayesLM:
     def transform(self, D):
         """ generate score matrix by evaluating top or random items in test """
 
-        user_last_titles, *_ = explode_user_titles(
-            D.user_in_test['_hist_items'], self.item_df[self.text_column_name], gamma=0)
+        explode_titles, splits, weights = explode_user_titles(
+            D.user_in_test['_hist_items'], self.item_df[self.text_column_name], self.gamma)
 
         sorted_items = self.item_df[self.item_df.index.isin(D.item_in_test.index)] \
-                           .sort_values('_hist_len', ascending=False, kind='mergesort')
+                           .sort_values('log_p_y', ascending=False, kind='mergesort')
         p_y = torch.as_tensor(sorted_items['log_p_y'].values).softmax(0).numpy()
         num_candidates = int(min(self.max_num_candidates, len(sorted_items)))
 
         with _to_cuda(self.model) as model:
             scores = []
 
-            for x in tqdm(user_last_titles.values):
+            for x in tqdm(explode_titles.values):
                 if self.candidate_selection_method == 'greedy':
                     ind = np.arange(num_candidates)
                 else:
                     ind = np.random.choice(len(sorted_items), num_candidates, False, p_y)
 
                 candidate_titles = sorted_items[self.text_column_name].values[ind]
-                log_p_y = sorted_items['log_p_y'].values[ind]
+                log_p_y_ind = sorted_items['log_p_y'].values[ind]
 
-                log_p_x_given_y = np.hstack([
-                    self._log_p_x_given_y(Y, x, model.device) for Y in
+                log_p_x_given_y_ind = np.hstack([
+                    self._compute_log_p_x_given_y(Y, x, model.device) for Y in
                     np.split(candidate_titles, range(0, num_candidates, self.batch_size)[1:])
-                ]) / self.temperature
-                p_y_given_x = torch.as_tensor(log_p_x_given_y + log_p_y).softmax(0).numpy()
+                ])
+                log_p_y_given_x_ind = log_p_x_given_y_ind / self.temperature + log_p_y_ind
 
-                this = matrix_reindex(p_y_given_x[None, :], sorted_items.index.values[ind],
-                                      D.item_in_test.index, axis=1, fill_value=0)
-                scores.append(this)
+                log_p_y_given_x = matrix_reindex(
+                    log_p_y_given_x_ind[None, :], sorted_items.index[ind],
+                    D.item_in_test.index, axis=1, fill_value=-np.inf).squeeze(0)
 
-        return np.vstack(scores)  # dense matrix with shape = user_in_test x item_in_test
+                p_y_given_x = torch.as_tensor(log_p_y_given_x).softmax(0).numpy()
+                scores.append(p_y_given_x)
+
+        user_item_scores = np.vstack([w @ x for w, x in zip(
+            np.split(weights, splits), np.split(np.vstack(scores), splits)
+        )])
+
+        return user_item_scores  # dense matrix with shape = user_in_test x item_in_test
