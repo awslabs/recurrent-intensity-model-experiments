@@ -20,6 +20,7 @@ setup(
         "backports.cached-property",
         "dgl",  # pip install dgl-cu111 # or matching cuda version with torch
         "transformers>=4.12.2",
+        "seaborn>=0.11.1",
     ],
     use_scm_version=True,
     setup_requires=['setuptools_scm'],

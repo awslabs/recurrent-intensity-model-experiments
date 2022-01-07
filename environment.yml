@@ -17,3 +17,4 @@ dependencies:
   - dataclasses # backport from python3.7
   - backports.cached-property
   - setuptools_scm
+  - seaborn>=0.11.1
