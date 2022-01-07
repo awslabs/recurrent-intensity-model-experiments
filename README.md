@@ -57,17 +57,17 @@ Repository to reproduce the experiments in the paper:
 
 **Step 0. Data Preparation**
 
-All algorithms require a testing set with labels. Most algorithms are trained from an autoregressive (self-supervised) training set without labels. The training set is bundled inside the testing set for convenience. Some algorithms are trained from (or in combination with) one or more validating set with labels.
+All algorithms require a testing set with labels. Most algorithms are trained from an autoregressive (self-supervised) training set without labels. Some algorithms are trained from (or in combination with) one or more validating set with labels.
 The online matching setup uses the first validating set to infer the user-state distribution so that the CVX-Online algorithm can remain oblivious to the actual set of user (states) in the testing set for the purpose of online sumlations. (CVX-Online ignores the labels in that set.)
 
 Here are the required fields of a supervised dataset for testing and validating purposes:
 
 | attribute    | column name     | details                                                    |
 |--------------|-----------------|------------------------------------------------------------|
-| user_in_test | (index)         | indexed by USER_ID; allows duplicated indices w/ different time |
+| user_in_test | (index)         | <sub> indexed by USER_ID; allows duplicated indices w/ different TEST_START_TIME </sub> |
 |              | TEST_START_TIME | to split between features and labels                       |
-|              | `_hist_items`   | list of ITEM_IDs before TEST_START_TIME                    |
-|              | `_hist_ts`      | list of TIMESTAMPs before TEST_START_TIME                  |
+|              | `_hist_items`   | list of ITEM_IDs before TEST_START_TIME (exclusive)        |
+|              | `_hist_ts`      | list of TIMESTAMPs before TEST_START_TIME (exclusive)      |
 |              | `_hist_len`     | feature for user-popularity prior                          |
 | item_in_test | (index)         | indexed by unique ITEM_ID                                  |
 |              | `_hist_len`     | feature for item-popularity prior                          |
@@ -87,7 +87,7 @@ Here are the subfields for an autoregressive (self-supervised) dataset for train
 | event_df     | agrees with the exploded `_hist_items` and `_hist_ts` from user_df         |
 
 
-The testing, training, and validating datasets can be conveniently created by `rime.dataset.base.create_dataset` or step-by-step illustrations in `rime.dataset.__init__.prepare_minimal_dataset`.
+The testing, training, and validating sets can be conveniently created by `rime.dataset.base.create_dataset` or step-by-step illustrations in `rime.dataset.__init__.prepare_minimal_dataset`. The training set is bundled inside the testing set for convenience.
 
 **Step 1. Predictions**
 

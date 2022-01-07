@@ -57,7 +57,7 @@ def _input_fn(hist_ts, test_start_time, horizon, training, training_eps, hetero)
         data = (np.array(hist_ts[1:]) - hist_ts[0]) / horizon
         end_time = (test_start_time - hist_ts[0]) / horizon
     else:  # users without histories will receive baseline intensity predictions
-        data = np.array([], dtype=test_start_time.dtype)
+        data = np.array([], dtype=np.asarray(test_start_time).dtype)
         end_time = float('inf')
 
     ctrl = np.array([0.0, end_time]) if hetero else np.array([end_time])
