@@ -66,8 +66,8 @@ Here are the required fields of a supervised dataset for testing and validating 
 |--------------|-----------------|------------------------------------------------------------|
 | user_in_test | (index)         | indexed by USER_ID; allows duplicated indices w/ different time |
 |              | TEST_START_TIME | to split between features and labels                       |
-|              | `_hist_items`   | list of ITEM_IDs before TEST_START_TIME; can be inferred   |
-|              | `_hist_ts`      | list of TIMESTAMPs before TEST_START_TIME; can be inferred |
+|              | `_hist_items`   | list of ITEM_IDs before TEST_START_TIME                    |
+|              | `_hist_ts`      | list of TIMESTAMPs before TEST_START_TIME                  |
 |              | `_hist_len`     | feature for user-popularity prior                          |
 | item_in_test | (index)         | indexed by unique ITEM_ID                                  |
 |              | `_hist_len`     | feature for item-popularity prior                          |
@@ -80,12 +80,14 @@ Here are the required fields of a supervised dataset for testing and validating 
 
 Here are the subfields for an autoregressive (self-supervised) dataset for training purposes:
 
-| attribute    | details                                                            |
-|--------------|--------------------------------------------------------------------|
-| user_df      | similar to user_in_test, but requires unique USER_ID (e.g., first) |
-| item_df      | similar to item_in_test; count `_hist_len` by unique users         |
-| event_df     | agrees with the exploded `_hist_items` and `_hist_ts` from user_df |
+| attribute    | details                                                                    |
+|--------------|----------------------------------------------------------------------------|
+| user_df      | similar to user_in_test, but requires unique USER_ID (e.g., GroupBy.first) |
+| item_df      | similar to item_in_test; count `_hist_len` by unique users                 |
+| event_df     | agrees with the exploded `_hist_items` and `_hist_ts` from user_df         |
 
+
+The testing, training, and validating datasets can be conveniently created by `rime.dataset.base.create_dataset` or step-by-step illustrations in `rime.dataset.__init__.prepare_minimal_dataset`.
 
 **Step 1. Predictions**
 
