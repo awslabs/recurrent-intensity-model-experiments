@@ -27,7 +27,7 @@ Repository to reproduce the experiments in the paper:
 3. Run recommendation experiment as
     ```
     import rime
-    D, V, V_extra = rime.dataset.prepare_ml_1m_data(exclude_train=True)
+    D, V, *V_extra = rime.dataset.prepare_ml_1m_data(exclude_train=True)
     self = rime.Experiment(D, V, *V_extra)
     self.run()
     self.print_results()  # tabular results
@@ -36,13 +36,13 @@ Repository to reproduce the experiments in the paper:
 
     <img src="figure/rec-ml-1m-prec.png" alt="rec-ml-1m-prec" width="40%"/>
 
-    Notice the optional config that excludes training user-item pairs from reappearing in predictions (and targets) by specifying a prior_score attribute in dataset class. This helps non-temporal matrix factorization.
+    Notice the optional config that excludes training user-item pairs from reappearing in predictions (and targets) by automatically generating a prior_score attribute in dataset class. This helps non-temporal matrix-factorization models.
 
 4. Run matching experiment with CVX-Online allocation and plot diversity-relevance trade-off
    ```
-   cvx_online = rime.Experiment(D, V, *V_extra
+   cvx_online = rime.Experiment(D, V, *V_extra,
                                 mult=[0, 0.3, 0.7, 1, 3, 10, 200],  # turn on mtch calculation
-                                cvx=True, online=True)  # optional; default = offline-greedy mtch
+                                cvx=True, online=True)  # optional; default => offline-greedy mtch
    cvx_online.run(["Rand", "Pop", "HP", "ALS", "BPR", "GraphConv-Extra",
                    "Transformer", "Transformer-Pop", "Transformer-HP",])
    cvx_online.print_results()  # tabular results
@@ -64,7 +64,7 @@ Here are the required fields of a supervised dataset for testing and validating 
 
 | attribute    | column name     | details                                                    |
 |--------------|-----------------|------------------------------------------------------------|
-| user_in_test | (index)         | index by USER_ID, allow duplicated USER_IDs                |
+| user_in_test | (index)         | indexed by USER_ID; allows duplicated indices w/ different time |
 |              | TEST_START_TIME | to split between features and labels                       |
 |              | `_hist_items`   | list of ITEM_IDs before TEST_START_TIME; can be inferred   |
 |              | `_hist_ts`      | list of TIMESTAMPs before TEST_START_TIME; can be inferred |
@@ -74,16 +74,16 @@ Here are the required fields of a supervised dataset for testing and validating 
 | target_csr   |                 | <sub> sparse matrix (user_in_test, item_in_test); sums up all events in testing horizon </sub> |
 | horizon      | (default=inf)   | <sub> testing window after TEST_START_TIME for each user; agrees with target_csr </sub> |
 | prior_score  | (default=None)  | <sub> sparse matrix (user_in_test, item_in_test) to allow exclude_train etc. </sub> |
-| <sub> default_item_rec_top_k </sub>  | <sub> default=1% of item_in_test </sub> | works with mult to generate the curves in mtch settings  |
-| <sub> default_user_rec_top_c </sub>  | <sub> default=1% of user_in_test </sub> | works with mult to generate the curves in mtch settings |
+| <sub> default_item_rec_top_k </sub>  | <sub> default=1% of item_in_test </sub> | <sub> default number of recs; further multiplied by mult variable in mtch experiments </sub> |
+| <sub> default_user_rec_top_c </sub>  | <sub> default=1% of user_in_test </sub> | <sub> default number of recs; further multiplied by mult variable in mtch experiments </sub> |
 | training_data |                | a reference to the autoregressive training set below |
 
 Here are the subfields for an autoregressive (self-supervised) dataset for training purposes:
 
 | attribute    | details                                                            |
 |--------------|--------------------------------------------------------------------|
-| user_df      | similar to user_in_test, but requires unique USER_ID               |
-| item_df      | similar to item_in_test                                            |
+| user_df      | similar to user_in_test, but requires unique USER_ID (e.g., first) |
+| item_df      | similar to item_in_test; count `_hist_len` by unique users         |
 | event_df     | agrees with the exploded `_hist_items` and `_hist_ts` from user_df |
 
 
@@ -101,9 +101,9 @@ S is a low-rank dataframe-like object with shape `(len(D.user_in_test), len(D.it
 
 Ranking of the items (or users) and then comparing with the ground-truth targets can be laborsome. Instead, we utilize the `scipy.sparse` library to easily calculate the recommendation `hit` rates through point-wise multiplication. The sparsity property allows the evaluations to scale to large numbers of user-item pairs.
 ```
-item_rec_assignments = rime.util._assign_topk(score_mat, item_rec_topk, device='cuda')
+item_rec_assignments = rime.util._assign_topk(S, item_rec_topk, device='cuda')
 item_rec_metrics = evaluate_assigned(D.target_csr, item_rec_assignments, axis=1, device='cuda')
-user_rec_assignments = rime.util._assign_topk(score_mat.T, user_rec_C, device='cuda').T
+user_rec_assignments = rime.util._assign_topk(S.T, user_rec_C, device='cuda').T
 user_rec_metrics = evaluate_assigned(D.target_csr, user_rec_assignments, axis=0, device='cuda')
 ```
 
@@ -116,7 +116,7 @@ We pick the user sample from a "validation" data split `V`.
 Additionally, we align the item_in_test between D and V, because cvx also considers the competitions for the limited user capacities from different items.
 ```
 V = V.reindex(D.item_in_test.index, axis=1) # align on the item_in_test to generalize
-T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the predicted scores.
+T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the validation set
 cvx_online = rime.metrics.cvx.CVX(S, item_rec_topk, user_rec_C, ...) # set hyperparameters
 online_assignments = cvx_online.fit(T).transform(S)
 out = evaluate_assigned(D.target_csr, online_assignments, axis=0)
