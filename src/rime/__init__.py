@@ -94,6 +94,7 @@ class Experiment:
         cvx=False,
         online=False,
         tie_break=0,
+        _zero_shot=False,
         cache=None,
         results=None,
         **mtch_kw
@@ -104,6 +105,7 @@ class Experiment:
         self.V_extra = V_extra
 
         self.mult = mult
+        self._zero_shot = _zero_shot
 
         if models_to_run is None:
             models_to_run = self.registered.keys()
@@ -254,8 +256,8 @@ class Experiment:
             warnings.warn("disabling GraphConv-Extra due to lack of extra validation sets")
             registered.pop("GraphConv-Extra", None)
 
-        if 'TITLE' not in self.D.training_data.item_df:
-            warnings.warn("disabling zero-shot models due to lack of item title")
+        if not self._zero_shot or 'TITLE' not in self.D.training_data.item_df:
+            warnings.warn("disabling zero-shot models")
             for model in ['BayesLM-0', 'BayesLM-1', 'ItemKNN-0', 'ItemKNN-1']:
                 registered.pop(model, None)
 

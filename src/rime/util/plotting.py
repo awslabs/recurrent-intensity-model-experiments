@@ -8,11 +8,11 @@ def plot_rec_results(self, metric_name='recall'):
     ir = pd.DataFrame(self.item_rec).T
     ur = pd.DataFrame(self.user_rec).T
     df = ir[[metric_name]] * 100
-    axname_itemrec_recall = f"Recommendation (ItemRec) {metric_name}@{self._k1} (x100)"
-    axname_userrec_recall = f'Marketing (UserRec) {metric_name}@{self._c1} (x100)'
+    axname_itemrec = f"ItemRec {metric_name}@{self._k1} (x100)"
+    axname_userrec = f'UserRec {metric_name}@{self._c1} (x100)'
 
-    df = df.rename(columns={metric_name: axname_itemrec_recall})
-    df[axname_userrec_recall] = ur[metric_name] * 100
+    df = df.rename(columns={metric_name: axname_itemrec})
+    df[axname_userrec] = ur[metric_name] * 100
     df = df.reset_index()
     df['index'] = df['index'].apply(lambda x: x.replace('-Extra', '_ex').replace('-Item', '_item')
                                                .replace('-User', '_user').replace('-Base', '')
@@ -58,14 +58,14 @@ def plot_rec_results(self, metric_name='recall'):
     markers.update({x: f"${x}$" for x in df['Base model'] if x not in markers})
     sizes.update({x: large for x in df['Base model'] if x not in sizes})
     figure = sns.relplot(
-        x=axname_itemrec_recall, y=axname_userrec_recall, style='Base model', size='Base model', sizes=sizes,
+        x=axname_itemrec, y=axname_userrec, style='Base model', size='Base model', sizes=sizes,
         hue_order=['UserPopularity', 'EMA', 'HawkesPoisson', 'Hawkes', 'None'], markers=markers,
         linewidth=0.25, style_order=list(sizes.keys()), size_order=list(sizes.keys()),
         hue='Intensity modeling', data=df, facet_kws={'sharex': False, 'sharey': False}, legend='full')
     ax = figure.fig.axes[0]
     pop = df[df['index'] == 'ItemPopularity-UserPopularity'].iloc[0]
-    ax.axvline(x=pop[axname_itemrec_recall], c='grey', linestyle='--', alpha=0.6, lw=1)
-    ax.axhline(y=pop[axname_userrec_recall], c='grey', linestyle='--', alpha=0.6, lw=1, label='popularity baseline')
+    ax.axvline(x=pop[axname_itemrec], c='grey', linestyle='--', alpha=0.6, lw=1)
+    ax.axhline(y=pop[axname_userrec], c='grey', linestyle='--', alpha=0.6, lw=1, label='popularity baseline')
     return figure
 
 

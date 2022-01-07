@@ -5,8 +5,9 @@ from ..util import (create_matrix, perplexity, timed, groupby_collect,
                     matrix_reindex, fill_factory_inplace)
 
 
-def _check_index(event_df, user_df, item_df):
-    assert not user_df.index.has_duplicates, "simplify to one test window per user"
+def _check_index(event_df, user_df, item_df, allow_user_duplicates=False):
+    assert not user_df.index.has_duplicates or allow_user_duplicates, \
+        "allow one row per user for autoregressive training"
     assert not item_df.index.has_duplicates, "assume one entry per item"
     assert event_df['USER_ID'].isin(user_df.index).all(), \
         "user_df must include all users in event_df"
