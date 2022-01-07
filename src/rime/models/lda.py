@@ -1,4 +1,4 @@
-import torch, dgl, numpy as np
+import torch, dgl, numpy as np, pandas as pd
 from pytorch_lightning import LightningModule, Trainer
 from torch.utils.data import DataLoader
 from .third_party.lda.lda_model import LatentDirichletAllocation, DocData, WordData, doc_subgraph
@@ -96,15 +96,14 @@ class LDA:
     def transform(self, D, return_doc_data=False):
         """ run e-step to get doc data; output as low-rank nonnegative matrix """
 
-        # create past event df from user_in_test history; _hist_len > 0 avoids na in explode
-        past_event_df = D.user_in_test[D.user_in_test['_hist_len'] > 0]['_hist_items'].copy()
-        past_event_df.index.name = 'USER_ID'
-        past_event_df = past_event_df.explode().to_frame('ITEM_ID').reset_index()
+        user_non_empty = D.user_in_test.reset_index()[D.user_in_test['_hist_len'].values > 0]
+        past_event_df = user_non_empty['_hist_items'].explode().to_frame("ITEM_ID").join(
+            pd.Series({k: j for j, k in enumerate(self._item_list)}).to_frame("j"),
+            on="ITEM_ID", how="inner")  # drop oov items
 
-        i, j = create_matrix(past_event_df, D.user_in_test.index, self._item_list, 'ij')
         G = dgl.heterograph(
-            {('doc', '', 'word'): (i, j)},
-            {'doc': len(D.user_in_test.index), 'word': len(self._item_list)}
+            {('doc', '', 'word'): (past_event_df.index.values, past_event_df['j'].values)},
+            {'doc': len(D.user_in_test), 'word': len(self._item_list)}
         )
 
         trainer = Trainer(gpus=int(torch.cuda.is_available()))

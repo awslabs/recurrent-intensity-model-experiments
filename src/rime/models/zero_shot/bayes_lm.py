@@ -119,8 +119,8 @@ class BayesLM:
                 log_p_y_given_x_ind = log_p_x_given_y_ind / self.temperature + log_p_y_ind
 
                 log_p_y_given_x = matrix_reindex(
-                    log_p_y_given_x_ind[None, :], sorted_items.index[ind],
-                    D.item_in_test.index, axis=1, fill_value=-np.inf).squeeze(0)
+                    log_p_y_given_x_ind, sorted_items.index[ind],
+                    D.item_in_test.index, axis=0, fill_value=-np.inf)
 
                 p_y_given_x = torch.as_tensor(log_p_y_given_x).softmax(0).numpy()
                 scores.append(p_y_given_x)

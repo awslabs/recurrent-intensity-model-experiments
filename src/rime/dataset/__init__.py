@@ -30,7 +30,7 @@ def prepare_minimal_dataset():
     # mark and trim _holdout by [TEST_START_TIME, TEST_START_TIME + horizon)
     # can be customized by setting _holdout as 0=training and 1=testing.
     event_df = _mark_and_trim_holdout(event_df, user_df, horizon)
-    user_df = _augment_user_hist(user_df, event_df)  # add _hist_items, _timestamps, etc.
+    user_df = _augment_user_hist(user_df, event_df)  # add _hist_items, _hist_ts, _hist_len
     item_df = _augment_item_hist(item_df, event_df)  # add _hist_len
 
     training_data = argparse.Namespace(
@@ -43,10 +43,12 @@ def prepare_minimal_dataset():
     # New users/items will get zero prediction scores; they are better included in
     # training data, albeit having empty lists of events.
     user_in_test = _reindex_user_hist(user_df[[
-        '_hist_items', '_timestamps', '_hist_len',
-    ]], ['u1', 'u3', 'new_user'])
+        '_hist_items', '_hist_len',  '_hist_ts', 'TEST_START_TIME',
+    ]], ['u1', 'u3', 'oov_users_get_all_zero_scores'])
 
-    item_in_test = item_df[['_hist_len']].reindex(['i1', 'i4', 'new_item'], fill_value=0)
+    item_in_test = item_df[['_hist_len']].reindex([
+        'i1', 'i4', 'oov_items_get_all_zero_scores'
+    ], fill_value=0)
 
     target_csr = create_matrix(event_df[event_df['_holdout'] == 1],
                                user_in_test.index, item_in_test.index, 'csr')

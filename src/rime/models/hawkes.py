@@ -1,5 +1,5 @@
 import pandas as pd, numpy as np
-import functools
+import functools, itertools
 from ..util import timed, LowRankDataFrame
 
 from tick.hawkes import HawkesSumExpKern
@@ -16,12 +16,12 @@ class Hawkes:
 
     @timed("Hawkes.fit")
     def fit(self, D):
-        input_fn = functools.partial(self._input_fn, training=True)
         training_user = D.user_df[
-            (D.user_df['_hist_len'] > 0) &
-            (D.user_df['_timestamps'].apply(lambda x: x[-1]) < np.inf)
-        ]  # The last in _timestamps is set to TEST_START_TIME
-        X = list(map(input_fn, training_user['_timestamps'].values))
+            (D.user_df['_hist_ts'].apply(len) > 0) &
+            (D.user_df['TEST_START_TIME'] < np.inf)  # training users must have finite time
+        ]
+        X = training_user.apply(lambda x: self._input_fn(
+            x['_hist_ts'], x['TEST_START_TIME'], training=True), axis=1).tolist()
 
         self.model.fit(X)
         self._learned_coeffs = _get_learned_coeffs(self.model)
@@ -30,8 +30,8 @@ class Hawkes:
 
     @functools.lru_cache(1)
     def transform(self, D, state_only=False):
-        input_fn = functools.partial(self._input_fn, training=False)
-        X = list(map(input_fn, D.user_in_test['_timestamps'].values))
+        X = D.user_in_test.apply(lambda x: self._input_fn(
+            x['_hist_ts'], x['TEST_START_TIME'], training=False), axis=1).tolist()
 
         predict_fn = functools.partial(_predict_fn, decays=self.model.decays)
         user_states = np.vstack([predict_fn(x[0], t) for (x, t) in X])
@@ -51,10 +51,14 @@ class Hawkes:
                 index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
 
 
-def _input_fn(raw_ts, horizon, training, training_eps, hetero):
+def _input_fn(hist_ts, test_start_time, horizon, training, training_eps, hetero):
     """ format to data and ctrl channels relative to the first observation """
-    data = (np.array(raw_ts[1:-1]) - raw_ts[0]) / horizon
-    end_time = float('inf') if len(raw_ts) <= 1 else (raw_ts[-1] - raw_ts[0]) / horizon
+    if len(hist_ts):
+        data = (np.array(hist_ts[1:]) - hist_ts[0]) / horizon
+        end_time = (test_start_time - hist_ts[0]) / horizon
+    else:  # users without histories will receive baseline intensity predictions
+        data = np.array([], dtype=test_start_time.dtype)
+        end_time = float('inf')
 
     ctrl = np.array([0.0, end_time]) if hetero else np.array([end_time])
 

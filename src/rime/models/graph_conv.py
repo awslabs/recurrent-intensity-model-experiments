@@ -14,13 +14,14 @@ except ImportError:
 class _GraphConv(_BPR, _LitValidated):
     """ module to compute user RFM embedding.
     """
-    def __init__(self, *args, no_components=32, encode_user_ids="n/a",
+    def __init__(self, *args, user_splits, no_components=32, encode_user_ids="n/a",
                  recency_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
                  **kw):
 
         super().__init__(*args,
                          no_components=no_components, encode_user_ids=False,
                          **kw)
+        self.user_splits = user_splits
 
         self.register_buffer("recency_boundaries",
                              torch.as_tensor(recency_multipliers) * horizon)
@@ -58,7 +59,7 @@ class _GraphConv(_BPR, _LitValidated):
         k = batch[:, -1]
         loss_list = []
         for s, (G, u_p, i_p) in enumerate(zip(
-            self.G_list, self.user_proposal, self.item_proposal
+            self.G_list, torch.split(self.user_proposal, self.user_splits), self.item_proposal
         )):
             single_loss = self._bpr_training_step(batch[k == s, :-1], u_p, i_p, G=G)
             loss_list.append(single_loss)
@@ -70,7 +71,6 @@ class _GraphConv(_BPR, _LitValidated):
 
 class GraphConv:
     def __init__(self, D, batch_size=10000, max_epochs=50, **kw):
-        self._user_list = D.training_data.user_df.index.tolist()
         self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
 
         self.batch_size = batch_size
@@ -80,29 +80,27 @@ class GraphConv:
         self._model_kw.update(kw)
 
     def _extract_features(self, D):
-        """ create item -> user graph """
-        D = D.reindex(self._user_list, axis=0).reindex(self._padded_item_list, axis=1)
+        """ create item -> user graph; allow same USER_ID with different TEST_START_TIME """
 
-        # create past event df from user_in_test history; _hist_len > 0 avoids na in explode
-        past_event_df = D.user_in_test[D.user_in_test['_hist_len'] > 0]['_hist_items'].copy()
-        past_event_df.index.name = 'USER_ID'
-        past_event_df = past_event_df.explode().to_frame('ITEM_ID').reset_index()
-
-        i, j = create_matrix(past_event_df, D.user_in_test.index, D.item_in_test.index, 'ij')
-        t = np.hstack(D.user_in_test['_timestamps'].apply(lambda x: x[:-1]))  # empty is okay
+        user_non_empty = D.user_in_test.reset_index()[D.user_in_test['_hist_len'].values > 0]
+        past_event_df = user_non_empty['_hist_items'].explode().to_frame("ITEM_ID")
+        past_event_df["TIMESTAMP"] = user_non_empty['_hist_ts'].explode().values
+        past_event_df = past_event_df.join(  # item embeddings are shared for different times
+            pd.Series({k: j for j, k in enumerate(self._padded_item_list)}).to_frame("j"),
+            on="ITEM_ID", how='inner')  # drop oov items
 
         G = dgl.heterograph(
-            {('user', 'source', 'item'): (i, j)},
-            {'user': len(D.user_in_test.index), 'item': len(D.item_in_test.index)}
+            {('user', 'source', 'item'): (past_event_df.index.values, past_event_df["j"].values)},
+            {'user': len(D.user_in_test), 'item': len(self._padded_item_list)}
         )
-        G.edata['t'] = torch.as_tensor(t).double()
+        G.edata['t'] = torch.as_tensor(past_event_df["TIMESTAMP"].values.astype('float64'))
 
-        # add padding item to avoid empty users
+        # add padding item to guard against users with empty histories
         n_users = G.num_nodes('user')
         pad_time = -np.inf * torch.ones(n_users).double()
         G = dgl.add_edges(G, range(n_users), [0] * n_users, {'t': pad_time})
 
-        user_test_time = D.user_in_test['_timestamps'].apply(lambda x: x[-1]).values
+        user_test_time = D.user_in_test['TEST_START_TIME'].values
         G.nodes['user'].data['test_t'] = torch.as_tensor(user_test_time)
         return G.reverse(copy_edata=True)
 
@@ -110,13 +108,10 @@ class GraphConv:
         user_proposal = np.ravel(V.target_csr.sum(axis=1) + 0.1) ** 0.5
         item_proposal = np.ravel(V.target_csr.sum(axis=0) + 0.1) ** 0.5
 
-        user_proposal = pd.Series(user_proposal, V.user_in_test.index) \
-                        .reindex(self._user_list, fill_value=0).values
         item_proposal = pd.Series(item_proposal, V.item_in_test.index) \
                         .reindex(self._padded_item_list, fill_value=0).values
 
-        V = V.reindex(self._user_list, axis=0).reindex(self._padded_item_list, axis=1)
-        target_coo = V.target_csr.tocoo()
+        target_coo = V.reindex(self._padded_item_list, axis=1).target_csr.tocoo()
 
         dataset = np.transpose([
             target_coo.row, target_coo.col, k * np.ones_like(target_coo.row),
@@ -134,7 +129,8 @@ class GraphConv:
 
         print("GraphConv label sizes", [len(d) for d in dataset])
         dataset = np.vstack(dataset)
-        model = _GraphConv(np.array(user_proposal), np.array(item_proposal), **self._model_kw)
+        model = _GraphConv(np.hstack(user_proposal), np.array(item_proposal),
+                           user_splits=list(map(len, user_proposal)), **self._model_kw)
 
         N = len(dataset)
         train_set, valid_set = default_random_split(dataset)
@@ -165,6 +161,5 @@ class GraphConv:
 
         S = create_second_order_dataframe(
             user_embeddings, self.item_embeddings, user_biases, self.item_biases,
-            self._user_list, self._padded_item_list, 'softplus')
-
-        return S.reindex(D.user_in_test.index, axis=0).reindex(D.item_in_test.index, axis=1)
+            D.user_in_test.index, self._padded_item_list, 'softplus')
+        return S.reindex(D.item_in_test.index, axis=1)
