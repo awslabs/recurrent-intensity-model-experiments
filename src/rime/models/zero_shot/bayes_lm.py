@@ -32,7 +32,7 @@ class BayesLM:
         self.temperature = temperature
         self.gamma = gamma
         self.text_column_name = text_column_name
- 
+
         if candidate_selection_method is None:
             candidate_selection_method = 'greedy' if item_pop_power > 0 else 'sample'
         self.candidate_selection_method = candidate_selection_method

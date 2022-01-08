@@ -94,7 +94,6 @@ class Experiment:
         cvx=False,
         online=False,
         tie_break=0,
-        _zero_shot=False,
         cache=None,
         results=None,
         **mtch_kw
@@ -105,7 +104,6 @@ class Experiment:
         self.V_extra = V_extra
 
         self.mult = mult
-        self._zero_shot = _zero_shot
 
         if models_to_run is None:
             models_to_run = self.registered.keys()
@@ -256,16 +254,19 @@ class Experiment:
             warnings.warn("disabling GraphConv-Extra due to lack of extra validation sets")
             registered.pop("GraphConv-Extra", None)
 
-        if not self._zero_shot or 'TITLE' not in self.D.training_data.item_df:
-            warnings.warn("disabling zero-shot models")
+        if 'TITLE' not in self.D.training_data.item_df:
+            warnings.warn("disabling zero-shot models due to missing item TITLE")
             for model in ['BayesLM-0', 'BayesLM-1', 'ItemKNN-0', 'ItemKNN-1']:
                 registered.pop(model, None)
 
         return registered
 
-    def run(self, models_to_run=None, models_to_exclude=[]):
+    def run(self, models_to_run=None,
+            models_to_exclude=["ItemKNN-0", "ItemKNN-1", "BayesLM-0", "BayesLM-1"]):
+        """ models_to_exclude is ignored if models_to_run is explicitly provided """
+
         if models_to_run is None:
-            models_to_run = self.models_to_run
+            models_to_run = [m for m in self.models_to_run if m not in models_to_exclude]
         elif isinstance(models_to_run, str):
             models_to_run = [models_to_run]
 
@@ -274,9 +275,6 @@ class Experiment:
         print("models to run", models_to_run)
 
         for model in models_to_run:
-            if model in models_to_exclude:
-                continue
-
             print("running", model)
             S = self.registered[model](self.D)
 
