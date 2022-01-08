@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import scipy.sparse as sps
-import warnings, dataclasses, argparse, functools
+import warnings, dataclasses, argparse
 from ..util import (create_matrix, perplexity, timed, groupby_collect,
                     matrix_reindex, fill_factory_inplace)
 

@@ -1,5 +1,5 @@
 import pandas as pd, numpy as np
-import functools, itertools
+import functools
 from ..util import timed, LowRankDataFrame
 
 from tick.hawkes import HawkesSumExpKern
