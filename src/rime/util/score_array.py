@@ -18,16 +18,17 @@ def get_batch_size(shape, frac=float(os.environ.get("BATCH_SIZE_FRAC", 0.1))):
 
 
 def matrix_reindex(csr, old_index, new_index, axis, fill_value=0):
-    """ pandas.reindex functionality on sparse or dense matrices """
+    """ pandas.reindex functionality on sparse or dense matrices as well as 1d arrays """
     if axis == 1:
         return matrix_reindex(csr.T, old_index, new_index, 0, fill_value).T.copy()
+    assert axis == 0, "axis must be 0 or 1"
     assert csr.shape[0] == len(old_index), "shape must match between csr and old_index"
 
     if sps.issparse(csr):
         csr = sps.vstack([csr, csr[:1] * 0 + fill_value], "csr")
         csr.eliminate_zeros()
     else:
-        csr = np.vstack([csr, csr[:1] * 0 + fill_value])
+        csr = np.concatenate([csr, csr[:1] * 0 + fill_value], axis=0)
 
     iloc = pd.Series(
         np.arange(len(old_index)), index=old_index

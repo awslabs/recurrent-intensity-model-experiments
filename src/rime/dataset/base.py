@@ -5,8 +5,9 @@ from ..util import (create_matrix, perplexity, timed, groupby_collect,
                     matrix_reindex, fill_factory_inplace)
 
 
-def _check_index(event_df, user_df, item_df):
-    assert not user_df.index.has_duplicates, "simplify to one test window per user"
+def _check_index(event_df, user_df, item_df, allow_user_duplicates=False):
+    assert not user_df.index.has_duplicates or allow_user_duplicates, \
+        "allow one row per user for autoregressive training"
     assert not item_df.index.has_duplicates, "assume one entry per item"
     assert event_df['USER_ID'].isin(user_df.index).all(), \
         "user_df must include all users in event_df"
@@ -53,9 +54,9 @@ def _mark_and_trim_holdout(event_df, user_df, horizon):
 
 def _reindex_user_hist(user_df, index, factory={
         "_hist_items": list,
-        "_timestamps": lambda: [float("inf")],
         "_hist_len": lambda: 0,
-        # other fields not used after initialization
+        "_hist_ts": lambda: [],
+        "TEST_START_TIME": lambda: float("inf"),
 }):
     missing = [i not in user_df.index for i in index]
     user_df = user_df.reindex(index)
@@ -66,7 +67,7 @@ def _reindex_user_hist(user_df, index, factory={
 
 def _augment_user_hist(user_df, event_df):
     """ extract user histories from event_df before the respective TEST_START_TIME;
-        append columns: _hist_items, _hist_ts, _timestamps, _hist_len
+        append columns: _hist_items, _hist_ts, _hist_len
     """
     @timed("groupby, collect, reindex")
     def fn(col_name):
@@ -77,9 +78,6 @@ def _augment_user_hist(user_df, event_df):
 
     user_df = user_df.join(fn("ITEM_ID").to_frame("_hist_items")) \
                      .join(fn("TIMESTAMP").to_frame("_hist_ts"))
-
-    user_df['_timestamps'] = user_df.apply(
-        lambda x: x['_hist_ts'] + [x['TEST_START_TIME']], axis=1)
 
     user_df['_hist_len'] = user_df['_hist_items'].apply(len)
     return user_df
@@ -117,7 +115,7 @@ class Dataset:
 
         if "_hist_items" not in self.user_in_test:
             warnings.warn(f"{self} not applicable for sequence models.")
-        if "_timestamps" not in self.user_in_test:
+        if "TEST_START_TIME" not in self.user_in_test or "_hist_ts" not in self.user_in_test:
             warnings.warn(f"{self} not applicable for temporal models.")
 
         _check_index(self.training_data.event_df,
@@ -136,15 +134,22 @@ class Dataset:
         return id(self)
 
     def get_stats(self):
-        def _get_hist_span(df):
-            return (df['_timestamps'].apply(lambda x: x[-1] - x[0]).mean()
-                    if '_timestamps' in df else float("NaN"))
+        if "TEST_START_TIME" in self.user_in_test and "_hist_ts" in self.user_in_test:
+            avg_hist_span = self.user_in_test[  # test users with finite history
+                (self.user_in_test["TEST_START_TIME"] < np.inf) &
+                (self.user_in_test["_hist_ts"].apply(len) > 0)
+            ].apply(
+                lambda x: x["TEST_START_TIME"] - x["_hist_ts"][0], axis=1
+            ).mean()
+        else:
+            avg_hist_span = float("nan")
+
         return {
             'user_df': {
                 '# test users': len(self.user_in_test),
                 '# train users': len(self.training_data.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
-                'avg hist span': _get_hist_span(self.user_in_test),
+                'avg hist span': avg_hist_span,
                 'horizon': self.horizon,
                 'avg target items': self.target_csr.sum(axis=1).mean(),
             },
@@ -195,7 +200,10 @@ class Dataset:
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
-                   min_user_len=1, min_item_len=1, prior_score=None, exclude_train=False):
+                   min_user_len=1, min_item_len=1, prior_score=None, exclude_train=False,
+                   test_incl_users_with_posinf_test_time=False,
+                   test_incl_users_with_neginf_test_time=True,
+                   ):
     """ Create a labeled dataset from 3 related tables and additional configurations.
 
     :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
@@ -222,7 +230,8 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     print("marking and cleaning test data")
     user_in_test = user_df[
         (user_df['_hist_len'] >= min_user_len) &
-        (user_df['TEST_START_TIME'] < float("inf"))  # training-only users have inf start time
+        ((user_df['TEST_START_TIME'] < np.inf) | test_incl_users_with_posinf_test_time) &
+        ((user_df['TEST_START_TIME'] > -np.inf) | test_incl_users_with_neginf_test_time)
     ].copy()
     item_in_test = item_df[
         item_df['_hist_len'] >= min_item_len

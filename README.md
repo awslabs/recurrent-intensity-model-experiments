@@ -24,56 +24,72 @@ Repository to reproduce the experiments in the paper:
     - If more dependencies are needed, such as in github build box, try this command:
         `conda env update --file environment.yml`
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
-3. Run experiment as
+3. Run recommendation experiment as
     ```
-    from rime import main, plot_results, Experiment, evaluate_assigned
-    self = main("prepare_ml_1m_data") # or "prepare_minimal_dataset"
-    # print out item_rec and user_rec metrics for all included methods
+    import rime
+    D, V, *V_extra = rime.dataset.prepare_ml_1m_data(exclude_train=True)
+    self = rime.Experiment(D, V, *V_extra)
+    self.run()
+    self.print_results()  # tabular results
+    fig = rime.util.plot_rec_results(self, 'prec')
     ```
-4. Run `pytest -s -x --pdb` for unit tests including the end-to-end workflow.
 
-## More Examples
+    <img src="figure/rec-ml-1m-prec.png" alt="rec-ml-1m-prec" width="40%"/>
 
-Perform Offline-Greedy optimization for diversity-relevance trade-offs
-```
-mult=[0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100]
-self = main("prepare_ml_1m_data", mult=mult)
-fig = plot_results(self)
-```
-![greedy-ml-1m](figure/greedy-ml-1m.png)
+    Notice the optional config that excludes training user-item pairs from reappearing in predictions (and targets) by automatically generating a prior_score attribute in dataset class. This helps non-temporal matrix-factorization models.
 
-Perform CVX-Online allocation for diversity-relevance trade-offs
-```
-cvx_online = main("prepare_ml_1m_data", mult=mult, cvx=True, online=True)
-fig = plot_results(cvx_online)
-```
-![online-ml-1m](figure/online-ml-1m.png)
+4. Run matching experiment with CVX-Online allocation and plot diversity-relevance trade-off
+   ```
+   cvx_online = rime.Experiment(D, V, *V_extra,
+                                mult=[0, 0.3, 0.7, 1, 3, 10, 200],  # turn on mtch calculation
+                                cvx=True, online=True)  # optional; default => offline-greedy mtch
+   cvx_online.run(["Rand", "Pop", "HP", "ALS", "BPR", "GraphConv-Extra",
+                   "Transformer", "Transformer-Pop", "Transformer-HP",])
+   cvx_online.print_results()  # tabular results
+   fig = rime.util.plot_mtch_results(cvx_online)
+   ```
 
-Optional configuration that excludes training user-item pairs from reappearing in predictions and targets by a large penalization prior. For other types of block (or approval) lists, please provide a negative (or positive) `prior_score` input to `Dataset` constructor following the source code of this example.
-```
-D, V = rime.dataset.prepare_ml_1m_data(exclude_train=True)
-self = Experiment(D, V)
-self.run()
-self.print_results()
-```
+    <img src="figure/online-ml-1m.png" alt="online-ml-1m" width="50%"/>
 
-With the `exclude-train` option, the performances of ALS, BPR, and LogisticMF improve significantly. (Plot generated from modified scripts/everything_ml_1m.py)
-
-![exclude-train-ml-1m](figure/exclude-train-ml-1m.png)
+5. Run `pytest -s -x --pdb` for unit tests including the end-to-end workflow.
 
 ## Code Organization
 
-Here is the content of the `main` function:
-```
-D, V = prepare_some_dataset(...) # output instances of rime.dataset.base.Dataset
-self = rime.Experiemnt(D, V, ...) # V is required only for Hawkes-Poisson and CVX-Online.
-self.run()
-self.results.print_results()
-```
+**Step 0. Data Preparation**
 
-Here is what `Experiment.run` basically does:
+All algorithms require a testing set with labels. Most algorithms are trained from an autoregressive (self-supervised) training set without labels. Some algorithms are trained from (or in combination with) one or more validating set with labels.
+The online matching setup uses the first validating set to infer the user-state distribution so that the CVX-Online algorithm can remain oblivious to the actual set of user (states) in the testing set for the purpose of online sumlations. (CVX-Online ignores the labels in that set.)
 
-**Step 1. Predictions.**
+Here are the required fields of a supervised dataset for testing and validating purposes:
+
+| attribute    | column name     | details                                                    |
+|--------------|-----------------|------------------------------------------------------------|
+| user_in_test | (index)         | <sub> indexed by USER_ID; allows duplicated indices w/ different TEST_START_TIME </sub> |
+|              | TEST_START_TIME | to split between features and labels                       |
+|              | `_hist_items`   | list of ITEM_IDs before TEST_START_TIME (exclusive)        |
+|              | `_hist_ts`      | list of TIMESTAMPs before TEST_START_TIME (exclusive)      |
+|              | `_hist_len`     | feature for user-popularity prior                          |
+| item_in_test | (index)         | indexed by unique ITEM_ID                                  |
+|              | `_hist_len`     | feature for item-popularity prior                          |
+| target_csr   |                 | <sub> sparse matrix (user_in_test, item_in_test); sums up all events in testing horizon </sub> |
+| horizon      | (default=inf)   | <sub> testing window after TEST_START_TIME for each user; agrees with target_csr </sub> |
+| prior_score  | (default=None)  | <sub> sparse matrix (user_in_test, item_in_test) to allow exclude_train etc. </sub> |
+| <sub> default_item_rec_top_k </sub>  | <sub> default=1% of item_in_test </sub> | <sub> default number of recs; further multiplied by mult variable in mtch experiments </sub> |
+| <sub> default_user_rec_top_c </sub>  | <sub> default=1% of user_in_test </sub> | <sub> default number of recs; further multiplied by mult variable in mtch experiments </sub> |
+| training_data |                | a reference to the autoregressive training set below |
+
+Here are the subfields for an autoregressive (self-supervised) dataset for training purposes:
+
+| attribute    | details                                                                    |
+|--------------|----------------------------------------------------------------------------|
+| user_df      | similar to user_in_test, but requires unique USER_ID (e.g., GroupBy.first) |
+| item_df      | similar to item_in_test; count `_hist_len` by unique users                 |
+| event_df     | agrees with the exploded `_hist_items` and `_hist_ts` from user_df         |
+
+
+The testing, training, and validating sets can be conveniently created by `rime.dataset.base.create_dataset` or step-by-step illustrations in `rime.dataset.__init__.prepare_minimal_dataset`. The training set is bundled inside the testing set for convenience.
+
+**Step 1. Predictions**
 
 Let `x` be a user-time state and `y` be a unique item. Traditional top-k item-recommendation aims to predict `p(y|x)` for the next item given the current user-state. On the other hand, we introduce symmetry via user-recommendation that allows for the comparisons across `x`. To this end, we novelly redefine the problem as the prediction of user-item engagement *intensities* in a unit time window in the immediate future, `λ(x,y)`, and utilize a marked temporal point process (MTPP) decomposition as `λ(x,y) = λ(x) p(y|x)`. Here is the code to do that:
 ```
@@ -83,17 +99,17 @@ S = rnn.transform(D) * hawkes.transform(D)
 ```
 S is a low-rank dataframe-like object with shape `(len(D.user_in_test), len(D.item_in_test))`.
 
-**Step 2. Offline decisions.**
+**Step 2. Offline decisions**
 
 Ranking of the items (or users) and then comparing with the ground-truth targets can be laborsome. Instead, we utilize the `scipy.sparse` library to easily calculate the recommendation `hit` rates through point-wise multiplication. The sparsity property allows the evaluations to scale to large numbers of user-item pairs.
 ```
-item_rec_assignments = rime.util._assign_topk(score_mat, item_rec_topk, device='cuda')
-item_rec_metrics = evaluate_assigned(D.target_csr, item_rec_assignments, axis=1)
-user_rec_assignments = rime.util._assign_topk(score_mat.T, user_rec_C, device='cuda').T
-user_rec_metrics = evaluate_assigned(D.target_csr, user_rec_assignments, axis=0)
+item_rec_assignments = rime.util._assign_topk(S, item_rec_topk, device='cuda')
+item_rec_metrics = evaluate_assigned(D.target_csr, item_rec_assignments, axis=1, device='cuda')
+user_rec_assignments = rime.util._assign_topk(S.T, user_rec_C, device='cuda').T
+user_rec_metrics = evaluate_assigned(D.target_csr, user_rec_assignments, axis=0, device='cuda')
 ```
 
-**Step 3. Online simulation.**
+**Step 3. Online simulation**
 
 RIME contains an optional configuration *"CVX-Online"*, which simulates a scenario where we may not observe the full set of users ahead of time, but must make real-time decisions immediately and unregretfully as each user arrives one at a time.
 This scenario is useful in the case of multi-day marketing campaigns with budgets allocated for the long-term prospects.
@@ -102,7 +118,7 @@ We pick the user sample from a "validation" data split `V`.
 Additionally, we align the item_in_test between D and V, because cvx also considers the competitions for the limited user capacities from different items.
 ```
 V = V.reindex(D.item_in_test.index, axis=1) # align on the item_in_test to generalize
-T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the predicted scores.
+T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the validation set
 cvx_online = rime.metrics.cvx.CVX(S, item_rec_topk, user_rec_C, ...) # set hyperparameters
 online_assignments = cvx_online.fit(T).transform(S)
 out = evaluate_assigned(D.target_csr, online_assignments, axis=0)
@@ -111,15 +127,9 @@ out = evaluate_assigned(D.target_csr, online_assignments, axis=0)
 CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
 when `self.online=True` and `T is not None`.
 
+**Misc**
+
 More information may be found in auto-generated documentation at [ReadTheDocs](https://recurrent-intensity-model-experiments.readthedocs.io/).
-To extend to other datasets, one may follow the [two examples](src/rime/dataset/__init__.py) to create a minimal Dataset instance as:
-```
-D = rime.dataset.Dataset(
-    target_csr=..., user_in_test=..., item_in_test=...,
-    training_data=argparse.Namespace(event_df=..., user_df=..., item_df=...),
-    # optional sparse negative prior for exclusions or positive prior for approvals
-    ...)
-```
 The main functions are covered in [test](test).
 
 

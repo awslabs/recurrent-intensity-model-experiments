@@ -13,7 +13,7 @@ from rime.models.zero_shot import BayesLM, ItemKNN
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
 from rime.dataset import Dataset
-from rime.util import _argsort, cached_property, RandScore
+from rime.util import _argsort, cached_property, RandScore, plot_rec_results, plot_mtch_results
 
 from pkg_resources import get_distribution, DistributionNotFound
 try:
@@ -238,8 +238,8 @@ class Experiment:
 
         # disable models due to missing inputs
 
-        if not ('_timestamps' in self.D.user_in_test and self.D.horizon < float("inf")):
-            warnings.warn("disabling temporal models due to missing _timestamps or horizon")
+        if not ('_hist_ts' in self.D.user_in_test and self.D.horizon < float("inf")):
+            warnings.warn("disabling temporal models due to missing _hist_ts or horizon")
             for model in ['EMA', 'Hawkes', 'HP', 'RNN-EMA', 'RNN-Hawkes', 'RNN-HP',
                            'Transformer-EMA', 'Transformer-Hawkes', 'Transformer-HP']:
                 registered.pop(model, None)
@@ -255,15 +255,18 @@ class Experiment:
             registered.pop("GraphConv-Extra", None)
 
         if 'TITLE' not in self.D.training_data.item_df:
-            warnings.warn("disabling zero-shot models due to lack of item title")
+            warnings.warn("disabling zero-shot models due to missing item TITLE")
             for model in ['BayesLM-0', 'BayesLM-1', 'ItemKNN-0', 'ItemKNN-1']:
                 registered.pop(model, None)
 
         return registered
 
-    def run(self, models_to_run=None, models_to_exclude=[]):
+    def run(self, models_to_run=None,
+            models_to_exclude=["ItemKNN-0", "ItemKNN-1", "BayesLM-0", "BayesLM-1"]):
+        """ models_to_exclude is ignored if models_to_run is explicitly provided """
+
         if models_to_run is None:
-            models_to_run = self.models_to_run
+            models_to_run = [m for m in self.models_to_run if m not in models_to_exclude]
         elif isinstance(models_to_run, str):
             models_to_run = [models_to_run]
 
@@ -272,9 +275,6 @@ class Experiment:
         print("models to run", models_to_run)
 
         for model in models_to_run:
-            if model in models_to_exclude:
-                continue
-
             print("running", model)
             S = self.registered[model](self.D)
 
@@ -405,35 +405,3 @@ def main(name, *args, **kw):
     self.run()
     self.results.print_results()
     return self
-
-
-def plot_results(self, logy=True):
-    """ self is an instance of Experiment or ExperimentResult """
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(1, 2, figsize=(7, 2.5))
-    df = [self.get_mtch_(k=self._k1), self.get_mtch_(c=self._c1)]
-
-    xname = [f'ItemRec Prec@{self._k1}', f'UserRec Prec@{self._c1}']
-    yname = ['item_ppl', 'user_ppl']
-
-    for ax, df, xname, yname in zip(ax, df, xname, yname):
-        ax.set_prop_cycle('color', [
-            plt.get_cmap('tab20')(i / 20) for i in range(20)])
-        if df is not None:
-            ax.plot(
-                df.loc['prec'].unstack().values.T,
-                df.loc[yname].unstack().values.T,
-                '.-',
-            )
-        ax.set_xlabel(xname)
-        ax.set_ylabel(yname)
-        if logy:
-            ax.set_yscale('log')
-        ax.axhline(getattr(self, yname + '_baseline'), ls='-.', color='gray')
-    fig.legend(
-        df.loc['prec'].unstack().index.values.tolist() + [yname + '_baseline'],
-        bbox_to_anchor=(0.1, 0.9, 0.8, 0), loc=3, ncol=3,
-        mode="expand", borderaxespad=0.)
-    fig.subplots_adjust(wspace=0.25)
-    return fig

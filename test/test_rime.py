@@ -8,9 +8,10 @@ def test_rime_importable():
 
 
 def do_synthetic_common(*args, prepare_data_name="prepare_synthetic_data", **kw):
-    from rime import main, plot_results
+    from rime import main, plot_rec_results, plot_mtch_results
     self = main(prepare_data_name, *args, mult=[1.0], **kw)
-    fig = plot_results(self.results)  # noqa: F841
+    fig = plot_rec_results(self.results)  # noqa: F841
+    fig2 = plot_mtch_results(self.results)  # noqa: F841
 
     with tempfile.NamedTemporaryFile("r") as fp:
         self.results.save_results(fp.name)

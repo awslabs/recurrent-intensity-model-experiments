@@ -5,6 +5,7 @@ from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from backports.cached_property import cached_property
 from .score_array import *  # noqa: F401, F403
+from .plotting import plot_rec_results, plot_mtch_results
 
 
 class timed(contextlib.ContextDecorator):

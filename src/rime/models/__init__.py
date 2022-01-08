@@ -56,8 +56,11 @@ class EMA:
         self.horizon = horizon
 
     def transform(self, D):
-        fn = lambda ts: np.exp(- (ts[-1] - np.array(ts[:-1])) / self.horizon).sum()
-        user_scores = list(map(fn, D.user_in_test['_timestamps'].values))
+        def fn(ts, T):
+            ttl = (T - np.array(ts)) / self.horizon
+            return np.exp(-ttl).sum()
+        user_scores = D.user_in_test.apply(
+            lambda x: fn(x['_hist_ts'], x['TEST_START_TIME']), axis=1)
 
         return LowRankDataFrame(
             np.log(user_scores)[:, None], np.ones(len(D.item_in_test))[:, None],
