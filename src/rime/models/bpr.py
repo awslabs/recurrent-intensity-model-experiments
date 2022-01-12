@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, create_matrix,
-                    default_random_split)
+                    default_random_split, LazyScoreBase)
 from .lightfm_bpr import LightFM_BPR
 
 
@@ -46,20 +46,16 @@ class _BPR(_LitValidated):
         loglik = []
 
         if self.user_rec:
-            if prior_score_T is not None:  # useful in the derived GraphConv method
-                user_proposal = (prior_score_T[j.tolist()].eval(user_proposal.device)
-                                 + user_proposal.log()).softmax(1)
-                ni = torch.multinomial(user_proposal, self.n_negatives, True).T  # n_shape
+            if prior_score_T is not None:
+                ni = _mnl_w_prior(prior_score_T[j.tolist()], user_proposal, self.n_negatives)
             else:
                 ni = torch.multinomial(user_proposal, np.prod(n_shape), True).reshape(n_shape)
             ni_score = self.forward(ni, j, **kw)
             loglik.append(self.log_sigmoid(pos_score - ni_score))
 
         if self.item_rec:
-            if prior_score is not None:  # useful in the derived GraphConv method
-                item_proposal = (prior_score[i.tolist()].eval(item_proposal.device)
-                                 + item_proposal.log()).softmax(1)
-                nj = torch.multinomial(item_proposal, self.n_negatives, True).T
+            if prior_score is not None:
+                nj = _mnl_w_prior(prior_score[i.tolist()], item_proposal, self.n_negatives)
             else:
                 nj = torch.multinomial(item_proposal, np.prod(n_shape), True).reshape(n_shape)
             nj_score = self.forward(i, nj, **kw)
@@ -80,6 +76,17 @@ class _BPR(_LitValidated):
         return {"optimizer": optimizer, "lr_scheduler": {
                 "scheduler": lr_scheduler, "monitor": "val_epoch_loss"
                 }}
+
+
+@torch.no_grad()
+def _mnl_w_prior(S: LazyScoreBase, proposal, n_negatives):
+    out = []
+    for i in range(0, len(S), S.batch_size):
+        batch = S[i:min(len(S), i + S.batch_size)]
+        prob = (batch.eval(proposal.device) + proposal.log()).softmax(1)
+        batch_out = torch.multinomial(prob, n_negatives, True)  # batch_size, n_negatives
+        out.append(batch_out)
+    return torch.vstack(out).T  # n_negatives, batch_size
 
 
 class BPR(LightFM_BPR):

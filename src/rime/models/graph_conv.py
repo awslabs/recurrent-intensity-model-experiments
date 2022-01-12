@@ -71,17 +71,17 @@ class _GraphConv(_BPR, _LitValidated):
 
 
 class GraphConv:
-    def __init__(self, D, batch_size=10000, max_epochs=50, consider_prior_score=None, **kw):
+    def __init__(self, D, batch_size=10000, max_epochs=50, with_prior=None, **kw):
         self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
 
-        if consider_prior_score is None:
-            consider_prior_score = (D.prior_score is not None)
+        if with_prior is None:
+            with_prior = (D.prior_score is not None)
         else:
-            warnings.warn(f"explicit ask for consider_prior_score={consider_prior_score}")
-        self.consider_prior_score = consider_prior_score
+            warnings.warn(f"explicitly setting with_prior={with_prior}")
+        self.with_prior = with_prior
 
         self._model_kw = {'horizon': D.horizon}
         self._model_kw.update(kw)
@@ -147,7 +147,7 @@ class GraphConv:
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
         model.G_list = G_list
-        if self.consider_prior_score:
+        if self.with_prior:
             model.prior_list = [(auto_cast_lazy_score(p), auto_cast_lazy_score(p).T)
                                 for p in prior_score]
         else:

@@ -82,7 +82,7 @@ class LazyScoreBase:
 
     def _wrap_and_check(self, other):
         other = auto_cast_lazy_score(other)
-        if not isinstance(self, LazyScoreScalar) and not isinstance(other, LazyScoreScalar):
+        if not isinstance(self, _LazyScoreScalar) and not isinstance(other, _LazyScoreScalar):
             assert np.allclose(self.shape, other.shape), "shape must be compatible"
         return other
 
@@ -99,7 +99,7 @@ def auto_cast_lazy_score(other):
     if isinstance(other, LazyScoreBase):
         return other
     elif isinstance(other, numbers.Number):
-        return LazyScoreScalar(other)
+        return _LazyScoreScalar(other)
     elif sps.issparse(other):
         return LazyScoreSparseMatrix(other)
     elif isinstance(other, pd.DataFrame):
@@ -110,7 +110,7 @@ def auto_cast_lazy_score(other):
         raise NotImplementedError(f"type {type(other)} is not supported")
 
 
-class LazyScoreScalar(LazyScoreBase):
+class _LazyScoreScalar(LazyScoreBase):
     def __init__(self, c):
         self.c = c
         self.shape = ()
@@ -414,7 +414,8 @@ def create_second_order_dataframe(
 def score_op(S, op, device=None):
     """ aggregation operations (e.g., max, min) across entire matrix """
     out = None
-    for batch in DataLoader(S, S.batch_size, collate_fn=S.collate_fn):
+    for i in range(0, len(S), S.batch_size):
+        batch = S[i:min(len(S), i + S.batch_size)]
         val = batch.eval(device)
         new = getattr(val, op)()
         out = new if out is None else getattr(builtins, op)([out, new])
