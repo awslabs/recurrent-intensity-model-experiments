@@ -1,5 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer, BertForMaskedLM
-import torch, pandas as pd, numpy as np, functools
+import torch, pandas as pd, numpy as np, functools, json, warnings
 from rime.util import (create_second_order_dataframe, _to_cuda, empty_cache_on_exit,
                        explode_user_titles)
 from tqdm import tqdm
@@ -16,6 +16,7 @@ class ItemKNN:
         assert text_column_name in item_df, f"require {text_column_name} as data(y)"
 
         self.item_index = item_df.index
+        self.item_biases = item_pop_power * np.log(item_df['_hist_len'].values + item_pop_pseudo)
         self.batch_size = batch_size
         if temperature is None:
             temperature = {
@@ -25,20 +26,26 @@ class ItemKNN:
         self.temperature = temperature
         self.gamma = gamma
 
-        # huggingface model initialization
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        assert self.tokenizer.padding_side == 'right', "expect right padding"
-        if model_name == 'gpt2':
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        try:
+            item_df = item_df[text_column_name].apply(json.loads).to_frame()
+        except Exception:
+            pass
 
-        if model_name.startswith('bert'):
-            self.model = BertForMaskedLM.from_pretrained(model_name)
-        else:  # gpt2
-            self.model = AutoModelForCausalLM.from_pretrained(model_name)
-        self.model.eval()  # eval mode
+        if isinstance(item_df[text_column_name].iloc[0], list):
+            warnings.warn(f"interpreting {text_column_name} as embedding")
+            self.item_embeddings = np.vstack(item_df[text_column_name].values)
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            assert self.tokenizer.padding_side == 'right', "expect right padding"
+            if model_name == 'gpt2':
+                self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        self.item_embeddings = self._compute_embeddings(item_df[text_column_name].values)
-        self.item_biases = item_pop_power * np.log(item_df['_hist_len'].values + item_pop_pseudo)
+            if model_name.startswith('bert'):
+                self.model = BertForMaskedLM.from_pretrained(model_name)
+            else:  # gpt2
+                self.model = AutoModelForCausalLM.from_pretrained(model_name)
+            self.model.eval()  # eval mode
+            self.item_embeddings = self._compute_embeddings(item_df[text_column_name].values)
 
     @torch.no_grad()
     def _compute_embeddings(self, titles):
@@ -68,7 +75,7 @@ class ItemKNN:
 
     @empty_cache_on_exit
     def transform(self, D):
-        explode_embeddings, splits, weights = explode_user_titles(  # directly use embeddings
+        explode_embeddings, splits, weights = explode_user_titles(
             D.user_in_test['_hist_items'],
             pd.Series(self.item_embeddings.tolist(), self.item_index),
             self.gamma, pad_title=np.zeros_like(self.item_embeddings[0]).tolist())

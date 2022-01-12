@@ -14,14 +14,13 @@ except ImportError:
 class _GraphConv(_BPR, _LitValidated):
     """ module to compute user RFM embedding.
     """
-    def __init__(self, *args, user_splits, no_components=32, encode_user_ids="n/a",
+    def __init__(self, *args, no_components=32, encode_user_ids="n/a",
                  recency_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
                  **kw):
 
         super().__init__(*args,
                          no_components=no_components, encode_user_ids=False,
                          **kw)
-        self.user_splits = user_splits
 
         self.register_buffer("recency_boundaries",
                              torch.as_tensor(recency_multipliers) * horizon)
@@ -58,9 +57,9 @@ class _GraphConv(_BPR, _LitValidated):
     def training_step(self, batch, batch_idx):
         k = batch[:, -1]
         loss_list = []
-        for s, (G, u_p, i_p, (p, pT)) in enumerate(zip(
-            self.G_list, torch.split(self.user_proposal, self.user_splits),
-            self.item_proposal, self.prior_list
+        for s, (G, u_p, i_p, p, pT) in enumerate(zip(
+            self.G_list, self.user_proposal, self.item_proposal,
+            self.prior_score, self.prior_score_T
         )):
             single_loss = self._bpr_training_step(batch[k == s, :-1], u_p, i_p, p, pT, G=G)
             loss_list.append(single_loss)
@@ -97,7 +96,8 @@ class GraphConv:
             on="ITEM_ID", how='inner')  # drop oov items
 
         G = dgl.heterograph(
-            {('user', 'source', 'item'): (past_event_df.index.values, past_event_df["j"].values)},
+            {('user', 'source', 'item'): (past_event_df.index.values,
+                                          past_event_df["j"].values)},
             {'user': len(D.user_in_test), 'item': len(self._padded_item_list)}
         )
         G.edata['t'] = torch.as_tensor(past_event_df["TIMESTAMP"].values.astype('float64'))
@@ -136,8 +136,7 @@ class GraphConv:
 
         print("GraphConv label sizes", [len(d) for d in dataset])
         dataset = np.vstack(dataset)
-        model = _GraphConv(np.hstack(user_proposal), np.array(item_proposal),
-                           user_splits=list(map(len, user_proposal)), **self._model_kw)
+        model = _GraphConv(0, len(self._padded_item_list), **self._model_kw)
 
         N = len(dataset)
         train_set, valid_set = default_random_split(dataset)
@@ -147,19 +146,22 @@ class GraphConv:
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
         model.G_list = G_list
+        model.user_proposal = user_proposal
+        model.item_proposal = item_proposal
         if self.with_prior:
-            model.prior_list = [(auto_cast_lazy_score(p), auto_cast_lazy_score(p).T)
-                                for p in prior_score]
+            model.prior_score = [auto_cast_lazy_score(p) for p in prior_score]
+            model.prior_score_T = [auto_cast_lazy_score(p.T) for p in prior_score]
         else:
-            model.prior_list = [(None, None) for p in prior_score]
+            model.prior_score = [None for p in prior_score]
+            model.prior_score_T = [None for p in prior_score]
 
         trainer.fit(
             model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
             DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
-        delattr(model, "G_list")
-        delattr(model, "prior_list")
+        for attr in ['G_list', 'user_proposal', 'item_proposal', 'prior_score', 'prior_score_T']:
+            delattr(model, attr)
 
         self.item_index = self._padded_item_list
         self.item_embeddings = model.item_encoder.weight.detach().cpu().numpy()

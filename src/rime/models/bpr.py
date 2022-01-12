@@ -3,21 +3,16 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, create_matrix,
-                    default_random_split, LazyScoreBase)
+                    default_random_split, LazyScoreBase, auto_cast_lazy_score)
 from .lightfm_bpr import LightFM_BPR
 
 
 class _BPR(_LitValidated):
-    def __init__(self, user_proposal, item_proposal,
+    def __init__(self, n_users=None, n_items=None,
                  user_rec=True, item_rec=True, no_components=32,
                  n_negatives=10, lr=1, weight_decay=1e-5,
                  encode_user_ids=True):
         super().__init__()
-        self.register_buffer("user_proposal", torch.as_tensor(user_proposal))
-        self.register_buffer("item_proposal", torch.as_tensor(item_proposal))
-
-        n_users = user_proposal.shape[-1]
-        n_items = item_proposal.shape[-1]
 
         if encode_user_ids:
             self.user_encoder = torch.nn.Embedding(n_users, no_components)
@@ -46,6 +41,7 @@ class _BPR(_LitValidated):
         loglik = []
 
         if self.user_rec:
+            user_proposal = torch.as_tensor(user_proposal).to(batch.device)
             if prior_score_T is not None:
                 ni = _mnl_w_prior(prior_score_T[j.tolist()], user_proposal, self.n_negatives)
             else:
@@ -54,6 +50,7 @@ class _BPR(_LitValidated):
             loglik.append(self.log_sigmoid(pos_score - ni_score))
 
         if self.item_rec:
+            item_proposal = torch.as_tensor(item_proposal).to(batch.device)
             if prior_score is not None:
                 nj = _mnl_w_prior(prior_score[i.tolist()], item_proposal, self.n_negatives)
             else:
@@ -64,7 +61,8 @@ class _BPR(_LitValidated):
         return -torch.stack(loglik).mean()
 
     def training_step(self, batch, batch_idx):
-        loss = self._bpr_training_step(batch, self.user_proposal, self.item_proposal)
+        loss = self._bpr_training_step(batch, self.user_proposal, self.item_proposal,
+                                       self.prior_score, self.prior_score_T)
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
@@ -90,12 +88,14 @@ def _mnl_w_prior(S: LazyScoreBase, proposal, n_negatives):
 
 
 class BPR(LightFM_BPR):
-    def __init__(self, user_rec=True, item_rec=True, batch_size=10000, max_epochs=50, **kw):
+    def __init__(self, user_rec=True, item_rec=True, batch_size=10000, max_epochs=50,
+                 with_prior=None, **kw):
         self._model_kw = {"user_rec": user_rec, "item_rec": item_rec}
         self._model_kw.update(kw)
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
+        self.with_prior = with_prior
         self._transposed = False
 
     @empty_cache_on_exit
@@ -106,10 +106,16 @@ class BPR(LightFM_BPR):
         N = len(dataset)
         train_set, valid_set = default_random_split(dataset)
 
-        user_proposal = (D.user_df['_hist_len'].values + 0.1) ** 0.5
-        item_proposal = (D.item_df['_hist_len'].values + 0.1) ** 0.5
+        model = _BPR(len(D.user_df), len(D.item_df), **self._model_kw)
+        model.user_proposal = (D.user_df['_hist_len'].values + 0.1) ** 0.5
+        model.item_proposal = (D.item_df['_hist_len'].values + 0.1) ** 0.5
 
-        model = _BPR(user_proposal, item_proposal, **self._model_kw)
+        if self.with_prior or (self.with_prior is None and hasattr(D, 'prior_score')
+                               and D.prior_score is not None):
+            model.prior_score = auto_cast_lazy_score(D.prior_score)
+            model.prior_score_T = auto_cast_lazy_score(D.prior_score.T)
+        else:
+            model.prior_score = model.prior_score_T = None
 
         trainer = Trainer(
             max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
@@ -120,6 +126,8 @@ class BPR(LightFM_BPR):
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
             DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
+        for attr in ['user_proposal', 'item_proposal', 'prior_score', 'prior_score_T']:
+            delattr(model, attr)
 
         self.D = D
         self.bpr_model = argparse.Namespace(
