@@ -189,7 +189,9 @@ class LazyScoreDenseMatrix(LazyScoreBase):
         return self.__class__(self.c.T)
 
     def __getitem__(self, key):
-        return self.__class__(self.c[np.array(key, ndmin=1)])
+        if np.isscalar(key):
+            key = [key]  # list or slice
+        return self.__class__(self.c[key])
 
     @classmethod
     def collate_fn(cls, D):
