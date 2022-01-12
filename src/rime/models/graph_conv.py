@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, empty_cache_on_exit, create_matrix,
-                    create_second_order_dataframe, default_random_split)
+                    create_second_order_dataframe, default_random_split, auto_cast_lazy_score)
 from .bpr import BPR, _BPR
 try:
     import dgl, dgl.function as fn
@@ -58,10 +58,11 @@ class _GraphConv(_BPR, _LitValidated):
     def training_step(self, batch, batch_idx):
         k = batch[:, -1]
         loss_list = []
-        for s, (G, u_p, i_p) in enumerate(zip(
-            self.G_list, torch.split(self.user_proposal, self.user_splits), self.item_proposal
+        for s, (G, u_p, i_p, (p, pT)) in enumerate(zip(
+            self.G_list, torch.split(self.user_proposal, self.user_splits),
+            self.item_proposal, self.prior_list
         )):
-            single_loss = self._bpr_training_step(batch[k == s, :-1], u_p, i_p, G=G)
+            single_loss = self._bpr_training_step(batch[k == s, :-1], u_p, i_p, p, pT, G=G)
             loss_list.append(single_loss)
 
         loss = torch.stack(loss_list).mean()
@@ -70,11 +71,17 @@ class _GraphConv(_BPR, _LitValidated):
 
 
 class GraphConv:
-    def __init__(self, D, batch_size=10000, max_epochs=50, **kw):
+    def __init__(self, D, batch_size=10000, max_epochs=50, consider_prior_score=None, **kw):
         self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
+
+        if consider_prior_score is None:
+            consider_prior_score = (D.prior_score is not None)
+        else:
+            warnings.warn(f"explicit ask for consider_prior_score={consider_prior_score}")
+        self.consider_prior_score = consider_prior_score
 
         self._model_kw = {'horizon': D.horizon}
         self._model_kw.update(kw)
@@ -111,19 +118,19 @@ class GraphConv:
         item_proposal = pd.Series(item_proposal, V.item_in_test.index) \
                         .reindex(self._padded_item_list, fill_value=0).values
 
-        target_coo = V.reindex(self._padded_item_list, axis=1).target_csr.tocoo()
-
+        V = V.reindex(self._padded_item_list, axis=1)
+        target_coo = V.target_csr.tocoo()
         dataset = np.transpose([
             target_coo.row, target_coo.col, k * np.ones_like(target_coo.row),
         ]).astype(int)
 
         G = self._extract_features(V)
 
-        return dataset, G, user_proposal, item_proposal
+        return dataset, G, user_proposal, item_proposal, V.prior_score
 
     @empty_cache_on_exit
     def fit(self, *V_arr):
-        dataset, G_list, user_proposal, item_proposal = zip(*[
+        dataset, G_list, user_proposal, item_proposal, prior_score = zip(*[
             self._extract_task(k, V) for k, V in enumerate(V_arr)
         ])
 
@@ -140,12 +147,19 @@ class GraphConv:
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
         model.G_list = G_list
+        if self.consider_prior_score:
+            model.prior_list = [(auto_cast_lazy_score(p), auto_cast_lazy_score(p).T)
+                                for p in prior_score]
+        else:
+            model.prior_list = [(None, None) for p in prior_score]
+
         trainer.fit(
             model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
             DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
         delattr(model, "G_list")
+        delattr(model, "prior_list")
 
         self.item_index = self._padded_item_list
         self.item_embeddings = model.item_encoder.weight.detach().cpu().numpy()

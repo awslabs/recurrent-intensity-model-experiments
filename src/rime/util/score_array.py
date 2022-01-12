@@ -52,72 +52,22 @@ class LazyScoreBase:
     Method `reindex` is only supported in the derived LowRankDataFrame subclass.
     """
 
-    def __init__(self, c):
-        self._type = 'scalar' if isinstance(c, numbers.Number) else \
-                     'sparse' if sps.issparse(c) else \
-                     'dense' if np.ndim(c) == 2 else \
-                     '_dict' if isinstance(c, dict) else \
-                     None
-        assert self._type is not None, f"type {type(c)} is not supported"
-        self.c = c if self._type != 'sparse' else c.tocsr()
-        self.shape = getattr(c, "shape", None)  # exclude scalar and _dict
-
-    # methods to overload
-
     def eval(self, device):
         """ LazyScoreBase -> scalar, numpy (device is None), or torch (device) """
-        if self._type == 'scalar':
-            return self.c
-        elif self._type == '_dict':
-            raise NotImplementedError("internal sparse array representation")
-        elif self._type == 'sparse':
-            return self.c.toarray() if device is None else \
-                sps_to_torch(self.c, device).to_dense()
-        elif self._type == 'dense':
-            return self.c if device is None else \
-                torch.as_tensor(self.c, device=device)
+        raise NotImplementedError
 
-    @property
     def T(self):
         """ LazyScoreBase -> LazyScoreBase(transposed) """
-        cT = getattr(self.c, "T", self.c)
-        return self.__class__(cT)
+        raise NotImplementedError
 
     def __getitem__(self, key):
         """ LazyScoreBase -> LazyScoreBase(sub-rows); used in pytorch dataloader """
-        if self._type == 'sparse' and np.isscalar(key):
-            slc = slice(self.c.indptr[key], self.c.indptr[key + 1])
-            _dict = {
-                "values": self.c.data[slc],
-                "keys": self.c.indices[slc],
-                "shape": self.c.shape[1],
-            }
-            return self.__class__(_dict)
-        elif self._type == 'scalar':
-            return self.__class__(self.c)
-        else:
-            if np.isscalar(key):
-                key = [key]
-            return self.__class__(self.c[key])
+        raise NotImplementedError
 
-    def collate_fn(self, D):
+    @classmethod
+    def collate_fn(cls, D):
         """ List[LazyScoreBase] -> LazyScoreBase; used in pytorch dataloader """
-        C = [d.c for d in D]
-        if self._type == 'scalar':
-            return self.__class__(C[0])
-        elif self._type == '_dict':
-            csr = sps.csr_matrix((
-                np.hstack([c['values'] for c in C]),  # data
-                np.hstack([c['keys'] for c in C]),  # indices
-                np.hstack([[0], np.cumsum([len(c['keys']) for c in C])]),  # indptr
-            ), shape=(len(C), C[0]['shape']))
-            return self.__class__(csr)
-        elif self._type == 'sparse':
-            return self.__class__(sps.vstack(C))
-        elif self._type == 'dense':
-            return self.__class__(np.vstack(C))
-
-    # methods to inherit
+        raise NotImplementedError
 
     def __len__(self):
         return self.shape[0]
@@ -131,9 +81,8 @@ class LazyScoreBase:
         return get_batch_size(self.shape)
 
     def _wrap_and_check(self, other):
-        if not isinstance(other, LazyScoreBase):
-            other = LazyScoreBase(other)
-        if self.shape is not None and other.shape is not None:
+        other = auto_cast_lazy_score(other)
+        if not isinstance(self, LazyScoreScalar) and not isinstance(other, LazyScoreScalar):
             assert np.allclose(self.shape, other.shape), "shape must be compatible"
         return other
 
@@ -144,6 +93,107 @@ class LazyScoreBase:
     def __mul__(self, other):
         other = self._wrap_and_check(other)
         return LazyScoreExpression(operator.mul, [self, other])
+
+
+def auto_cast_lazy_score(other):
+    if isinstance(other, LazyScoreBase):
+        return other
+    elif isinstance(other, numbers.Number):
+        return LazyScoreScalar(other)
+    elif sps.issparse(other):
+        return LazyScoreSparseMatrix(other)
+    elif isinstance(other, pd.DataFrame):
+        return LazyScoreDenseMatrix(other.values)
+    elif np.ndim(other) == 2:
+        return LazyScoreDenseMatrix(other)
+    else:
+        raise NotImplementedError(f"type {type(other)} is not supported")
+
+
+class LazyScoreScalar(LazyScoreBase):
+    def __init__(self, c):
+        self.c = c
+        self.shape = ()
+
+    def eval(self, device):
+        return self.c
+
+    @property
+    def T(self):
+        return self
+
+    def __getitem__(self, key):
+        return self
+
+    @classmethod
+    def collate_fn(cls, D):
+        return D[0]
+
+
+class LazyScoreSparseMatrix(LazyScoreBase):
+    def __init__(self, c):
+        self.c = c.tocsr()
+        self.shape = c.shape
+
+    def eval(self, device):
+        return self.c.toarray() if device is None else \
+            sps_to_torch(self.c, device).to_dense()
+
+    @property
+    def T(self):
+        return self.__class__(self.c.T)
+
+    def __getitem__(self, key):
+        if np.isscalar(key):
+            slc = slice(self.c.indptr[key], self.c.indptr[key + 1])
+            _dict = {
+                "values": self.c.data[slc],
+                "keys": self.c.indices[slc],
+                "shape": self.c.shape[1],
+            }
+            return _LazyScoreSparseDictFast(_dict)
+        else:
+            return self.__class__(self.c[key])
+
+    @classmethod
+    def collate_fn(cls, D):
+        return cls(sps.vstack([d.c for d in D]))
+
+
+class _LazyScoreSparseDictFast(LazyScoreBase):
+    def __init__(self, c):
+        self.c = c
+        self.shape = (1, self.c['shape'])
+
+    @classmethod
+    def collate_fn(cls, D):
+        C = [d.c for d in D]
+        csr = sps.csr_matrix((
+            np.hstack([c['values'] for c in C]),  # data
+            np.hstack([c['keys'] for c in C]),  # indices
+            np.hstack([[0], np.cumsum([len(c['keys']) for c in C])]),  # indptr
+        ), shape=(len(C), C[0]['shape']))
+        return LazyScoreSparseMatrix(csr)
+
+
+class LazyScoreDenseMatrix(LazyScoreBase):
+    def __init__(self, c):
+        self.c = c
+        self.shape = c.shape
+
+    def eval(self, device):
+        return self.c if device is None else torch.as_tensor(self.c, device=device)
+
+    @property
+    def T(self):
+        return self.__class__(self.c.T)
+
+    def __getitem__(self, key):
+        return self.__class__(self.c[np.array(key, ndmin=1)])
+
+    @classmethod
+    def collate_fn(cls, D):
+        return cls(np.vstack([d.c for d in D]))
 
 
 class LazyScoreExpression(LazyScoreBase):

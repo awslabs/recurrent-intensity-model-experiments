@@ -270,8 +270,12 @@ def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_ti
 
     keep_last = int(np.log(min_gamma) / np.log(gamma)) + 1  # default=4
 
-    explode_titles = user_hist.apply(lambda x: x[-keep_last:]).explode().to_frame('ITEM_ID') \
-        .join(item_titles.to_frame('TITLE'), on='ITEM_ID')['TITLE'].fillna(pad_title)
+    explode_titles = pd.Series([x[-keep_last:] for x in user_hist.values]).explode() \
+        .to_frame('ITEM_ID').join(item_titles.to_frame('TITLE'), on='ITEM_ID')['TITLE']
+    explode_titles = pd.Series(
+        [x if not na else pad_title for x, na in
+         zip(explode_titles.tolist(), explode_titles.isna().tolist())],
+        index=explode_titles.index)
 
     splits = np.where(
         np.array(explode_titles.index.values[1:]) != np.array(explode_titles.index.values[:-1])
@@ -281,7 +285,7 @@ def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_ti
                         for x in np.split(np.ones(len(explode_titles)), splits)])
     weights = np.hstack([x / x.sum() for x in np.split(weights, splits)])
 
-    return explode_titles, splits, weights
+    return explode_titles.values, splits, weights
 
 
 class _LitValidated(LightningModule):

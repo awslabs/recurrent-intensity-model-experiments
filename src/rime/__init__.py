@@ -345,7 +345,7 @@ class Experiment:
     def _graph_conv_base(self):
         assert self.V is not None, "_graph_conv_base requires self.V"
         return GraphConv(
-            self.D, *self.model_hyps.get("GraphConv-Base", {})
+            self.D, **self.model_hyps.get("GraphConv-Base", {})
         ).fit(self.V)
 
     @cached_property

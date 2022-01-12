@@ -35,7 +35,7 @@ def prepare_yoochoose_data(
         D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME') + horizon / 2,
         D.training_data.item_df[['_siz']],
         horizon / 2,
-    )
+        **kw)
     return (D, V, V0)
 
 

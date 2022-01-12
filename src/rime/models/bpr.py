@@ -37,7 +37,8 @@ class _BPR(_LitValidated):
         return (self.user_encoder(i) * self.item_encoder(j)).sum(-1) \
             + self.user_bias_vec(i).squeeze(-1) + self.item_bias_vec(j).squeeze(-1)
 
-    def _bpr_training_step(self, batch, user_proposal, item_proposal, **kw):
+    def _bpr_training_step(self, batch, user_proposal, item_proposal,
+                           prior_score=None, prior_score_T=None, **kw):
         i, j = batch.T
         pos_score = self.forward(i, j, **kw)
 
@@ -45,12 +46,22 @@ class _BPR(_LitValidated):
         loglik = []
 
         if self.user_rec:
-            ni = torch.multinomial(user_proposal, np.prod(n_shape), True).reshape(n_shape)
+            if prior_score_T is not None:  # useful in the derived GraphConv method
+                user_proposal = (prior_score_T[j.tolist()].eval(user_proposal.device)
+                                 + user_proposal.log()).softmax(1)
+                ni = torch.multinomial(user_proposal, self.n_negatives, True).T  # n_shape
+            else:
+                ni = torch.multinomial(user_proposal, np.prod(n_shape), True).reshape(n_shape)
             ni_score = self.forward(ni, j, **kw)
             loglik.append(self.log_sigmoid(pos_score - ni_score))
 
         if self.item_rec:
-            nj = torch.multinomial(item_proposal, np.prod(n_shape), True).reshape(n_shape)
+            if prior_score is not None:  # useful in the derived GraphConv method
+                item_proposal = (prior_score[i.tolist()].eval(item_proposal.device)
+                                 + item_proposal.log()).softmax(1)
+                nj = torch.multinomial(item_proposal, self.n_negatives, True).T
+            else:
+                nj = torch.multinomial(item_proposal, np.prod(n_shape), True).reshape(n_shape)
             nj_score = self.forward(i, nj, **kw)
             loglik.append(self.log_sigmoid(pos_score - nj_score))
 

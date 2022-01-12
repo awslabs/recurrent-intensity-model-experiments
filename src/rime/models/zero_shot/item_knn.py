@@ -15,10 +15,8 @@ class ItemKNN:
 
         assert text_column_name in item_df, f"require {text_column_name} as data(y)"
 
-        self.item_titles = item_df[text_column_name]
+        self.item_index = item_df.index
         self.batch_size = batch_size
-        item_biases = item_pop_power * np.log(item_df['_hist_len'] + item_pop_pseudo)
-
         if temperature is None:
             temperature = {
                 'bert-base-uncased': 10,
@@ -39,8 +37,8 @@ class ItemKNN:
             self.model = AutoModelForCausalLM.from_pretrained(model_name)
         self.model.eval()  # eval mode
 
-        self.item_embeddings = self._compute_embeddings(self.item_titles.values)
-        self.item_biases = item_biases.values.astype(self.item_embeddings.dtype)
+        self.item_embeddings = self._compute_embeddings(item_df[text_column_name].values)
+        self.item_biases = item_pop_power * np.log(item_df['_hist_len'].values + item_pop_pseudo)
 
     @torch.no_grad()
     def _compute_embeddings(self, titles):
@@ -48,34 +46,38 @@ class ItemKNN:
         with _to_cuda(self.model) as model:
             embeddings = []
 
-            for batch in np.split(titles, range(0, len(titles), self.batch_size)[1:]):
+            for batch in tqdm(np.split(titles, range(0, len(titles), self.batch_size)[1:])):
                 inputs = self.tokenizer(batch.tolist(), padding=True, return_tensors='pt')
-                seq_len = inputs['attention_mask'].sum(1).tolist()
                 if hasattr(self.model, 'bert'):
+                    inputs['input_ids'] = inputs['input_ids'][:, :512]
+                    inputs['attention_mask'] = inputs['attention_mask'][:, :512]
+                    inputs['token_type_ids'] = inputs['token_type_ids'][:, :512]
+
                     hidden_states = self.model.bert(**inputs.to(model.device))[0]
                     hidden_states = hidden_states[:, 0]  # cls token at beginning of sequence
                 else:  # gpt2 does not work well
+                    seq_len = inputs['attention_mask'].sum(1).tolist()
+
                     hidden_states = self.model.transformer(**inputs.to(model.device))[0]
                     hidden_states = torch.vstack([  # mean-pooling on causal lm states
                         x[:n].mean(0, keepdims=True) for x, n in zip(hidden_states, seq_len)])
 
-                embeddings.append(hidden_states)
+                embeddings.append(hidden_states.double().cpu().numpy())
 
-        return torch.vstack(embeddings).cpu().numpy().astype(float)
+        return np.vstack(embeddings)
 
-    @functools.lru_cache(2)
     @empty_cache_on_exit
     def transform(self, D):
-        explode_titles, splits, weights = explode_user_titles(
-            D.user_in_test['_hist_items'], self.item_titles, self.gamma)
-
-        explode_embeddings = self._compute_embeddings(explode_titles.values)
+        explode_embeddings, splits, weights = explode_user_titles(  # directly use embeddings
+            D.user_in_test['_hist_items'],
+            pd.Series(self.item_embeddings.tolist(), self.item_index),
+            self.gamma, pad_title=np.zeros_like(self.item_embeddings[0]).tolist())
 
         user_embeddings = np.vstack([w @ x for w, x in zip(
-            np.split(weights, splits), np.split(explode_embeddings, splits)
+            np.split(weights, splits), np.split(np.vstack(explode_embeddings), splits)
         )]) / self.temperature
 
         return create_second_order_dataframe(
             user_embeddings, self.item_embeddings, None, self.item_biases,
-            D.user_in_test.index, self.item_titles.index, 'softplus'
+            D.user_in_test.index, self.item_index, 'softplus'
         ).reindex(D.item_in_test.index, axis=1, fill_value=0)
