@@ -238,8 +238,9 @@ class Experiment:
 
         # disable models due to missing inputs
 
-        if not ('_hist_ts' in self.D.user_in_test and self.D.horizon < float("inf")):
-            warnings.warn("disabling temporal models due to missing _hist_ts or horizon")
+        if not ('TEST_START_TIME' in self.D.user_in_test and '_hist_ts' in self.D.user_in_test
+                and self.D.horizon < float("inf")):
+            warnings.warn("disabling temporal models due to missing TEST_START_TIME, _hist_ts or horizon")
             for model in ['EMA', 'Hawkes', 'HP', 'RNN-EMA', 'RNN-Hawkes', 'RNN-HP',
                            'Transformer-EMA', 'Transformer-Hawkes', 'Transformer-HP']:
                 registered.pop(model, None)

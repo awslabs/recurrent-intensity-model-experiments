@@ -115,11 +115,6 @@ class Dataset:
         assert self.target_csr.shape == (len(self.user_in_test), len(self.item_in_test)), \
             "target shape must match with test user/item lengths"
 
-        if "_hist_items" not in self.user_in_test:
-            warnings.warn(f"{self} not applicable for sequence models.")
-        if "TEST_START_TIME" not in self.user_in_test or "_hist_ts" not in self.user_in_test:
-            warnings.warn(f"{self} not applicable for temporal models.")
-
         if hasattr(self.training_data, "event_df"):
             _check_index(self.training_data.event_df,
                          self.training_data.user_df, self.training_data.item_df)
