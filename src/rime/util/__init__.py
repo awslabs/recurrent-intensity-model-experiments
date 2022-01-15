@@ -104,7 +104,8 @@ def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
     """
     indices = []
     if hasattr(S, "collate_fn"):
-        batches = DataLoader(S, batch_size=S.batch_size, collate_fn=S[0].collate_fn)
+        batches = map(lambda i: S[i:min(len(S), i + S.batch_size)],
+                      range(0, len(S), S.batch_size))
     else:
         batches = [S]
     for s in batches:

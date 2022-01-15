@@ -13,8 +13,9 @@ dependencies:
   - numba>=0.52.0
   - matplotlib>=3.3.4
   - pytest
-  - implicit
-  - dataclasses # backport from python3.7
+  - dgl  # use dgl-cu111 for gpu access
+  - implicit  # install implicit-proc=*=gpu from conda for gpu access
+  - dataclasses  # backport from python3.7
   - backports.cached-property
   - setuptools_scm
   - seaborn>=0.11.1

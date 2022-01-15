@@ -11,9 +11,10 @@ class ItemKNN:
     def __init__(self, item_df, batch_size=100,
                  item_pop_power=1, item_pop_pseudo=0.01,
                  model_name='bert-base-uncased',  # gpt2
-                 temperature=None, gamma=0.5, text_column_name='TITLE'):
+                 pooling=None,  # cls or mean
+                 temperature=None, gamma=0.5):
 
-        assert text_column_name in item_df, f"require {text_column_name} as data(y)"
+        assert "TITLE" in item_df or "embedding" in item_df, "require TITLE or embedding"
 
         self.item_index = item_df.index
         self.item_biases = item_pop_power * np.log(item_df['_hist_len'].values + item_pop_pseudo)
@@ -23,17 +24,14 @@ class ItemKNN:
                 'bert-base-uncased': 10,
                 'gpt2': 100,
             }[model_name]
+        if pooling is None:
+            pooling = 'cls' if 'bert' in model_name else 'mean'
+        self.pooling = pooling
         self.temperature = temperature
         self.gamma = gamma
 
-        try:
-            item_df = item_df[text_column_name].apply(json.loads).to_frame()
-        except Exception:
-            pass
-
-        if isinstance(item_df[text_column_name].iloc[0], list):
-            warnings.warn(f"interpreting {text_column_name} as embedding")
-            self.item_embeddings = np.vstack(item_df[text_column_name].values)
+        if "embedding" in item_df:
+            self.item_embeddings = np.vstack(item_df["embedding"].values)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             assert self.tokenizer.padding_side == 'right', "expect right padding"
@@ -45,7 +43,7 @@ class ItemKNN:
             else:  # gpt2
                 self.model = AutoModelForCausalLM.from_pretrained(model_name)
             self.model.eval()  # eval mode
-            self.item_embeddings = self._compute_embeddings(item_df[text_column_name].values)
+            self.item_embeddings = self._compute_embeddings(item_df["TITLE"].values)
 
     @torch.no_grad()
     def _compute_embeddings(self, titles):
@@ -56,18 +54,24 @@ class ItemKNN:
             for batch in tqdm(np.split(titles, range(0, len(titles), self.batch_size)[1:])):
                 inputs = self.tokenizer(batch.tolist(), padding=True, return_tensors='pt')
                 if hasattr(self.model, 'bert'):
-                    inputs['input_ids'] = inputs['input_ids'][:, :512]
-                    inputs['attention_mask'] = inputs['attention_mask'][:, :512]
-                    inputs['token_type_ids'] = inputs['token_type_ids'][:, :512]
-
+                    for key in inputs.keys():  # 'input_ids', 'attention_mask', 'token_type_ids'
+                        inputs[key] = inputs[key][:, :512]
+                    offset = 1  # [cls] seq [sep]
                     hidden_states = self.model.bert(**inputs.to(model.device))[0]
-                    hidden_states = hidden_states[:, 0]  # cls token at beginning of sequence
-                else:  # gpt2 does not work well
-                    seq_len = inputs['attention_mask'].sum(1).tolist()
-
+                else:
+                    offset = 0
                     hidden_states = self.model.transformer(**inputs.to(model.device))[0]
-                    hidden_states = torch.vstack([  # mean-pooling on causal lm states
-                        x[:n].mean(0, keepdims=True) for x, n in zip(hidden_states, seq_len)])
+
+                if self.pooling == 'mean':
+                    segments = [slice(offset, n - offset) for n in
+                                inputs['attention_mask'].sum(1).tolist()]
+                elif self.pooling == 'cls':
+                    segments = [slice(0, 1) for _ in inputs['attention_mask']]
+                else:
+                    raise NotImplementedError
+
+                hidden_states = torch.vstack([  # mean-pooling on causal lm states
+                    x[slc].mean(0, keepdims=True) for x, slc in zip(hidden_states, segments)])
 
                 embeddings.append(hidden_states.double().cpu().numpy())
 

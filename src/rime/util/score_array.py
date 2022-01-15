@@ -96,7 +96,9 @@ class LazyScoreBase:
 
 
 def auto_cast_lazy_score(other):
-    if isinstance(other, LazyScoreBase):
+    if other is None:
+        return None  # prior_score=None -> None
+    elif isinstance(other, LazyScoreBase):
         return other
     elif isinstance(other, numbers.Number):
         return _LazyScoreScalar(other)
@@ -323,7 +325,7 @@ class LowRankDataFrame(LazyScoreBase):
             if self.act == 'exp':
                 return z.exp()
             elif self.act == 'softplus':
-                return torch.nn.Softplus()(z)
+                return torch.nn.functional.softplus(z)
             elif self.act == 'sigmoid':
                 return z.sigmoid()
             elif self.act == '_nnmf':

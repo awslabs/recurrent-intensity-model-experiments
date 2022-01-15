@@ -251,10 +251,6 @@ class Experiment:
                            'GraphConv-Base', 'GraphConv-Extra']:
                 registered.pop(model, None)
 
-        if len(self.V_extra) == 0:
-            warnings.warn("disabling GraphConv-Extra due to lack of extra validation sets")
-            registered.pop("GraphConv-Extra", None)
-
         if 'TITLE' not in self.D.training_data.item_df:
             warnings.warn("disabling zero-shot models due to missing item TITLE")
             for model in ['BayesLM-0', 'BayesLM-1', 'ItemKNN-0', 'ItemKNN-1']:
@@ -351,8 +347,10 @@ class Experiment:
 
     @cached_property
     def _graph_conv_extra(self):
-        assert self.V is not None and len(self.V_extra), \
-                            "_graph_conv_extra requires self.V and self.V_extra"
+        if len(self.V_extra) == 0:
+            warnings.warn("without V_extra, we are defaulting to _graph_conv_base")
+            return self._graph_conv_base
+
         return GraphConv(
             self.D, **self.model_hyps.get("GraphConv-Extra", {})
         ).fit(self.V, *self.V_extra)
