@@ -109,7 +109,7 @@ class LDA:
         trainer = Trainer(gpus=int(torch.cuda.is_available()))
         doc_nphi = trainer.predict(
             _LitLDA(self.model, G),
-            DataLoader(np.arange(G.num_nodes('doc')), self.batch_size),
+            DataLoader(np.arange(G.num_nodes('doc')).tolist(), self.batch_size),
         )
         doc_data = DocData(self.model.prior['doc'], torch.vstack(doc_nphi))
 

@@ -238,8 +238,9 @@ class Experiment:
 
         # disable models due to missing inputs
 
-        if not ('_hist_ts' in self.D.user_in_test and self.D.horizon < float("inf")):
-            warnings.warn("disabling temporal models due to missing _hist_ts or horizon")
+        if not ('TEST_START_TIME' in self.D.user_in_test and '_hist_ts' in self.D.user_in_test
+                and self.D.horizon < float("inf")):
+            warnings.warn("disabling temporal models due to missing TEST_START_TIME, _hist_ts or horizon")
             for model in ['EMA', 'Hawkes', 'HP', 'RNN-EMA', 'RNN-Hawkes', 'RNN-HP',
                            'Transformer-EMA', 'Transformer-Hawkes', 'Transformer-HP']:
                 registered.pop(model, None)
@@ -249,10 +250,6 @@ class Experiment:
             for model in ['HP', 'RNN-HP', 'Transformer-HP',
                            'GraphConv-Base', 'GraphConv-Extra']:
                 registered.pop(model, None)
-
-        if len(self.V_extra) == 0:
-            warnings.warn("disabling GraphConv-Extra due to lack of extra validation sets")
-            registered.pop("GraphConv-Extra", None)
 
         if 'TITLE' not in self.D.training_data.item_df:
             warnings.warn("disabling zero-shot models due to missing item TITLE")
@@ -345,13 +342,15 @@ class Experiment:
     def _graph_conv_base(self):
         assert self.V is not None, "_graph_conv_base requires self.V"
         return GraphConv(
-            self.D, *self.model_hyps.get("GraphConv-Base", {})
+            self.D, **self.model_hyps.get("GraphConv-Base", {})
         ).fit(self.V)
 
     @cached_property
     def _graph_conv_extra(self):
-        assert self.V is not None and len(self.V_extra), \
-                            "_graph_conv_extra requires self.V and self.V_extra"
+        if len(self.V_extra) == 0:
+            warnings.warn("without V_extra, we are defaulting to _graph_conv_base")
+            return self._graph_conv_base
+
         return GraphConv(
             self.D, **self.model_hyps.get("GraphConv-Extra", {})
         ).fit(self.V, *self.V_extra)

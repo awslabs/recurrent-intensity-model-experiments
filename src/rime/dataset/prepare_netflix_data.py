@@ -53,5 +53,5 @@ def prepare_netflix_data(
             extra_df,
             V.training_data.item_df[['_siz']],
             test_start - valid_start,
-        ))
+            **kw))
     return (D, V, *V_extra)

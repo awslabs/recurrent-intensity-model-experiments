@@ -134,11 +134,11 @@ class _LitCVX(LightningModule):
         u, u_iters = dual_solve_u(
             self.v.detach(), batch, self.alpha, self.epsilon, gtol=self.gtol)
         u = dual_clip(u, "ub")
-        self.log("u_iters", u_iters, prog_bar=True)
+        self.log("u_iters", float(u_iters), prog_bar=True)
 
         v, v_iters = dual_solve_u(u, batch.T, self.beta, self.epsilon, gtol=self.gtol)
         v = dual_clip(v, self.constraint_type)
-        self.log("v_iters", v_iters, prog_bar=True)
+        self.log("v_iters", float(v_iters), prog_bar=True)
 
         loss = ((self.v - v)**2).mean() / 2
         self.log("train_loss", loss)

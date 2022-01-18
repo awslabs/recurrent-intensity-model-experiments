@@ -104,7 +104,8 @@ def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
     """
     indices = []
     if hasattr(S, "collate_fn"):
-        batches = DataLoader(S, batch_size=S.batch_size, collate_fn=S.collate_fn)
+        batches = map(lambda i: S[i:min(len(S), i + S.batch_size)],
+                      range(0, len(S), S.batch_size))
     else:
         batches = [S]
     for s in batches:
@@ -266,12 +267,16 @@ def get_top_items(item_df, max_item_size, sort_by='_hist_len'):
 
 def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_title='???'):
     """ explode last few user events and match with item titles;
-    return splits and discount weights """
+    return splits and discount weights; empty user_hist will be turned into a single pad_title. """
 
-    keep_last = int(np.log(min_gamma) / np.log(gamma)) + 1  # default=4
+    keep_last = int(np.log(min_gamma) / np.log(np.clip(gamma, 1e-10, 1 - 1e-10))) + 1  # default=4
 
-    explode_titles = user_hist.apply(lambda x: x[-keep_last:]).explode().to_frame('ITEM_ID') \
-        .join(item_titles.to_frame('TITLE'), on='ITEM_ID')['TITLE'].fillna(pad_title)
+    explode_titles = pd.Series([x[-keep_last:] for x in user_hist.values]).explode() \
+        .to_frame('ITEM_ID').join(item_titles.to_frame('TITLE'), on='ITEM_ID')['TITLE']
+    explode_titles = pd.Series(
+        [x if not na else pad_title for x, na in
+         zip(explode_titles.tolist(), explode_titles.isna().tolist())],
+        index=explode_titles.index)
 
     splits = np.where(
         np.array(explode_titles.index.values[1:]) != np.array(explode_titles.index.values[:-1])
@@ -281,7 +286,7 @@ def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_ti
                         for x in np.split(np.ones(len(explode_titles)), splits)])
     weights = np.hstack([x / x.sum() for x in np.split(weights, splits)])
 
-    return explode_titles, splits, weights
+    return explode_titles.values, splits, weights
 
 
 class _LitValidated(LightningModule):

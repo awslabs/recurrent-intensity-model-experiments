@@ -55,8 +55,7 @@ class RNN:
 
         batches = self.trainer.predict(
             self.model,
-            dataloaders=DataLoader(dataset, 1000, collate_fn=collate_fn))
-        delattr(self.model, "predict_dataloader")
+            dataloaders=DataLoader(dataset.tolist(), 1000, collate_fn=collate_fn))
 
         user_hidden, user_log_bias = [np.concatenate(x) for x in zip(*batches)]
         ind_logits = np.hstack([
@@ -89,9 +88,6 @@ class RNN:
             DataLoader(train_set, self.batch_size, collate_fn=collate_fn, shuffle=True),
             DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
         self.model._load_best_checkpoint("best")
-
-        delattr(self.model, 'train_dataloader')
-        delattr(self.model, 'val_dataloader')
 
         for name, param in self.model.named_parameters():
             print(name, param.data.shape)

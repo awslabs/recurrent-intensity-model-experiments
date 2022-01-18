@@ -103,7 +103,7 @@ class BayesLM:
         with _to_cuda(self.model) as model:
             scores = []
 
-            for x in tqdm(explode_titles.values):
+            for x in tqdm(explode_titles):
                 if self.candidate_selection_method == 'greedy':
                     ind = np.arange(num_candidates)
                 else:

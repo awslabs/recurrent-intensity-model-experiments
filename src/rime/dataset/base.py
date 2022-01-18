@@ -108,25 +108,25 @@ class Dataset:
     training_data: argparse.Namespace  # mock this class with the first four attributes
     horizon: float = float("inf")
     prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
+    default_user_rec_top_c: int = None
+    default_item_rec_top_k: int = None
 
     def __post_init__(self):
         assert self.target_csr.shape == (len(self.user_in_test), len(self.item_in_test)), \
             "target shape must match with test user/item lengths"
 
-        if "_hist_items" not in self.user_in_test:
-            warnings.warn(f"{self} not applicable for sequence models.")
-        if "TEST_START_TIME" not in self.user_in_test or "_hist_ts" not in self.user_in_test:
-            warnings.warn(f"{self} not applicable for temporal models.")
-
-        _check_index(self.training_data.event_df,
-                     self.training_data.user_df, self.training_data.item_df)
+        if hasattr(self.training_data, "event_df"):
+            _check_index(self.training_data.event_df,
+                         self.training_data.user_df, self.training_data.item_df)
 
         if self.prior_score is not None:
             assert (self.prior_score.shape == self.target_csr.shape), \
                 "prior_score shape must match with test target_csr"
 
-        self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
-        self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
+        if self.default_user_rec_top_c is None:
+            self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
+        if self.default_item_rec_top_k is None:
+            self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
         self.user_ppl_baseline = perplexity(self.user_in_test['_hist_len'])
         self.item_ppl_baseline = perplexity(self.item_in_test['_hist_len'])
 

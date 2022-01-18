@@ -42,5 +42,5 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
         D.training_data.user_df['_Tmin'].to_frame('TEST_START_TIME') + horizon / 2,
         D.training_data.item_df[['_siz']],  # just need the index
         horizon / 2,
-    )
+        **kw)
     return D, V, V0
