@@ -1,6 +1,7 @@
 name: rime36
 channels:
   - conda-forge
+  - dglteam
 dependencies:
   - numpy>=1.9.*
   - numpydoc>=0.7.0
