@@ -26,15 +26,13 @@ class _GraphConv(_BPR_Common):
                  n_negatives=10, lr=1, weight_decay=1e-5,
                  user_conv_model='GCN',  # plain_average
                  user_embeddings=None, item_embeddings=None, item_zero_bias=False,
-                 recency_boundary_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
-                 **kw):
+                 recency_boundary_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf")):
 
         super().__init__(user_rec, item_rec, n_negatives, lr, weight_decay)
 
-        if item_embeddings is not None or user_embeddings is not None:
+        if item_embeddings is not None:
             warnings.warn("setting no_components according to provided embeddings")
-            no_components = item_embeddings.shape[-1] if item_embeddings is not None else \
-                            user_embeddings.shape[-1]
+            no_components = item_embeddings.shape[-1]
 
         self.item_encoder = torch.nn.Embedding(n_items, no_components)
         if item_embeddings is not None:
