@@ -98,7 +98,9 @@ class _GraphConv(_BPR_Common):
         recency_buckets = torch.bucketize(user_recency, self.recency_boundaries)
         return self.recency_encoder(recency_buckets)[i]
 
-    def on_epoch_start(self):
+    def on_fit_start(self):
+        if hasattr(self, "prior_score") and not hasattr(self, "prior_score_T"):
+            self.prior_score_T = [getattr(p, "T", None) for p in self.prior_score]
         self.G_list = [G.to(self.device) for G in self.G_list]
 
     def training_step(self, batch, batch_idx):
@@ -180,7 +182,7 @@ class GraphConv:
 
         G = self._extract_features(V)
 
-        return dataset, G, user_proposal, item_proposal, V.prior_score
+        return dataset, G, user_proposal, item_proposal, getattr(V, "prior_score", None)
 
     @empty_cache_on_exit
     def fit(self, *V_arr):
@@ -206,8 +208,10 @@ class GraphConv:
         model.G_list = G_list
         model.user_proposal = user_proposal
         model.item_proposal = item_proposal
-        model.prior_score = [auto_cast_lazy_score(p) for p in prior_score]
-        model.prior_score_T = [auto_cast_lazy_score(p).T for p in prior_score]
+        if self.sample_with_prior:
+            model.prior_score = [auto_cast_lazy_score(p) for p in prior_score]
+        else:
+            model.prior_score = [None for p in prior_score]
 
         trainer.fit(
             model,

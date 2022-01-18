@@ -89,6 +89,10 @@ class _BPR(_BPR_Common):
             self.item_encoder.weight.requires_grad = False
             self.item_encoder.weight.copy_(torch.as_tensor(item_embeddings))
 
+    def on_fit_start(self):
+        if hasattr(self, "prior_score") and not hasattr(self, "prior_score_T"):
+            self.prior_score_T = getattr(self.prior_score, "T", None)
+
     def training_step(self, batch, batch_idx):
         loss = self._bpr_training_step(batch, self.user_proposal, self.item_proposal,
                                        self.prior_score, self.prior_score_T)
@@ -136,11 +140,10 @@ class BPR(LightFM_BPR):
         model.user_proposal = (D.user_df['_hist_len'].values + 0.1) ** self.sample_with_posterior
         model.item_proposal = (D.item_df['_hist_len'].values + 0.1) ** self.sample_with_posterior
 
-        if self.sample_with_prior and hasattr(D, 'prior_score'):
-            model.prior_score = auto_cast_lazy_score(D.prior_score)
-            model.prior_score_T = auto_cast_lazy_score(D.prior_score).T
+        if self.sample_with_prior:
+            model.prior_score = auto_cast_lazy_score(getattr(D, "prior_score", None))
         else:
-            model.prior_score = model.prior_score_T = None
+            model.prior_score = None
 
         trainer = Trainer(
             max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
