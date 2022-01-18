@@ -11,7 +11,7 @@ setup(
     # To work in github, we need more packages via `conda env update --file environment.yml`
     install_requires=[
         "torch>=1.7.1",  # torch==1.7.1+cu101
-        "pytorch-lightning>=1.3.8,<1.5",
+        "pytorch-lightning>=1.3.8",
         "numba>=0.52.0",
         "lightfm>=1.16",
         "pyarrow>=0.13.0",
