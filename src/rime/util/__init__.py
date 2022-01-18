@@ -267,7 +267,7 @@ def get_top_items(item_df, max_item_size, sort_by='_hist_len'):
 
 def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_title='???'):
     """ explode last few user events and match with item titles;
-    return splits and discount weights """
+    return splits and discount weights; empty user_hist will be turned into a single pad_title. """
 
     keep_last = int(np.log(min_gamma) / np.log(np.clip(gamma, 1e-10, 1 - 1e-10))) + 1  # default=4
 

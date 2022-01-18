@@ -133,7 +133,7 @@ class GraphConv:
         self._model_kw = {'horizon': D.horizon}
         if "embedding" in D.training_data.item_df:
             item_embeddings = np.vstack(D.training_data.item_df["embedding"]).astype('float32')
-            item_embeddings = np.vstack([np.zeros_like(item_embeddings[:1]), item_embeddings])
+            item_embeddings = np.pad(item_embeddings, ((1, 0), (0, 0)), constant_values=0)
             self._model_kw["item_embeddings"] = item_embeddings
         self._model_kw.update(kw)
 
@@ -194,8 +194,8 @@ class GraphConv:
         dataset = np.vstack(dataset)
 
         if "embedding" in V_arr[0].user_in_test:
-            self._model_kw["user_embeddings"] = np.ravel(
-                V_arr[0].user_in_test['embedding'].iloc[0])[None, :]
+            self._model_kw["user_embeddings"] = np.vstack(
+                V_arr[0].user_in_test['embedding'].iloc[:1])  # just need shape[1]
         model = _GraphConv(None, len(self._padded_item_list), **self._model_kw)
 
         N = len(dataset)
@@ -221,19 +221,17 @@ class GraphConv:
         for attr in ['G_list', 'user_proposal', 'item_proposal', 'prior_score', 'prior_score_T']:
             delattr(model, attr)
 
-        self.item_index = self._padded_item_list
-        self.item_embeddings = model.item_encoder.weight.detach().cpu().numpy() \
-            if hasattr(model.item_encoder, 'weight') else \
-            model.item_encoder[1](model.item_encoder[0].weight).detach().cpu().numpy()
-        self.item_biases = model.item_bias_vec.weight.detach().cpu().numpy().ravel()
+        src_j = torch.arange(len(self._padded_item_list))
+        self.item_embeddings = model.item_encoder(src_j).detach().numpy()
+        self.item_biases = model.item_bias_vec(src_j).detach().numpy().ravel()
         self.model = model
         return self
 
     def transform(self, D):
         G = self._extract_features(D)
         i = torch.arange(G.num_nodes('user'))
-        user_embeddings = self.model.user_encoder(i, G).detach().cpu().numpy()
-        user_biases = self.model.user_bias_vec(i, G).detach().cpu().numpy().ravel()
+        user_embeddings = self.model.user_encoder(i, G).detach().numpy()
+        user_biases = self.model.user_bias_vec(i, G).detach().numpy().ravel()
 
         S = create_second_order_dataframe(
             user_embeddings, self.item_embeddings, user_biases, self.item_biases,
