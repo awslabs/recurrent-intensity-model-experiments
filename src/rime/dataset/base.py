@@ -2,7 +2,7 @@ import pandas as pd, numpy as np
 import scipy.sparse as sps
 import warnings, dataclasses, argparse
 from ..util import (create_matrix, perplexity, timed, groupby_collect,
-                    matrix_reindex, fill_factory_inplace)
+                    matrix_reindex, fill_factory_inplace, LazyScoreBase)
 
 
 def _check_index(event_df, user_df, item_df, allow_user_duplicates=False):
@@ -191,6 +191,9 @@ class Dataset:
 
         if self.prior_score is None:
             prior_score = None
+        elif isinstance(self.prior_score, LazyScoreBase):
+            prior_score = self.prior_score.reindex(
+                index, axis, fill_value=0, old_index=old_index)
         else:
             prior_score = matrix_reindex(
                 self.prior_score, old_index, index, axis, fill_value=0)
