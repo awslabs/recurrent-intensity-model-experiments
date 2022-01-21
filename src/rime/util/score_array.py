@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd
-import torch, dataclasses, warnings, operator, builtins, numbers, os
+import torch, dataclasses, warnings, operator, builtins, numbers, os, itertools
 from typing import List
 from torch.utils.data import DataLoader
 import scipy.sparse as sps
@@ -296,7 +296,12 @@ class RandScore(LazyScoreBase):
 
     def reindex(self, new_index, axis, fill_value, old_index):
         seeds = [self.row_seeds, self.col_seeds]
-        seeds[axis] = matrix_reindex(seeds[axis], old_index, new_index, 0, fill_value)
+        seed_map = {i: s for i, s in zip(old_index, seeds[axis])}
+        seeder = itertools.count(max(seed_map.values()))
+        for i in new_index:
+            if i not in seed_map:
+                seed_map[i] = next(seeder)
+        seeds[axis] = np.array([seed_map[i] for i in new_index])
         return self.__class__(*seeds)
 
 
