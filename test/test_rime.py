@@ -77,8 +77,8 @@ def test_solve_cvx(maximization, expect, **kw):
 
 def test_score_array(shape=(3, 4), device="cpu"):
     from rime.util.score_array import LowRankDataFrame, RandScore, score_op
-    index = np.arange(shape[0]) + 2
-    columns = np.arange(shape[1]) + 5
+    index = np.arange(shape[0]) + 2    # [2, 3, 4]
+    columns = np.arange(shape[1]) + 5  # [5, 6, 7, 8]
 
     a = LowRankDataFrame(
         np.zeros((len(index), 2)), np.zeros((len(columns), 2)), index, columns, 'exp'
@@ -94,3 +94,6 @@ def test_score_array(shape=(3, 4), device="cpu"):
     score_op((a + b) * c, "max", device)
     score_op(a.reindex(np.asarray([3, 4, 5]), axis=0, fill_value=0), "max", device)
     score_op(a + RandScore.like(b) * 2, "max", device)
+    score_op(((a + b) * c + RandScore.like(b) + 3)
+             .reindex(np.asarray([3, 4, 5]), axis=0, fill_value=0, old_index=index),
+             "max", device)
