@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd
-import torch, dataclasses, warnings, operator, builtins, numbers, os
+import torch, dataclasses, warnings, operator, builtins, numbers, os, itertools
 from typing import List
 from torch.utils.data import DataLoader
 import scipy.sparse as sps
@@ -69,6 +69,10 @@ class LazyScoreBase:
         """ List[LazyScoreBase] -> LazyScoreBase; used in pytorch dataloader """
         raise NotImplementedError
 
+    def reindex(self, new_index, axis, fill_value, old_index):
+        """ reindexing is extended from low-rank matrix to every applicable subclass """
+        raise NotImplementedError
+
     def __len__(self):
         return self.shape[0]
 
@@ -131,6 +135,10 @@ class _LazyScoreScalar(LazyScoreBase):
     def collate_fn(cls, D):
         return D[0]
 
+    def reindex(self, new_index, axis, fill_value, old_index):
+        warnings.warn("reindexing ignored on scalar values")
+        return self
+
 
 class LazyScoreSparseMatrix(LazyScoreBase):
     def __init__(self, c):
@@ -160,6 +168,10 @@ class LazyScoreSparseMatrix(LazyScoreBase):
     @classmethod
     def collate_fn(cls, D):
         return cls(sps.vstack([d.c for d in D]))
+
+    def reindex(self, new_index, axis, fill_value, old_index):
+        new_c = matrix_reindex(self.c, old_index, new_index, axis, fill_value)
+        return self.__class__(new_c)
 
 
 class _LazyScoreSparseDictFast(LazyScoreBase):
@@ -199,6 +211,10 @@ class LazyScoreDenseMatrix(LazyScoreBase):
     def collate_fn(cls, D):
         return cls(np.vstack([d.c for d in D]))
 
+    def reindex(self, new_index, axis, fill_value, old_index):
+        new_c = matrix_reindex(self.c, old_index, new_index, axis, fill_value)
+        return self.__class__(new_c)
+
 
 class LazyScoreExpression(LazyScoreBase):
     """ Tree representation of score expression until final eval """
@@ -228,6 +244,11 @@ class LazyScoreExpression(LazyScoreBase):
         data = zip(*[b.children for b in batch])
         children = [c.collate_fn(D) for c, D in zip(first.children, data)]
         return cls(first.op, children)
+
+    def reindex(self, new_index, axis, fill_value, old_index):
+        children = [c.reindex(new_index, axis, fill_value, old_index)
+                    for c in self.children]
+        return self.__class__(self.op, children)
 
 
 @dataclasses.dataclass(repr=False)
@@ -272,6 +293,16 @@ class RandScore(LazyScoreBase):
     @classmethod
     def collate_fn(cls, batch):
         return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds)
+
+    def reindex(self, new_index, axis, fill_value, old_index):
+        seeds = [self.row_seeds, self.col_seeds]
+        seed_map = {i: s for i, s in zip(old_index, seeds[axis])}
+        seeder = itertools.count(max(seed_map.values()))
+        for i in new_index:
+            if i not in seed_map:
+                seed_map[i] = next(seeder)
+        seeds[axis] = np.array([seed_map[i] for i in new_index])
+        return self.__class__(*seeds)
 
 
 @dataclasses.dataclass(repr=False)
@@ -367,10 +398,13 @@ class LowRankDataFrame(LazyScoreBase):
 
     # new method only for this class
 
-    def reindex(self, index, axis=0, fill_value=float("nan")):
+    def reindex(self, index, axis=0, fill_value=float("nan"), old_index=None):
         """ reindex with new hidden dim to express fill_value(0) as act(-inf * 1) """
         if axis == 1:
             return self.T.reindex(index, fill_value=fill_value).T
+
+        assert old_index is None or np.all(self.index == old_index), \
+                f"old index must be compatible {self.index} vs {old_index}"
 
         ind_logits = np.vstack([self.ind_logits, self.ind_default])
         ind_logits = np.hstack([ind_logits, np.zeros_like(ind_logits[:, :1])])
