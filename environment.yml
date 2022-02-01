@@ -1,6 +1,5 @@
-name: rime37
+name: rime_env
 channels:
-  - main
   - conda-forge
   - dglteam
 dependencies:
@@ -18,6 +17,6 @@ dependencies:
   - dgl  # use dgl-cu111 for gpu access
   - implicit  # install implicit-proc=*=gpu from conda for gpu access
   # - dataclasses  # backport from python3.7
-  - backports.cached-property  # backport from python3.8
+  # - backports.cached-property  # backport from python3.8
   # - setuptools_scm
   - seaborn>=0.11.1
