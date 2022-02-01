@@ -1,4 +1,4 @@
-name: rime36
+name: rime37
 channels:
   - conda-forge
   - dglteam
