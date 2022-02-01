@@ -21,6 +21,10 @@ setup(
         # "dgl",  # pip install dgl-cu111 # or matching cuda version with torch
         "transformers>=4.12.2",
         "seaborn>=0.11.1",
+        "scipy>=0.19",
+        "scikit-learn>=0.24.2",
+        "pandas>=1.1.5",
+        "matplotlib>=3.3.4",
     ],
     use_scm_version=True,
     setup_requires=['setuptools_scm'],
