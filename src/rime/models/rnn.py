@@ -24,7 +24,7 @@ class RNN:
         self._truncated_input_steps = truncated_input_steps
         self._tokenize = {k: i for i, k in enumerate(self._padded_item_list)}
         self._collate_fn = functools.partial(
-            _collate_fn, truncated_input_steps=truncated_input_steps)
+            _collate_fn, truncated_input_steps=truncated_input_steps, tbptt=True)
 
         self.model = _LitRNNModel(
             'GRU', len(self._padded_item_list),
@@ -99,7 +99,7 @@ class RNN:
         return self
 
 
-def _collate_fn(batch, truncated_input_steps, training, tbptt=True):
+def _collate_fn(batch, truncated_input_steps, training, tbptt):
     if truncated_input_steps > 0:
         batch = [seq[-truncated_input_steps:] for seq in batch]
     batch = [torch.tensor(seq, dtype=torch.int64) for seq in batch]
