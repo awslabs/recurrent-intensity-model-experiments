@@ -37,7 +37,7 @@ jobs:
         cat environment.yml
     - name: Install dependencies
       run: |
-        conda update -n base -c defaults conda
+        # conda update -n base -c defaults conda
         conda env update --file environment.yml --name base
         # conda activate rime37
         conda list

@@ -4,11 +4,11 @@ channels:
   - dglteam
 dependencies:
   - numpy>=1.9.*
-  - numpydoc>=0.7.0
+  # - numpydoc>=0.7.0
   - scipy>=0.19.*
   - scikit-learn>=0.24.2
   - pandas>=1.1.5
-  - swig>=4.0.0
+  # - swig>=4.0.0
   - pytorch>=1.7.1
   - lightfm>=1.16
   - numba>=0.52.0
@@ -17,6 +17,6 @@ dependencies:
   - dgl  # use dgl-cu111 for gpu access
   - implicit  # install implicit-proc=*=gpu from conda for gpu access
   # - dataclasses  # backport from python3.7
-  - backports.cached-property
-  - setuptools_scm
+  - backports.cached-property  # backport from python3.8
+  # - setuptools_scm
   - seaborn>=0.11.1
