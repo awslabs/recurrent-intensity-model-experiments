@@ -2,10 +2,10 @@ import numpy as np
 import functools, warnings
 
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pack_sequence, pad_packed_sequence
 
-from .third_party.word_language_model.model import RNNModel
+from .third_party.word_language_model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
@@ -22,14 +22,13 @@ class RNN:
     ):
         self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
         self._truncated_input_steps = truncated_input_steps
+        self._tokenize = {k: i for i, k in enumerate(self._padded_item_list)}
         self._collate_fn = functools.partial(
-            _collate_fn,
-            tokenize={k: i for i, k in enumerate(self._padded_item_list)},
-            truncated_input_steps=truncated_input_steps)
+            _collate_fn, truncated_input_steps=truncated_input_steps)
 
         self.model = _LitRNNModel(
             'GRU', len(self._padded_item_list),
-            num_hidden, num_hidden, nlayers, 0, True,
+            num_hidden, num_hidden, nlayers, dropout=0, tie_weights=True,
             truncated_bptt_steps=truncated_bptt_steps)
 
         if load_from_checkpoint is not None:
@@ -42,20 +41,26 @@ class RNN:
         print("trainer log at:", self.trainer.logger.log_dir)
         self.batch_size = batch_size
 
-    @functools.lru_cache(2)
+    def _extract_data(self, user_df):
+        return user_df['_hist_items'].apply(
+            lambda x: [0] + [self._tokenize[i] for i in x if i in self._tokenize]).values
+
     @empty_cache_on_exit
     @torch.no_grad()
     def transform(self, D):
-        dataset = D.user_in_test['_hist_items'].values
+        dataset = self._extract_data(D.user_in_test)
         collate_fn = functools.partial(self._collate_fn, training=False)
-        m, n_events, sample_y = _get_dataset_stats(dataset, collate_fn)
+        m, n_events, sample = _get_dataset_stats(dataset, collate_fn)
         print(f"transforming {m} users with {n_events} events, "
               f"truncated@{self._truncated_input_steps} per user")
-        print(f"sample_y={sample_y}")
+        print(f"sample[1]={sample[1].tolist()}")
+        print(f"sample[0]={sample[0].tolist()}")
 
+        if hasattr(dataset, "tolist"):  # pytorch lightning bug cannot take array input
+            dataset = dataset.tolist()
         batches = self.trainer.predict(
             self.model,
-            dataloaders=DataLoader(dataset.tolist(), 1000, collate_fn=collate_fn))
+            dataloaders=DataLoader(dataset, 1000, collate_fn=collate_fn))
 
         user_hidden, user_log_bias = [np.concatenate(x) for x in zip(*batches)]
         ind_logits = np.hstack([
@@ -75,12 +80,12 @@ class RNN:
 
     @empty_cache_on_exit
     def fit(self, D):
-        dataset = D.user_df[D.user_df['_hist_len'] > 0]['_hist_items'].values
+        dataset = self._extract_data(D.user_df[D.user_df['_hist_len'] > 0])
         collate_fn = functools.partial(self._collate_fn, training=True)
-        m, n_events, sample_y = _get_dataset_stats(dataset, collate_fn)
+        m, n_events, sample = _get_dataset_stats(dataset, collate_fn)
         print(f"fitting {m} users with {n_events} events, "
               f"truncated@{self._truncated_input_steps} per user")
-        print(f"sample_y={sample_y}")
+        print(f"sample[1]={sample[1].tolist()}")
 
         train_set, valid_set = default_random_split(dataset)
         self.trainer.fit(
@@ -94,14 +99,16 @@ class RNN:
         return self
 
 
-def _collate_fn(batch, tokenize, truncated_input_steps, training):
+def _collate_fn(batch, truncated_input_steps, training, tbptt=True):
     if truncated_input_steps > 0:
         batch = [seq[-truncated_input_steps:] for seq in batch]
-    batch = [[0] + [tokenize[x] for x in seq if x in tokenize] for seq in batch]
     batch = [torch.tensor(seq, dtype=torch.int64) for seq in batch]
-    batch, lengths = pad_packed_sequence(pack_sequence(batch, False))
+    batch, lengths = pad_packed_sequence(pack_sequence(batch, enforce_sorted=False))
     if training:
-        return (batch[:-1].T, batch[1:].T)  # TBPTT assumes NT layout
+        if tbptt:
+            return (batch[:-1].T, batch[1:].T)  # TBPTT assumes NT layout
+        else:
+            return (batch[:-1], batch[1:])  # TNC layout
     else:
         return (batch, lengths)  # RNN default TN layout
 
@@ -110,7 +117,7 @@ def _get_dataset_stats(dataset, collate_fn):
     truncated_input_steps = collate_fn.keywords['truncated_input_steps']
     n_events = sum([min(truncated_input_steps, len(x)) for x in dataset])
     sample = next(iter(DataLoader(dataset, 2, collate_fn=collate_fn, shuffle=True)))
-    return len(dataset), n_events, sample[1]
+    return len(dataset), n_events, sample
 
 
 class _LitRNNModel(_LitValidated):
@@ -124,14 +131,7 @@ class _LitRNNModel(_LitValidated):
     def forward(self, batch):
         """ output user embedding at lengths-1 positions """
         TN_layout, lengths = batch
-        hiddens = self.model.init_hidden(len(lengths))
-        TNC_out, _ = self.model.rnn(self.model.encoder(TN_layout), hiddens)
-        return self._decode_last(TNC_out, lengths)
-
-    def _decode_last(self, TNC_out, lengths):
-        last_hidden = TNC_out[lengths - 1, np.arange(len(lengths))]
-        pred_logits = self.model.decoder(last_hidden)
-        log_bias = -pred_logits.logsumexp(1)
+        last_hidden, log_bias = self.model.forward_last_prediction(TN_layout, lengths)
         return last_hidden.cpu().numpy(), log_bias.cpu().numpy()
 
     def configure_optimizers(self):

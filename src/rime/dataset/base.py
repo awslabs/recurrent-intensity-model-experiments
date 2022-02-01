@@ -9,10 +9,11 @@ def _check_index(event_df, user_df, item_df, allow_user_duplicates=False):
     assert not user_df.index.has_duplicates or allow_user_duplicates, \
         "allow one row per user for autoregressive training"
     assert not item_df.index.has_duplicates, "assume one entry per item"
-    assert event_df['USER_ID'].isin(user_df.index).all(), \
-        "user_df must include all users in event_df"
-    assert event_df['ITEM_ID'].isin(item_df.index).all(), \
-        "item_df must include all items in event_df"
+    if event_df is not None:
+        assert event_df['USER_ID'].isin(user_df.index).all(), \
+            "user_df must include all users in event_df"
+        assert event_df['ITEM_ID'].isin(item_df.index).all(), \
+            "item_df must include all items in event_df"
 
 
 def _check_more_inputs(event_df, user_df, item_df):
@@ -160,7 +161,7 @@ class Dataset:
                 'avg target users': self.target_csr.sum(axis=0).mean(),
             },
             'event_df': {
-                '# train events': len(self.training_data.event_df),
+                '# train events': self.training_data.user_df['_hist_len'].sum(),
                 '# test events': self.target_csr.sum(),
                 'default_user_rec_top_c': self.default_user_rec_top_c,
                 'default_item_rec_top_k': self.default_item_rec_top_k,

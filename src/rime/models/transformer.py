@@ -1,5 +1,5 @@
 import torch, functools, numpy as np
-from .third_party.word_language_model.model import TransformerModel
+from .third_party.word_language_model import TransformerModel
 from .rnn import (RNN, Trainer, _LitRNNModel, _LitValidated, _collate_fn, LearningRateMonitor,
                   get_top_items)
 
@@ -21,16 +21,6 @@ class _LitTransformerModel(_LitRNNModel, _LitValidated):
         self.log("train_loss", loss)
         return loss
 
-    def forward(self, batch):
-        """ output user embedding at lengths-1 positions """
-        TN_inp, lengths = batch
-        mask = self.model._generate_square_subsequent_mask(len(TN_inp)).to(TN_inp.device)
-
-        TNC_enc = self.model.encoder(TN_inp) * np.sqrt(self.model.ninp)
-        TNC_enc = self.model.pos_encoder(TNC_enc)
-        TNC_out = self.model.transformer_encoder(TNC_enc, mask)
-        return self._decode_last(TNC_out, lengths)
-
 
 class Transformer(RNN):
     def __init__(
@@ -38,19 +28,18 @@ class Transformer(RNN):
         num_hidden=128, nlayers=2, max_epochs=20, nhead=2, lr=0.1 / 4,
         gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, batch_size=64,
-        load_from_checkpoint=None
+        load_from_checkpoint=None, tie_weights=True,
     ):
 
         self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
         self._truncated_input_steps = truncated_input_steps
+        self._tokenize = {k: i for i, k in enumerate(self._padded_item_list)}
         self._collate_fn = functools.partial(
-            _collate_fn,
-            tokenize={k: i for i, k in enumerate(self._padded_item_list)},
-            truncated_input_steps=truncated_input_steps)
+            _collate_fn, truncated_input_steps=truncated_input_steps)
 
         self.model = _LitTransformerModel(
             len(self._padded_item_list),
-            num_hidden, nhead, num_hidden, nlayers, 0, lr=lr)
+            num_hidden, nhead, num_hidden, nlayers, 0, lr=lr, tie_weights=tie_weights)
 
         if load_from_checkpoint is not None:
             self.model.load_state_dict(

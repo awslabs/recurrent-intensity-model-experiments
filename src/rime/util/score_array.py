@@ -325,6 +325,7 @@ class LowRankDataFrame(LazyScoreBase):
             self.col_default = np.zeros_like(self.col_logits[0])
 
         assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
+        assert self.ind_logits.dtype == self.col_logits.dtype, "check dtype"
         assert self.ind_logits.shape[0] == len(self.index), "check index"
         assert self.col_logits.shape[0] == len(self.columns), "check columns"
         assert self.act in ['exp', 'softplus', 'sigmoid', '_nnmf'], \
