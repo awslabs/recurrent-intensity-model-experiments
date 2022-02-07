@@ -66,7 +66,8 @@ def _reindex_user_hist(user_df, index, factory={
     return user_df
 
 
-def _augment_user_hist(user_df, event_df):
+def _augment_user_hist(user_df, event_df,
+                       extra_collect={"TIMESTAMP": "_hist_ts"}):
     """ extract user histories from event_df before the respective TEST_START_TIME;
         append columns: _hist_items, _hist_ts, _hist_len
     """
@@ -77,8 +78,9 @@ def _augment_user_hist(user_df, event_df):
         )
         return _reindex_user_hist(hist, user_df.index, {None: list})
 
-    user_df = user_df.join(fn("ITEM_ID").to_frame("_hist_items")) \
-                     .join(fn("TIMESTAMP").to_frame("_hist_ts"))
+    user_df = user_df.join(fn("ITEM_ID").to_frame("_hist_items"))
+    for k, v in extra_collect.items():
+        user_df = user_df.join(fn(k).to_frame(v))
 
     user_df['_hist_len'] = user_df['_hist_items'].apply(len)
     return user_df
