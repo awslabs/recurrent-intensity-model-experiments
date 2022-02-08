@@ -28,7 +28,6 @@ class Hawkes:
         print(pd.DataFrame(self._learned_coeffs))
         return self
 
-    @functools.lru_cache(1)
     def transform(self, D, state_only=False):
         X = D.user_in_test.apply(lambda x: self._input_fn(
             x['_hist_ts'], x['TEST_START_TIME'], training=False), axis=1).tolist()

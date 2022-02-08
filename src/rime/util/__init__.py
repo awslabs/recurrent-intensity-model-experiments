@@ -166,27 +166,46 @@ def extract_user_item(event_df):
     return (user_df, item_df)
 
 
-def groupby_collect(series):
+def groupby_unexplode(series, index=None, return_splits=False):
     """
-    >>> groupby_collect(pd.Series([1,2,3,4,5], index=[1,1,2,3,3])).to_dict()
+    assume the input is an exploded dataframe with block-wise indices
+    >>> groupby_unexplode(pd.Series([1,2,3,4,5], index=[1,1,2,3,3])).to_dict()
     {1: [1, 2], 2: [3], 3: [4, 5]}
+    >>> groupby_unexplode(pd.Series([1,2,3,4,5], index=[1,1,2,3,3]), index=[0,1,-1,2,3,4]).to_dict()
+    {0: [], 1: [1, 2], -1: [], 2: [3], 3: [4, 5], 4: []}
     """
-    last_i = None
-    for i in series.index.values:
-        if last_i is not None and last_i > i:
-            warnings.warn("unsorted input to groupby_collect may be inefficient")
-            series = series.sort_index(kind='mergesort')
-            break
-        last_i = i
+    if len(series) == 0:
+        return pd.Series(index=index)
 
-    splits = np.where(
-        np.array(series.index.values[1:]) != np.array(series.index.values[:-1])
-    )[0] + 1
+    if index is None:
+        splits = np.where(
+            np.array(series.index.values[1:]) !=  # 1, 2, 3, 3
+            np.array(series.index.values[:-1])    # 1, 1, 2, 3
+        )[0] + 1  # [2, 3]
+        index = series.index.values[np.hstack([[0], splits])]  # 1, 2, 3
+    else:  # something like searchsorted, but unordered
+        assert len(np.unique(index)) == len(index), "index must be unique"
+        lookup_ptr = 0
+        series_ptr = 0
+        splits = []
+        while lookup_ptr < len(index):
+            splits.append(series_ptr)
+            while series_ptr < len(series) and index[lookup_ptr] == series.index[series_ptr]:
+                series_ptr += 1  # move past the current chunk
+            lookup_ptr += 1
+        assert splits[0] == 0, f"splits[0] {splits[0]}!=0"
+        splits = splits[1:]
 
-    return pd.Series(
-        [x.tolist() for x in np.split(series.values, splits)],
-        index=series.index.values[np.hstack([[0], splits])]
-    ) if len(series) else pd.Series()
+    out = pd.Series([x.tolist() for x in np.split(series.values, splits)],
+                    index=index)
+    return (out, splits) if return_splits else out
+
+
+def indices2csr(indices, shape1):
+    indptr = np.cumsum([0] + [len(x) for x in indices])
+    return sps.csr_matrix((
+        np.ones(indptr[-1]), np.hstack(indices), indptr
+    ), shape=(len(indices), shape1))
 
 
 def create_matrix(event_df, user_index, item_index, return_type='csr'):
