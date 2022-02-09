@@ -66,6 +66,15 @@ class Dataset:
         self.user_ppl_baseline = perplexity(self.user_df['_hist_len'])
         self.item_ppl_baseline = perplexity(self.item_df['_hist_len'])
 
+    @property
+    def training_csr(self):
+        user_first = self.user_df.groupby(level=0).first()
+        user_item_j = user_first['_hist_items'].explode().to_frame("ITEM_ID").join(
+            pd.Series(np.arange(len(self.item_df)), self.item_df.index).to_frame('_j'),
+            on='ITEM_ID')['_j'].dropna()  # prune oov items
+        return indices2csr(groupby_unexplode(user_item_j, user_first.index),
+                           shape1=len(self.item_df))
+
     def get_stats(self):
         if "TEST_START_TIME" in self.user_df and "_hist_ts" in self.user_df:
             avg_hist_span = self.user_df[  # test users with finite history
@@ -153,12 +162,12 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     Filter users/items by _hist_len.
     """
     _check_inputs(event_df, user_df, item_df)
+    user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
 
     with timed("creating user_explode to handle user multi-time indices"):
         user_explode = user_df.join(event_df.set_index('USER_ID'), how='inner') \
             .set_index('TEST_START_TIME', append=True) \
             .join(pd.Series(np.arange(len(item_df)), item_df.index).to_frame('_j'), on='ITEM_ID')
-    user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
 
     with timed("generating user histories"):
         user_df = user_df.copy()
@@ -180,14 +189,14 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         (user_explode['TIMESTAMP'] >= user_explode.index.get_level_values(1)) &
         (user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1) + horizon)
     ]
-    target_csr = indices2csr(groupby_unexplode(target_explode['_j'], user_time_index).values,
+    target_csr = indices2csr(groupby_unexplode(target_explode['_j'], user_time_index),
                              shape1=len(item_df))
 
     if exclude_train:
         print("optionally excluding training events in predictions and targets")
         assert prior_score is None, "double configuration for prior score"
 
-        exclude_csr = indices2csr(groupby_unexplode(hist_explode['_j'], user_time_index).values,
+        exclude_csr = indices2csr(groupby_unexplode(hist_explode['_j'], user_time_index),
                                   shape1=len(item_df))
         prior_score = exclude_csr * -1e10    # clip -inf to avoid nan
 
@@ -223,9 +232,24 @@ def create_temporal_splits(event_df, user_df, item_df, TEST_START_TIME,
         item_df, validating_horizon, **kw)
         for k in range(num_V_extra + 1)
     ]
-    return testing_data, *validating_datasets
+    return (testing_data, *validating_datasets)
 
 
-def create_user_splits(event_df, user_df, item_df, test_start_time_rel, horizon,
-                       test_user_ids,):
-    pass
+def create_user_splits(event_df, user_df, item_df, test_start_rel, horizon, **kw):
+    assert '_is_training_user' in user_df and '_Tmin' in user_df, \
+        "requires _is_training_user and _Tmin"
+    D = create_dataset(
+        event_df,
+        user_df.assign(TEST_START_TIME=lambda x: np.where(
+            x['_is_training_user'], np.inf, x['_Tmin'] + test_start_rel)),
+        item_df, horizon, **kw)
+    V = create_dataset(
+        event_df,
+        user_df.assign(TEST_START_TIME=lambda x: np.where(
+            x['_is_training_user'], x['_Tmin'] + test_start_rel, -np.inf)),
+        item_df, horizon, **kw)
+    V0 = create_dataset(
+        event_df,
+        user_df.assign(TEST_START_TIME=lambda x: x['_Tmin'] + test_start_rel - horizon / 2),
+        item_df, horizon / 2, **kw)
+    return D, V, V0
