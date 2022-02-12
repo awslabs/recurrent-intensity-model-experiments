@@ -1,6 +1,6 @@
 import os, pandas as pd
 from datetime import datetime
-from ..util import extract_user_item, split_by_time
+from ..util import extract_user_item
 from .base import create_temporal_splits
 
 

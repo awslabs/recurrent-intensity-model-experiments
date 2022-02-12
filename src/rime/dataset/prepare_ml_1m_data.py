@@ -1,5 +1,5 @@
 import os, pandas as pd
-from ..util import extract_user_item, sample_groupA, split_by_user
+from ..util import extract_user_item, sample_groupA
 from .base import create_user_splits
 
 
@@ -35,4 +35,4 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
     return create_user_splits(
         event_df,
         user_df.assign(_in_GroupA=in_GroupA),
-        item_df, test_start_rel, horizon, **kw)
+        item_df, test_start_rel, horizon, num_V_extra=1, **kw)

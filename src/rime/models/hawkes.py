@@ -14,7 +14,7 @@ class Hawkes:
             _input_fn, horizon=horizon, training_eps=training_eps, hetero=hetero)
         self.hetero = hetero
 
-    @timed("Hawkes.fit")
+    @timed("Hawkes.fit", inline=False)
     def fit(self, D):
         training_user = D.user_df[
             (D.user_df['_hist_ts'].apply(len) > 0) &

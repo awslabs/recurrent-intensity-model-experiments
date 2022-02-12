@@ -165,7 +165,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     """
     _check_inputs(event_df, user_df, item_df)
 
-    with timed("creating user_explode to handle users with multiple TEST_START_TIME"):
+    with timed("creating user_time_index and user_explode"):
         user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
         user_explode = user_df.join(event_df.set_index('USER_ID'), how='inner') \
             .set_index('TEST_START_TIME', append=True) \
@@ -232,6 +232,7 @@ def create_temporal_splits(event_df, user_df, item_df, TEST_START_TIME,
     testing_data = create_dataset(event_df,
                                   user_df.assign(TEST_START_TIME=TEST_START_TIME),
                                   item_df, horizon, **kw)
+    testing_data.print_stats()
     validating_datasets = [create_dataset(
         event_df,
         user_df.assign(TEST_START_TIME=TEST_START_TIME - validating_horizon * (k + 1)),
@@ -241,20 +242,25 @@ def create_temporal_splits(event_df, user_df, item_df, TEST_START_TIME,
     return (testing_data, *validating_datasets)
 
 
-def create_user_splits(event_df, user_df, item_df, test_start_rel, horizon, **kw):
-    assert '_in_GroupA' in user_df and '_Tmin' in user_df, "requires _in_GroupA and _Tmin"
+def create_user_splits(event_df, user_df, item_df, test_start_rel, horizon, num_V_extra=0, **kw):
+    assert '_in_GroupA' in user_df, "requires _in_GroupA"
+    test_start_abs = user_df.get('_Tmin', 0) + test_start_rel
     D = create_dataset(
         event_df,
         user_df.assign(TEST_START_TIME=lambda x: np.where(
-            x['_in_GroupA'], float("inf"), x['_Tmin'] + test_start_rel)),
+            x['_in_GroupA'], float("inf"), test_start_abs)),
         item_df, horizon, **kw)
+    D.print_stats()
     V = create_dataset(
         event_df,
         user_df.assign(TEST_START_TIME=lambda x: np.where(
-            x['_in_GroupA'], x['_Tmin'] + test_start_rel, -1)),
+            x['_in_GroupA'], test_start_abs, -1)),
         item_df, horizon, **kw)
-    V0 = create_dataset(
-        event_df,
-        user_df.assign(TEST_START_TIME=lambda x: x['_Tmin'] + test_start_rel - horizon / 2),
-        item_df, horizon / 2, **kw)
-    return D, V, V0
+    if num_V_extra:
+        V0 = create_dataset(
+            event_df,
+            user_df.assign(TEST_START_TIME=test_start_abs - horizon / 2),
+            item_df, horizon / 2, **kw)
+        return D, V, V0
+    else:
+        return D, V

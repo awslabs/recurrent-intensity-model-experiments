@@ -9,15 +9,17 @@ from .plotting import plot_rec_results, plot_mtch_results
 
 
 class timed(contextlib.ContextDecorator):
-    def __init__(self, name=""):
+    def __init__(self, name="", inline=True):
         self.name = name
+        self.inline = inline
 
     def __enter__(self):
         self.tic = time.time()
-        print("entering", self.name)
+        print("timing", self.name, end=' ' if self.inline else '\n')
 
     def __exit__(self, *args, **kw):
-        print("exiting", self.name, "time {:.1f}s".format(time.time() - self.tic))
+        print("done", "." if self.inline else self.name,
+              "time {:.1f}s".format(time.time() - self.tic))
 
 
 def warn_nan_output(func):
@@ -248,25 +250,6 @@ def fill_factory_inplace(df, isna, kv):
             df[k] = [v() if do else x for do, x in zip(isna, df[k])]
         else:
             warnings.warn(f"fill_factory_inplace missing {k}")
-
-
-def split_by_time(user_df, test_start, valid_start):
-    user_df = user_df.copy()
-    user_df['TEST_START_TIME'] = test_start
-    valid_df = user_df.copy()
-    valid_df['TEST_START_TIME'] = valid_start
-    return (user_df, valid_df)
-
-
-def split_by_user(user_df, in_groupA, test_start, relative=True):
-    """ test_start=+inf: training user without test window; -inf: user to exclude """
-    if relative:
-        test_start = user_df['_Tmin'] + test_start
-    train_df = user_df.copy()
-    train_df['TEST_START_TIME'] = np.where(in_groupA, float("inf"), test_start)
-    valid_df = user_df.copy()
-    valid_df['TEST_START_TIME'] = np.where(in_groupA, test_start, float("-inf"))
-    return (train_df, valid_df)
 
 
 def sample_groupA(user_df, frac=0.5, seed=888):
