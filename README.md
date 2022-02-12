@@ -59,37 +59,10 @@ Repository to reproduce the experiments in the paper:
 
 **Step 0. Data Preparation**
 
-All algorithms require a testing set with labels. Most algorithms are trained from an autoregressive (self-supervised) training set without labels. Some algorithms are trained from (or in combination with) one or more validating set with labels.
-The online matching setup uses the first validating set to infer the user-state distribution so that the CVX-Online algorithm can remain oblivious to the actual set of user (states) in the testing set for the purpose of online sumlations. (CVX-Online ignores the labels in that set.)
+The simplest way to prepare data is via `rime.dataset.base.create_dataset`, which accepts a table of `event_df(USER_ID, ITEM_ID, TIMESTAMP)`, a table of `user_df(TEST_START_TIME, index=USER_ID)`, a table of `item_df(index=ITEM_ID)`, and a reasonable prediction `horizon` in the same unit as TIMESTAMPs. The `create_dataset` function will then regard events with `TIMESTAMP < TEST_START_TIME` as user histories and events within `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon` as prediction targets. The extracted user histories will be used for both auto-regressive training and user-side feature creation in prediction tasks. The function returns a `rime.dataset.base.Dataset` object.
 
-Here are the required fields of a supervised dataset for testing and validating purposes:
-
-| attribute    | column name     | details                                                    |
-|--------------|-----------------|------------------------------------------------------------|
-| user_in_test | (index)         | <sub> indexed by USER_ID; allows duplicated indices w/ different TEST_START_TIME </sub> |
-|              | TEST_START_TIME | to split between features and labels                       |
-|              | `_hist_items`   | list of ITEM_IDs before TEST_START_TIME (exclusive)        |
-|              | `_hist_ts`      | list of TIMESTAMPs before TEST_START_TIME (exclusive)      |
-|              | `_hist_len`     | feature for user-popularity prior                          |
-| item_in_test | (index)         | indexed by unique ITEM_ID                                  |
-|              | `_hist_len`     | feature for item-popularity prior                          |
-| target_csr   |                 | <sub> sparse matrix (user_in_test, item_in_test); sums up all events in testing horizon </sub> |
-| horizon      | (default=inf)   | <sub> testing window after TEST_START_TIME for each user; agrees with target_csr </sub> |
-| prior_score  | (default=None)  | <sub> sparse matrix (user_in_test, item_in_test) to allow exclude_train etc. </sub> |
-| <sub> default_item_rec_top_k </sub>  | <sub> default=1% of item_in_test </sub> | <sub> default number of recs; further multiplied by mult variable in mtch experiments </sub> |
-| <sub> default_user_rec_top_c </sub>  | <sub> default=1% of user_in_test </sub> | <sub> default number of recs; further multiplied by mult variable in mtch experiments </sub> |
-| training_data |                | a reference to the autoregressive training set below |
-
-Here are the subfields for an autoregressive (self-supervised) dataset for training purposes:
-
-| attribute    | details                                                                    |
-|--------------|----------------------------------------------------------------------------|
-| user_df      | similar to user_in_test, but requires unique USER_ID (e.g., GroupBy.first) |
-| item_df      | similar to item_in_test; count `_hist_len` by unique users                 |
-| event_df     | agrees with the exploded `_hist_items` and `_hist_ts` from user_df         |
-
-
-The testing, training, and validating sets can be conveniently created by `rime.dataset.base.create_dataset` or step-by-step illustrations in `rime.dataset.__init__.prepare_minimal_dataset`. The training set is bundled inside the testing set for convenience.
+To preserve temporal causality, we additionally filter users/items with at least 1 event as test candidates. The filter is adjustable and we record the filtered data as `user_in_test` and `item_in_test` attributes in the `Dataset` object. The filter does not apply to training, which is recorded separately as `user_df` and `item_df`. Another advanced case is to consider multiple `TEST_START_TIME` for the same `USER_ID`, which is naturally handled by creating multiple rows in `user_in_test` with corresponding histories. However, this case may also cause repetitions in `user_df`. We thus limit `user_df` to the first entry per user in dataframe order (i.e., no temporal sorting happens). Similarly, we count only the first entry per user towards the number of historical visits in `item_df._hist_len`.
+For additional details, including the creation of `exclude_train` priors for cleaner model evaluations, please visit the example in `rime.dataset.__init__.prepare_minimal_dataset`.
 
 **Step 1. Predictions**
 

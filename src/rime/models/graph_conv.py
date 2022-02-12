@@ -2,7 +2,7 @@ import torch, numpy as np, warnings, pandas as pd, collections, torch.nn.functio
 from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import (_LitValidated, empty_cache_on_exit, create_matrix,
+from ..util import (_LitValidated, empty_cache_on_exit,
                     create_second_order_dataframe, default_random_split, auto_cast_lazy_score)
 from .bpr import _BPR_Common
 try:

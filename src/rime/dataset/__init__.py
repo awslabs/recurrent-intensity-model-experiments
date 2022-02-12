@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import argparse
-from ..util import extract_user_item, create_matrix
+from ..util import extract_user_item
 from .base import create_dataset, Dataset, create_temporal_splits, create_user_splits
 from .prepare_netflix_data import prepare_netflix_data
 from .prepare_ml_1m_data import prepare_ml_1m_data

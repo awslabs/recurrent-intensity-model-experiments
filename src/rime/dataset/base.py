@@ -2,7 +2,7 @@ import pandas as pd, numpy as np
 import scipy.sparse as sps
 import warnings, dataclasses, argparse
 from typing import List
-from ..util import (create_matrix, perplexity, timed, groupby_unexplode, indices2csr,
+from ..util import (perplexity, timed, groupby_unexplode, indices2csr,
                     matrix_reindex, fill_factory_inplace, LazyScoreBase)
 
 
