@@ -21,7 +21,6 @@ class HawkesPoisson:
         print(f"fit loss {loss(self.coeffs.x, X, Y, 0)}")
         return self
 
-    @functools.lru_cache(1)
     def transform(self, D):
         H = self.hawkes_model.transform(D, state_only=True)
         X = np.vstack(H.values)

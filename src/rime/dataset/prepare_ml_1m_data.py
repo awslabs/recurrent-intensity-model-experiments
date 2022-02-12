@@ -26,7 +26,7 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
         item_df = item_df.join(movies_titles[['TITLE']])
         assert item_df['TITLE'].notnull().all(), "movie titles should not be missing"
 
-    in_groupA = sample_groupA(user_df, seed=seed + 888)
+    in_GroupA = sample_groupA(user_df, seed=seed + 888)
 
     test_start_rel = (user_df['_Tmax'] - user_df['_Tmin']).quantile(0.5)
     horizon = test_start_rel * 1.0
@@ -34,5 +34,5 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
 
     return create_user_splits(
         event_df,
-        user_df.assign(_is_training_user=in_groupA),
+        user_df.assign(_in_GroupA=in_GroupA),
         item_df, test_start_rel, horizon, **kw)

@@ -42,17 +42,23 @@ def _reindex_user_hist(user_df, index, factory={
 class Dataset:
     """ A dataset with target_csr from given users and items, with aggregated histories and
     optional horizon and prior_score for evaluation purposes.
+
+    The class also contains or implies training user/item_df based on the historical part
+    of the user/item_in_test. If explicitly specified, the user/item_df could be different from
+    (often larger than) user/item_in_test.
     """
-    target_csr: sps.spmatrix  # index=USER_ID, column=ITEM_ID
-    user_df: pd.DataFrame     # index=USER_ID, columns=[TEST_START_TIME, _hist_len, _hist_ts]
-    item_df: pd.DataFrame     # index=ITEM_ID, columns=[_hist_len]
+    target_csr: sps.spmatrix    # index=USER_ID, column=ITEM_ID
+    user_in_test: pd.DataFrame  # index=USER_ID, columns=[TEST_START_TIME, _hist_len, _hist_ts]
+    item_in_test: pd.DataFrame  # index=ITEM_ID, columns=[_hist_len]
     horizon: float = float("inf")
     prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
     default_user_rec_top_c: int = None
     default_item_rec_top_k: int = None
+    user_df: pd.DataFrame = None  # default to the history part in test users for sequence models
+    item_df: pd.DataFrame = None  # could have different indices than test users/items
 
     def __post_init__(self):
-        assert self.target_csr.shape == (len(self.user_df), len(self.item_df)), \
+        assert self.target_csr.shape == (len(self.user_in_test), len(self.item_in_test)), \
             "target shape must match with test user/item lengths"
 
         if self.prior_score is not None:
@@ -60,26 +66,22 @@ class Dataset:
                 "prior_score shape must match with test target_csr"
 
         if self.default_user_rec_top_c is None:
-            self.default_user_rec_top_c = int(np.ceil(len(self.user_df) / 100))
+            self.default_user_rec_top_c = int(np.ceil(len(self.user_in_test) / 100))
         if self.default_item_rec_top_k is None:
-            self.default_item_rec_top_k = int(np.ceil(len(self.item_df) / 100))
-        self.user_ppl_baseline = perplexity(self.user_df['_hist_len'])
-        self.item_ppl_baseline = perplexity(self.item_df['_hist_len'])
+            self.default_item_rec_top_k = int(np.ceil(len(self.item_in_test) / 100))
+        self.user_ppl_baseline = perplexity(self.user_in_test['_hist_len'])
+        self.item_ppl_baseline = perplexity(self.item_in_test['_hist_len'])
 
-    @property
-    def training_csr(self):
-        user_first = self.user_df.groupby(level=0).first()
-        user_item_j = user_first['_hist_items'].explode().to_frame("ITEM_ID").join(
-            pd.Series(np.arange(len(self.item_df)), self.item_df.index).to_frame('_j'),
-            on='ITEM_ID')['_j'].dropna()  # prune oov items
-        return indices2csr(groupby_unexplode(user_item_j, user_first.index),
-                           shape1=len(self.item_df))
+        if self.user_df is None:
+            self.user_df = self.user_in_test.groupby(level=0).first()
+        if self.item_df is None:
+            self.item_df = self.item_in_test
 
     def get_stats(self):
-        if "TEST_START_TIME" in self.user_df and "_hist_ts" in self.user_df:
-            avg_hist_span = self.user_df[  # test users with finite history
-                (self.user_df["TEST_START_TIME"] < np.inf) &
-                (self.user_df["_hist_ts"].apply(len) > 0)
+        if "TEST_START_TIME" in self.user_in_test and "_hist_ts" in self.user_in_test:
+            avg_hist_span = self.user_in_test[  # test users with finite history
+                (self.user_in_test["TEST_START_TIME"] < np.inf) &
+                (self.user_in_test["_hist_ts"].apply(len) > 0)
             ].apply(
                 lambda x: x["TEST_START_TIME"] - x["_hist_ts"][0], axis=1
             ).mean()
@@ -87,21 +89,21 @@ class Dataset:
             avg_hist_span = float("nan")
 
         return {
-            'user_df': {
-                '# users': len(self.user_df),
-                'avg hist len': self.user_df['_hist_len'].mean(),
+            'user_in_test': {
+                '# test users': len(self.user_in_test),
+                'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': avg_hist_span,
-                'horizon': self.horizon,
-                'avg target items': self.target_csr.sum(axis=1).mean(),
+                'avg target len': self.target_csr.sum(axis=1).mean(),
             },
-            'item_df': {
-                '# items': len(self.item_df),
-                'avg hist len': self.item_df['_hist_len'].mean(),
-                'avg target users': self.target_csr.sum(axis=0).mean(),
+            'item_in_test': {
+                '# test items': len(self.item_in_test),
+                'avg hist len': self.item_in_test['_hist_len'].mean(),
+                'avg target len': self.target_csr.sum(axis=0).mean(),
             },
             'event_df': {
                 '# train events': self.user_df['_hist_len'].sum(),
                 '# test events': self.target_csr.sum(),
+                'horizon': self.horizon,
                 'default_user_rec_top_c': self.default_user_rec_top_c,
                 'default_item_rec_top_k': self.default_item_rec_top_k,
                 "user_ppl_baseline": self.user_ppl_baseline,
@@ -112,19 +114,19 @@ class Dataset:
     def print_stats(self, verbose=True):
         print(pd.DataFrame(self.get_stats()).T.stack().apply('{:.2f}'.format))
         if verbose:
-            print(self.user_df.sample().iloc[0])
-            print(self.item_df.sample().iloc[0])
+            print(self.user_in_test.sample().iloc[0])
+            print(self.item_in_test.sample().iloc[0])
 
     def reindex(self, index, axis):
         if axis == 0:
-            old_index = self.user_df.index
-            user_df = _reindex_user_hist(self.user_df, index)
-            item_df = self.item_df
+            old_index = self.user_in_test.index
+            user_in_test = _reindex_user_hist(self.user_in_test, index)
+            item_in_test = self.item_in_test
 
         else:
-            old_index = self.item_df.index
-            user_df = self.user_df
-            item_df = self.item_df.reindex(index, fill_value=0)
+            old_index = self.item_in_test.index
+            user_in_test = self.user_in_test
+            item_in_test = self.item_in_test.reindex(index, fill_value=0)
 
         target_csr = matrix_reindex(
             self.target_csr, old_index, index, axis, fill_value=0)
@@ -138,14 +140,14 @@ class Dataset:
             prior_score = matrix_reindex(
                 self.prior_score, old_index, index, axis, fill_value=0)
 
-        return self.__class__(target_csr, user_df, item_df, self.horizon, prior_score,
-                              self.default_user_rec_top_c, self.default_item_rec_top_k)
+        return self.__class__(target_csr, user_in_test, item_in_test, self.horizon, prior_score,
+                              self.default_user_rec_top_c, self.default_item_rec_top_k,
+                              self.user_df, self.item_df)
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
                    min_user_len=1, min_item_len=1, prior_score=None, exclude_train=False,
-                   test_incl_users_with_posinf_test_time=False,
-                   test_incl_users_with_neginf_test_time=True):
+                   test_user_extra_filter=lambda x: x['TEST_START_TIME'] < float("inf")):
     """ Create a labeled dataset from 3 related tables and additional configurations.
 
     :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
@@ -162,9 +164,9 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     Filter users/items by _hist_len.
     """
     _check_inputs(event_df, user_df, item_df)
-    user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
 
-    with timed("creating user_explode to handle user multi-time indices"):
+    with timed("creating user_explode to handle users with multiple TEST_START_TIME"):
+        user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
         user_explode = user_df.join(event_df.set_index('USER_ID'), how='inner') \
             .set_index('TEST_START_TIME', append=True) \
             .join(pd.Series(np.arange(len(item_df)), item_df.index).to_frame('_j'), on='ITEM_ID')
@@ -172,25 +174,30 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     with timed("generating user histories"):
         user_df = user_df.copy()
         hist_explode = user_explode[user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1)]
-        user_df['_hist_items'] = groupby_unexplode(hist_explode['ITEM_ID'], user_time_index).values
-        user_df['_hist_ts'] = groupby_unexplode(hist_explode['TIMESTAMP'], user_time_index).values
+        hist_splits = groupby_unexplode(hist_explode, user_time_index, 'splits')
+        user_df['_hist_items'] = [x.tolist() for x in np.split(hist_explode['ITEM_ID'].values, hist_splits)]
+        user_df['_hist_ts'] = [x.tolist() for x in np.split(hist_explode['TIMESTAMP'].values, hist_splits)]
         user_df['_hist_len'] = user_df['_hist_items'].apply(len)
 
-    print("generating item histories")
-    item_df = item_df.copy()
-    item_df['_hist_len'] = event_df[
-        event_df['TIMESTAMP'] <
-        user_df.groupby(level=0)['TEST_START_TIME'].min()  # count by user first-test time
-               .reindex(event_df['USER_ID'], fill_value=float('-inf')).values
-    ].groupby('ITEM_ID').size().reindex(item_df.index, fill_value=0)
+    training_user_df = user_df.groupby(level=0).first()
+    if len(training_user_df) < len(user_df):
+        warnings.warn("Users with multiple TEST_START_TIME detected; "
+                      "keeping the first user instance (in dataframe order) for training")
 
-    print("generating targets")
-    target_explode = user_explode[
-        (user_explode['TIMESTAMP'] >= user_explode.index.get_level_values(1)) &
-        (user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1) + horizon)
-    ]
-    target_csr = indices2csr(groupby_unexplode(target_explode['_j'], user_time_index),
-                             shape1=len(item_df))
+    with timed("generating item histories"):
+        item_df = item_df.copy()
+        item_df['_hist_len'] = event_df[
+            event_df['TIMESTAMP'] < event_df[['USER_ID']].join(
+                training_user_df[['TEST_START_TIME']], on='USER_ID')['TEST_START_TIME']
+        ].groupby('ITEM_ID').size().reindex(item_df.index, fill_value=0)
+
+    with timed("generating targets"):
+        target_explode = user_explode[
+            (user_explode['TIMESTAMP'] >= user_explode.index.get_level_values(1)) &
+            (user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1) + horizon)
+        ]
+        target_csr = indices2csr(groupby_unexplode(target_explode['_j'], user_time_index),
+                                 shape1=len(item_df))
 
     if exclude_train:
         print("optionally excluding training events in predictions and targets")
@@ -204,19 +211,18 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         target_csr = target_csr.multiply(mask_csr)
 
     print("filtering users and items; notice that the user-history data may contain extra items")
-    user_in_test_bool = (
-        (user_df['_hist_len'] >= min_user_len) &
-        ((user_df['TEST_START_TIME'] < np.inf) | test_incl_users_with_posinf_test_time) &
-        ((user_df['TEST_START_TIME'] > -np.inf) | test_incl_users_with_neginf_test_time)
-    ).values.astype(bool)
+    user_in_test_bool = ((user_df['_hist_len'] >= min_user_len) &
+                         user_df.apply(test_user_extra_filter, axis=1)).values.astype(bool)
     item_in_test_bool = (item_df['_hist_len'] >= min_item_len).values.astype(bool)
 
     D = Dataset(target_csr[user_in_test_bool][:, item_in_test_bool],
                 user_df[user_in_test_bool].copy(),
                 item_df[item_in_test_bool].copy(),
                 horizon,
-                None if prior_score is None else
-                    prior_score[user_in_test_bool][:, item_in_test_bool])
+                prior_score=None if prior_score is None else
+                            prior_score[user_in_test_bool][:, item_in_test_bool],
+                user_df=training_user_df,
+                item_df=item_df)
     print("Dataset created!")
     return D
 
@@ -236,17 +242,16 @@ def create_temporal_splits(event_df, user_df, item_df, TEST_START_TIME,
 
 
 def create_user_splits(event_df, user_df, item_df, test_start_rel, horizon, **kw):
-    assert '_is_training_user' in user_df and '_Tmin' in user_df, \
-        "requires _is_training_user and _Tmin"
+    assert '_in_GroupA' in user_df and '_Tmin' in user_df, "requires _in_GroupA and _Tmin"
     D = create_dataset(
         event_df,
         user_df.assign(TEST_START_TIME=lambda x: np.where(
-            x['_is_training_user'], np.inf, x['_Tmin'] + test_start_rel)),
+            x['_in_GroupA'], float("inf"), x['_Tmin'] + test_start_rel)),
         item_df, horizon, **kw)
     V = create_dataset(
         event_df,
         user_df.assign(TEST_START_TIME=lambda x: np.where(
-            x['_is_training_user'], x['_Tmin'] + test_start_rel, -np.inf)),
+            x['_in_GroupA'], x['_Tmin'] + test_start_rel, -1)),
         item_df, horizon, **kw)
     V0 = create_dataset(
         event_df,

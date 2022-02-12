@@ -120,7 +120,7 @@ class _GraphConv(_BPR_Common):
 class GraphConv:
     def __init__(self, D, batch_size=10000, max_epochs=50,
                  sample_with_prior=True, sample_with_posterior=0.5, **kw):
-        self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
+        self._padded_item_list = [None] + D.item_df.index.tolist()
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
@@ -129,8 +129,8 @@ class GraphConv:
         self.sample_with_posterior = sample_with_posterior
 
         self._model_kw = {'horizon': D.horizon}
-        if "embedding" in D.training_data.item_df:
-            item_embeddings = np.vstack(D.training_data.item_df["embedding"]).astype('float32')
+        if "embedding" in D.item_df:
+            item_embeddings = np.vstack(D.item_df["embedding"]).astype('float32')
             item_embeddings = np.pad(item_embeddings, ((1, 0), (0, 0)), constant_values=0)
             self._model_kw["item_embeddings"] = item_embeddings
         self._model_kw.update(kw)

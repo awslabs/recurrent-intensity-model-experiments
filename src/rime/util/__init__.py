@@ -166,7 +166,7 @@ def extract_user_item(event_df):
     return (user_df, item_df)
 
 
-def groupby_unexplode(series, index=None, return_splits=False):
+def groupby_unexplode(series, index=None, return_type='series'):
     """
     assume the input is an exploded dataframe with block-wise indices
     >>> groupby_unexplode(pd.Series([1,2,3,4,5], index=[1,1,2,3,3])).to_dict()
@@ -184,21 +184,22 @@ def groupby_unexplode(series, index=None, return_splits=False):
         )[0] + 1  # [2, 3]
         index = series.index.values[np.hstack([[0], splits])]  # 1, 2, 3
     else:  # something like searchsorted, but unordered
-        assert len(np.unique(index)) == len(index), "index must be unique"
-        lookup_ptr = 0
-        series_ptr = 0
         splits = []
-        while lookup_ptr < len(index):
-            splits.append(series_ptr)
-            while series_ptr < len(series) and index[lookup_ptr] == series.index[series_ptr]:
-                series_ptr += 1  # move past the current chunk
-            lookup_ptr += 1
-        assert splits[0] == 0, f"splits[0] {splits[0]}!=0"
+        tape = enumerate(series.index)
+        N = len(series)
+        i, value = next(tape)
+
+        for key in index:
+            splits.append(i)
+            while i < N and key == value:
+                i, value = next(tape, (N, None))  # move past the current chunk
         splits = splits[1:]
 
-    out = pd.Series([x.tolist() for x in np.split(series.values, splits)],
-                    index=index)
-    return (out, splits) if return_splits else out
+    if return_type == 'splits':
+        return splits
+    else:
+        return pd.Series([x.tolist() for x in np.split(series.values, splits)],
+                         index=index)
 
 
 def indices2csr(indices, shape1):
@@ -206,6 +207,13 @@ def indices2csr(indices, shape1):
     return sps.csr_matrix((
         np.ones(indptr[-1]), np.hstack(indices), indptr
     ), shape=(len(indices), shape1))
+
+
+def extract_past_ij(user_df, item_index):
+    past_event_df = user_df.reset_index()['_hist_items'].explode().to_frame("ITEM_ID").join(
+        pd.Series({k: j for j, k in enumerate(item_index)}).to_frame('j'),
+        on="ITEM_ID", how="inner")  # drop empty users and oov items
+    return (past_event_df.index.values, past_event_df['j'].values)
 
 
 def create_matrix(event_df, user_index, item_index, return_type='csr'):

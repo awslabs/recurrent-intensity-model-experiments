@@ -93,8 +93,8 @@ def prepare_synthetic_data(split_fn_name, exclude_train=False,
 
 
 def prepare_simple_pattern():
-    """ Transformer(D.training_data.item_df, max_epochs=100).fit(D.training_data) # flaky
-    RNN(D.training_data.item_df, max_epochs=50).fit(D.training_data) # stable
+    """ Transformer(D.item_df, max_epochs=100).fit(D) # flaky
+    RNN(D.item_df, max_epochs=50).fit(D) # stable
     """
     event_df = pd.DataFrame({
         "USER_ID": 1,
