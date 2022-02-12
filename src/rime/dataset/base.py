@@ -1,7 +1,6 @@
 import pandas as pd, numpy as np
 import scipy.sparse as sps
 import warnings, dataclasses, argparse
-from typing import List
 from ..util import (perplexity, timed, groupby_unexplode, indices2csr,
                     matrix_reindex, fill_factory_inplace, LazyScoreBase)
 
@@ -73,7 +72,7 @@ class Dataset:
         self.item_ppl_baseline = perplexity(self.item_in_test['_hist_len'])
 
         if self.user_df is None:
-            self.user_df = self.user_in_test.groupby(level=0).first()
+            self.user_df = self.user_in_test.groupby(level=0, sort=False).first()
         if self.item_df is None:
             self.item_df = self.item_in_test
 
@@ -154,14 +153,14 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     :parameter user_df: [USER_ID (index), TEST_START_TIME]
     :parameter item_df: [ITEM_ID (index)]
     :parameter horizon: extract test window from TIMESTAMP, TEST_START_TIME, and horizon
-    :parameter min_user_len: filter out users with empty histories to avoid anti-causal biases
-    :parameter min_item_len: filter out items with empty histories to avoid anti-causal biases
+    :parameter min_user_len: filter out test users with empty histories to avoid anti-causal biases
+    :parameter min_item_len: filter out test items with empty histories to avoid anti-causal biases
     :parameter prior_score: add a prior score to boost/penalize certain user-item pairs
         in prediction
     :parameter exclude_train: exclude training events from predictions and targets
 
     Infer target labels from TEST_START_TIME (per user) and horizon.
-    Filter users/items by _hist_len.
+    Filter test users/items by _hist_len.
     """
     _check_inputs(event_df, user_df, item_df)
 
@@ -179,7 +178,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         user_df['_hist_ts'] = [x.tolist() for x in np.split(hist_explode['TIMESTAMP'].values, hist_splits)]
         user_df['_hist_len'] = user_df['_hist_items'].apply(len)
 
-    training_user_df = user_df.groupby(level=0).first()
+    training_user_df = user_df.groupby(level=0, sort=False).first()
     if len(training_user_df) < len(user_df):
         warnings.warn("Users with multiple TEST_START_TIME detected; "
                       "keeping the first user instance (in dataframe order) for training")
