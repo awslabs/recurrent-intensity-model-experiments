@@ -169,14 +169,18 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         user_explode = user_df.join(event_df.set_index('USER_ID'), how='inner') \
             .set_index('TEST_START_TIME', append=True) \
             .join(pd.Series(np.arange(len(item_df)), item_df.index).to_frame('_j'), on='ITEM_ID')
+        hist_explode = user_explode[
+            user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1)]
+        target_explode = user_explode[
+            (user_explode['TIMESTAMP'] >= user_explode.index.get_level_values(1)) &
+            (user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1) + horizon)]
 
     with timed("generating user histories"):
-        user_df = user_df.copy()
-        hist_explode = user_explode[user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1)]
-        hist_splits = groupby_unexplode(hist_explode, user_time_index, 'splits')
-        user_df['_hist_items'] = [x.tolist() for x in np.split(hist_explode['ITEM_ID'].values, hist_splits)]
-        user_df['_hist_ts'] = [x.tolist() for x in np.split(hist_explode['TIMESTAMP'].values, hist_splits)]
-        user_df['_hist_len'] = user_df['_hist_items'].apply(len)
+        _hist_splits = groupby_unexplode(hist_explode, user_time_index, 'splits')
+        user_df = user_df.assign(
+            _hist_items=[x.tolist() for x in np.split(hist_explode['ITEM_ID'].values, _hist_splits)],
+            _hist_ts=[x.tolist() for x in np.split(hist_explode['TIMESTAMP'].values, _hist_splits)],
+        ).assign(_hist_len=lambda x: x['_hist_items'].apply(len))
 
     training_user_df = user_df.groupby(level=0, sort=False).first()
     if len(training_user_df) < len(user_df):
@@ -184,17 +188,14 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
                       "keeping the first user instance (in dataframe order) for training")
 
     with timed("generating item histories"):
-        item_df = item_df.copy()
-        item_df['_hist_len'] = event_df[
+        _item_size = event_df[
             event_df['TIMESTAMP'] < event_df[['USER_ID']].join(
                 training_user_df[['TEST_START_TIME']], on='USER_ID')['TEST_START_TIME']
-        ].groupby('ITEM_ID').size().reindex(item_df.index, fill_value=0)
+        ].groupby('ITEM_ID').size()
+        item_df = item_df.assign(
+            _hist_len=_item_size.reindex(item_df.index, fill_value=0).values)
 
     with timed("generating targets"):
-        target_explode = user_explode[
-            (user_explode['TIMESTAMP'] >= user_explode.index.get_level_values(1)) &
-            (user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1) + horizon)
-        ]
         target_csr = indices2csr(groupby_unexplode(target_explode['_j'], user_time_index),
                                  shape1=len(item_df))
 
