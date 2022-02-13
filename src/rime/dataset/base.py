@@ -173,9 +173,9 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
 
     with timed("creating user_time_index and user_explode"):
         user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
-        user_explode = user_df.assign(_left_index=lambda x: x.index) \
-            .join(event_df.set_index('USER_ID'), how='inner', on='_left_index') \
-            .drop('_left_index', axis=1) \
+        user_explode = user_df.assign(_preserve_order=lambda x: x.index) \
+            .join(event_df.set_index('USER_ID'), how='inner', on='_preserve_order') \
+            .drop('_preserve_order', axis=1) \
             .set_index('TEST_START_TIME', append=True) \
             .join(pd.Series(np.arange(len(item_df)), item_df.index).to_frame('_j'), on='ITEM_ID')
         hist_explode = user_explode[

@@ -35,8 +35,8 @@ def prepare_netflix_data(
         movie_titles = pd.read_csv(title_path, encoding='latin1',
                                    names=['_ITEM_ID_number', '_', 'TITLE'])
         movie_titles.index = movie_titles['_ITEM_ID_number'].apply(lambda x: "{:d}.txt".format(x))
-        item_df = item_df.assign(_left_index=lambda x: x.index) \
-            .join(movie_titles[['TITLE']], on='_left_index').drop('_left_index', axis=1)
+        item_df = item_df.assign(_preserve_order=lambda x: x.index) \
+            .join(movie_titles[['TITLE']], on='_preserve_order').drop('_preserve_order', axis=1)
         assert item_df['TITLE'].notnull().all(), "movie titles should not be missing"
 
     return create_temporal_splits(

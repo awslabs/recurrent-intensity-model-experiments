@@ -23,8 +23,8 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
     if os.path.exists(title_path):
         movies_titles = pd.read_csv(title_path, encoding='latin1', sep='::',
                                     names=['ITEM_ID', 'TITLE', '_']).set_index('ITEM_ID')
-        item_df = item_df.assign(_left_index=lambda x: x.index) \
-            .join(movies_titles[['TITLE']], on='_left_index').drop('_left_index', axis=1)
+        item_df = item_df.assign(_preserve_order=lambda x: x.index) \
+            .join(movies_titles[['TITLE']], on='_preserve_order').drop('_preserve_order', axis=1)
         assert item_df['TITLE'].notnull().all(), "movie titles should not be missing"
 
     in_GroupA = sample_groupA(user_df, seed=seed + 888)
