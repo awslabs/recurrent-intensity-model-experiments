@@ -64,11 +64,11 @@ class LDA:
         self.max_epochs = max_epochs
         print(f"LDA initiated, batch_size={batch_size}, rho={rho}")
 
-    def _create_graph(self, user_in_test):
+    def _create_graph(self, user_df):
         """ create doc->word graph, including empty docs """
-        i, j = extract_past_ij(user_in_test, self._item_list)
+        i, j = extract_past_ij(user_df, self._item_list)
         G = dgl.heterograph({('doc', '', 'word'): (i, j)},
-                            {'doc': len(user_in_test), 'word': len(self._item_list)})
+                            {'doc': len(user_df), 'word': len(self._item_list)})
         return G
 
     @empty_cache_on_exit

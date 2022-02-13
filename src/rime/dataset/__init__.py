@@ -26,8 +26,8 @@ def prepare_minimal_dataset():
 
     D = create_dataset(event_df, user_df, item_df, 100,
                        min_user_len=0, min_item_len=0, exclude_train=True)
-    D = D.reindex(D.user_df.index.tolist() + ['oov user gets zero scores in some methods'], axis=0) \
-         .reindex(D.item_df.index.tolist() + ['oov item gets zero scores in most methods'], axis=1)
+    D = D.reindex(D.user_in_test.index.tolist() + ['oov user gets zero scores in some methods'], axis=0) \
+         .reindex(D.item_in_test.index.tolist() + ['oov item gets zero scores in most methods'], axis=1)
 
     return (D,)
 
@@ -56,8 +56,8 @@ def prepare_synthetic_data(split_fn_name, exclude_train=False,
 
 
 def prepare_simple_pattern():
-    """ Transformer(D.item_df, max_epochs=100).fit(D) # flaky
-    RNN(D.item_df, max_epochs=50).fit(D) # stable
+    """ Transformer(D.training_data.item_df, max_epochs=100).fit(D.training_data) # flaky
+    RNN(D.training_data.item_df, max_epochs=50).fit(D.training_data) # stable
     """
     event_df = pd.DataFrame({
         "USER_ID": 1,
