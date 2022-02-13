@@ -2,10 +2,21 @@
 
 ![pytest workflow](https://github.com/awslabs/recurrent-intensity-model-experiments/actions/workflows/python-app.yml/badge.svg)
 
-Repository to reproduce the experiments in the paper:
+Repository to reproduce the experiments in these papers:
+
+[Bridging Recommendation and Marketing via Recurrent Intensity Modeling. ICLR 2022.](https://openreview.net/forum?id=TZeArecH2Nf)
+```
+@inproceedings{ma2022bridging,
+    title={Bridging Recommendation and Marketing via Recurrent Intensity Modeling},
+    author={Yifei Ma and Ge Liu and Anoop Deoras},
+    booktitle={International Conference on Learning Representations},
+    year={2022},
+    url={https://openreview.net/forum?id=TZeArecH2Nf}
+}
+```
 
 [Recurrent Intensity Modeling for User Recommendation and Online Matching](http://roseyu.com/time-series-workshop/submissions/2021/TSW-ICML2021_paper_47.pdf);
-[(Another Link)](https://www.amazon.science/publications/recurrent-intensity-modeling-for-user-recommendation-and-online-matching)
+[(Amazon Link)](https://www.amazon.science/publications/recurrent-intensity-modeling-for-user-recommendation-and-online-matching)
 
 ```
 @inproceedings{ma2021recurrent,
@@ -64,12 +75,13 @@ The simplest way to prepare data is via `create_dataset` function:
 rime.dataset.base.create_dataset(event_df: pd.DataFrame(columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP']),
                                  user_df: pd.DataFrame(columns=['TEST_START_TIME'], index=USER_ID),
                                  item_df: pd.DataFrame(index=ITEM_ID),
-                                 horizon: float >= 0 in the same unit as TIMESTAMPs)
+                                 horizon: float >= 0 in the same unit as the TIMESTAMP column)
 ```
 The `create_dataset` function will then regard events with `TIMESTAMP < TEST_START_TIME` as user histories and events within `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon` as prediction targets. We collect user histories in dataframe order without artificial sorting by time. The collected user histories (`user_df._hist_items` and `user_df._hist_ts`) will be used for both auto-regressive training and user-side feature creation in prediction tasks. The function returns a `rime.dataset.base.Dataset` object.
 
-To preserve temporal causality, we additionally filter users/items with at least 1 event as test candidates. We also filter by `user_df[TEST_START_TIME] < inf` which is an obvious necessity for test targets to exist. The filters are adjustable and we record the filtered data as `user_in_test` and `item_in_test` attributes in the `Dataset` object. The filters do not apply for training, which is recorded separately as `user_df` and `item_df`.
-Another advanced case is having multiple TEST_START_TIMEs for the same `USER_ID`, which is naturally handled by creating multiple rows in `user_in_test` with the corresponding histories. However, this case may also cause undesirable repetitions in the `user_df` attribute for training purposes. We thus deduplicate `user_df` by keeping the first entry per user in dataframe order. Similarly, we consider only the first row of each user in `user_df` towards the number of historical visits in `item_df._hist_len`.
+To preserve temporal causality, we additionally filter users/items with at least 1 event as test candidates. The min-thresholds are adjustable and we record the filtered data as `user_in_test` and `item_in_test` attributes in the `Dataset` object. The filter does not apply for training, which is recorded separately as `user_df` and `item_df`.
+We also filter by `user_in_test[TEST_START_TIME] < +inf`, which is an obvious necessity for test targets to exist and we abuse the +inf test-start time to indicate training-only users.
+Another advanced case is having multiple test-start times for the same `USER_ID`, which we naturally handle by creating multiple rows in `user_in_test` with the corresponding histories. However, this case may also cause undesirable repetitions in the `user_df` attribute for training purposes. We thus deduplicate `user_df` by keeping the first entry per user in dataframe order. Similarly, we consider only the first row of each user in `user_df` towards the number of historical visits in `item_df._hist_len`.
 For additional details, including a template for the created `Dataset` class as well as the use of `exclude_train` priors for cleaner model evaluations, please visit the example in `rime.dataset.__init__.prepare_minimal_dataset`.
 
 For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `CVX-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.

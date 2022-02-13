@@ -32,10 +32,8 @@ class Transformer(RNN):
     ):
 
         self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
-        self._truncated_input_steps = truncated_input_steps
         self._tokenize = {k: i for i, k in enumerate(self._padded_item_list)}
-        self._collate_fn = functools.partial(
-            _collate_fn, truncated_input_steps=truncated_input_steps, tbptt=False)
+        self._truncated_input_steps = truncated_input_steps
 
         self.model = _LitTransformerModel(
             len(self._padded_item_list),
