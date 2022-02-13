@@ -50,20 +50,15 @@ class Dataset:
     target_csr: sps.spmatrix        # index=USER_ID, column=ITEM_ID
     user_in_test: pd.DataFrame      # index=USER_ID
     item_in_test: pd.DataFrame      # index=ITEM_ID
-    training_data: argparse.Namespace = None  # contains training user_df and item_df
     horizon: float = float("inf")
     prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
     _item_rec_top_k: int = None     # leave unset (common) to allow the corresponding
     _user_rec_top_c: int = None     # defaults to adapt after reindexing
+    training_data: argparse.Namespace = None  # contains training user_df and item_df
 
     def __post_init__(self):
         assert self.target_csr.shape == (len(self.user_in_test), len(self.item_in_test)), \
             "target shape must match with test user/item lengths"
-
-        if self.training_data is None:
-            self.training_data = argparse.Namespace(
-                user_df=self.user_in_test.groupby(level=0, sort=False).first(),
-                item_df=self.item_in_test)
 
         if self.prior_score is not None:
             assert (self.prior_score.shape == self.target_csr.shape), \
@@ -71,6 +66,11 @@ class Dataset:
 
         self.user_ppl_baseline = perplexity(self.user_in_test['_hist_len'])
         self.item_ppl_baseline = perplexity(self.item_in_test['_hist_len'])
+
+        if self.training_data is None:
+            self.training_data = argparse.Namespace(
+                user_df=self.user_in_test.groupby(level=0, sort=False).first(),
+                item_df=self.item_in_test)
 
     @property
     def default_item_rec_top_k(self):
@@ -94,14 +94,14 @@ class Dataset:
             avg_hist_span = float("nan")
 
         return {
-            'user_in_test': {
+            'user_df': {
                 '# test users': len(self.user_in_test),
                 '# train users': len(self.training_data.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': avg_hist_span,
                 'avg target len': self.target_csr.sum(axis=1).mean(),
             },
-            'item_in_test': {
+            'item_df': {
                 '# test items': len(self.item_in_test),
                 '# train items': len(self.training_data.item_df),
                 'avg hist len': self.item_in_test['_hist_len'].mean(),
@@ -147,9 +147,8 @@ class Dataset:
             prior_score = matrix_reindex(
                 self.prior_score, old_index, index, axis, fill_value=0)
 
-        return self.__class__(target_csr, user_in_test, item_in_test,
-                              self.training_data, self.horizon, prior_score,
-                              self._item_rec_top_k, self._user_rec_top_c)
+        return self.__class__(target_csr, user_in_test, item_in_test, self.horizon, prior_score,
+                              self._item_rec_top_k, self._user_rec_top_c, self.training_data)
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
@@ -217,8 +216,9 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
 
         mask_csr = target_csr.astype(bool) > exclude_csr.astype(bool)
         target_csr = target_csr.multiply(mask_csr)
+        target_csr.eliminate_zeros()
 
-    print("filtering users and items; notice that the user-history data may contain extra items")
+    print("filtering user_in_test and item_in_test")
     user_in_test_bool = ((user_df['_hist_len'] >= min_user_len) &
                          user_df.apply(test_user_extra_filter, axis=1)).values.astype(bool)
     item_in_test_bool = (item_df['_hist_len'] >= min_item_len).values.astype(bool)
@@ -226,9 +226,9 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     D = Dataset(target_csr[user_in_test_bool][:, item_in_test_bool],
                 user_df[user_in_test_bool].copy(),
                 item_df[item_in_test_bool].copy(),
-                argparse.Namespace(user_df=training_user_df, item_df=item_df),
                 horizon,
-                None if prior_score is None else prior_score[user_in_test_bool][:, item_in_test_bool])
+                None if prior_score is None else prior_score[user_in_test_bool][:, item_in_test_bool],
+                training_data=argparse.Namespace(user_df=training_user_df, item_df=item_df))
     print("Dataset created!")
     return D
 
