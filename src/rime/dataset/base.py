@@ -188,19 +188,12 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
             _hist_items=[x.tolist() for x in np.split(hist_explode['ITEM_ID'].values, _hist_splits)],
             _hist_ts=[x.tolist() for x in np.split(hist_explode['TIMESTAMP'].values, _hist_splits)],
         ).assign(_hist_len=lambda x: x['_hist_items'].apply(len))
-
-    training_user_df = user_df.groupby(level=0, sort=False).first()
-    if len(training_user_df) < len(user_df):
-        warnings.warn("Users with multiple TEST_START_TIME detected; "
-                      "keeping the first user instance (in dataframe order) for training")
+        training_user_df = user_df.groupby(level=0, sort=False).first()
 
     with timed("generating item histories"):
-        _item_size = event_df[
-            event_df['TIMESTAMP'] < event_df[['USER_ID']].join(
-                training_user_df[['TEST_START_TIME']], on='USER_ID')['TEST_START_TIME']
-        ].groupby('ITEM_ID').size()
-        item_df = item_df.assign(
-            _hist_len=_item_size.reindex(item_df.index, fill_value=0).values)
+        _item_size = event_df.join(training_user_df[['TEST_START_TIME']], on='USER_ID') \
+                             .query('TIMESTAMP < TEST_START_TIME').groupby('ITEM_ID').size()
+        item_df = item_df.assign(_hist_len=_item_size.reindex(item_df.index, fill_value=0).values)
 
     with timed("generating targets"):
         target_csr = indices2csr(groupby_unexplode(target_explode['_j'], user_time_index),
