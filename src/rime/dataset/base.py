@@ -27,8 +27,8 @@ def _check_inputs(event_df, user_df, item_df):
 
 def _reindex_user_hist(user_df, index, factory={
         "_hist_items": list,
+        "_hist_ts": list,
         "_hist_len": lambda: 0,
-        "_hist_ts": lambda: [],
         "TEST_START_TIME": lambda: 0,
 }):
     missing = [i not in user_df.index for i in index]
@@ -126,8 +126,15 @@ class Dataset:
 
     def reindex(self, index, axis):
         if axis == 0:
-            old_index = self.user_in_test.index
-            user_in_test = _reindex_user_hist(self.user_in_test, index)
+            if np.size(index[0]) < 2:
+                old_index = self.user_in_test.index
+                user_in_test = _reindex_user_hist(self.user_in_test, index)
+            else:  # MultiIndex(USER_ID, TEST_START_TIME)
+                old_index = self.user_in_test.set_index('TEST_START_TIME', append=True).index
+                user_in_test = _reindex_user_hist(
+                    self.user_in_test.set_index('TEST_START_TIME', append=True), index,
+                    {'_hist_items': list, '_hist_ts': list, '_hist_len': lambda: 0}
+                ).reset_index(level=1)
             item_in_test = self.item_in_test
 
         else:
@@ -153,7 +160,7 @@ class Dataset:
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
                    min_user_len=1, min_item_len=1, prior_score=None, exclude_train=False,
-                   test_user_extra_filter=lambda x: x['TEST_START_TIME'] < float("inf")):
+                   test_user_extra_filter=lambda x: x['TEST_START_TIME'] < float("inf"), **kw):
     """ Create a labeled dataset from 3 related tables and additional configurations.
 
     :parameter event_df: [USER_ID, ITEM_ID, TIMESTAMP]
@@ -223,7 +230,8 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
                 item_df[item_in_test_bool].copy(),
                 horizon,
                 None if prior_score is None else prior_score[user_in_test_bool][:, item_in_test_bool],
-                training_data=argparse.Namespace(user_df=training_user_df, item_df=item_df))
+                training_data=argparse.Namespace(user_df=training_user_df, item_df=item_df),
+                **kw)
     print("Dataset created!")
     return D
 

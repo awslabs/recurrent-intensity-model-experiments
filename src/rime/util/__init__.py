@@ -195,6 +195,7 @@ def groupby_unexplode(series, index=None, return_type='series'):
             splits.append(i)
             while i < N and key == value:
                 i, value = next(tape, (N, None))  # move past the current chunk
+        assert i == N, f"mismatch between series and index. {series.index} vs {index}"
         splits = splits[1:]
 
     if return_type == 'splits':
