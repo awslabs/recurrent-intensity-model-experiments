@@ -12,11 +12,12 @@ def _check_inputs(event_df, user_df, item_df):
         "allow one entry per user-time instance"
     assert not item_df.index.has_duplicates, "allow one entry per item"
 
-    if event_df is not None:
-        assert event_df['USER_ID'].isin(user_df.index).all(), \
-            "user_df must include all users in event_df"
-        assert event_df['ITEM_ID'].isin(item_df.index).all(), \
-            "item_df must include all items in event_df"
+    assert event_df['USER_ID'].isin(user_df.index).all(), \
+        "user_df must include all users in event_df"
+    assert event_df['ITEM_ID'].isin(item_df.index).all(), \
+        "item_df must include all items in event_df"
+    assert (event_df['TIMESTAMP'] >= 0).all(), \
+        "assume TIMESTAMP >= 0 for correct user padding and splitting"
 
     with timed("checking for repeated user-item events"):
         nunique = len(set(event_df.set_index(['USER_ID', 'ITEM_ID']).index))
@@ -28,7 +29,7 @@ def _reindex_user_hist(user_df, index, factory={
         "_hist_items": list,
         "_hist_len": lambda: 0,
         "_hist_ts": lambda: [],
-        "TEST_START_TIME": lambda: float("inf"),
+        "TEST_START_TIME": lambda: 0,
 }):
     missing = [i not in user_df.index for i in index]
     user_df = user_df.reindex(index)
@@ -254,7 +255,7 @@ def create_user_splits(event_df, user_df, item_df, test_start_rel, horizon, num_
     V = create_dataset(
         event_df,
         user_df.assign(TEST_START_TIME=lambda x: np.where(
-            x['_in_GroupA'], test_start_abs, -1)),
+            x['_in_GroupA'], test_start_abs, 0)),
         item_df, horizon, **kw)
     if num_V_extra:
         V0 = create_dataset(
