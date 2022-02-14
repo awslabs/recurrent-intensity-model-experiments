@@ -14,7 +14,7 @@ class _LitTransformerModel(_LitRNNModel, _LitValidated):
 
     def training_step(self, batch, batch_idx):
         """ max length defined through truncated_input_steps=256 """
-        x, y = batch[0], batch[1]   # TN layout
+        x, y = batch[0].T, batch[1].T   # NT -> TN layout
         out = self.model(x, True)
         # print(batch_idx, out.softmax(dim=-1).detach().cpu().numpy().round(2))
         loss = self.loss(out.view(-1, self.ntoken), y.view(-1))
@@ -32,10 +32,8 @@ class Transformer(RNN):
     ):
 
         self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
-        self._truncated_input_steps = truncated_input_steps
         self._tokenize = {k: i for i, k in enumerate(self._padded_item_list)}
-        self._collate_fn = functools.partial(
-            _collate_fn, truncated_input_steps=truncated_input_steps, tbptt=False)
+        self._truncated_input_steps = truncated_input_steps
 
         self.model = _LitTransformerModel(
             len(self._padded_item_list),

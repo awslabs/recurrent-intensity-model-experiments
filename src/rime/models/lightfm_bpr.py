@@ -1,5 +1,5 @@
-from ..util import create_matrix, LowRankDataFrame
-import numpy as np
+from ..util import extract_past_ij, LowRankDataFrame
+import numpy as np, scipy.sparse as sps
 from lightfm import LightFM
 
 
@@ -19,8 +19,9 @@ class LightFM_BPR:
             item_alpha=item_alpha)
 
     def fit(self, D):
-        df_train = D.event_df
-        train_intn = create_matrix(df_train, D.user_df.index, D.item_df.index, 'csr')
+        i, j = extract_past_ij(D.user_df, D.item_df.index)
+        train_intn = sps.coo_matrix((np.ones(len(i)), (i, j)),
+                                    shape=(len(D.user_df), len(D.item_df))).tocsr()
         if self._transposed:
             train_intn = train_intn.T
 

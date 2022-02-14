@@ -2,7 +2,7 @@ import torch, argparse, numpy as np, warnings, torch.nn.functional as F
 from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import (_LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, create_matrix,
+from ..util import (_LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, extract_past_ij,
                     default_random_split, LazyScoreBase, auto_cast_lazy_score)
 from .lightfm_bpr import LightFM_BPR
 
@@ -89,13 +89,8 @@ class _BPR(_BPR_Common):
             self.item_encoder.weight.requires_grad = False
             self.item_encoder.weight.copy_(torch.as_tensor(item_embeddings))
 
-    def on_fit_start(self):
-        if hasattr(self, "prior_score") and not hasattr(self, "prior_score_T"):
-            self.prior_score_T = getattr(self.prior_score, "T", None)
-
     def training_step(self, batch, batch_idx):
-        loss = self._bpr_training_step(batch, self.user_proposal, self.item_proposal,
-                                       self.prior_score, self.prior_score_T)
+        loss = self._bpr_training_step(batch, self.user_proposal, self.item_proposal)
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
@@ -113,20 +108,19 @@ def _mnl_w_prior(S: LazyScoreBase, proposal, n_negatives):
 
 class BPR(LightFM_BPR):
     def __init__(self, user_rec=True, item_rec=True, batch_size=10000, max_epochs=50,
-                 sample_with_prior=True, sample_with_posterior=0.5, **kw):
+                 sample_with_posterior=0.5, **kw):
         self._model_kw = {"user_rec": user_rec, "item_rec": item_rec}
         self._model_kw.update(kw)
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
-        self.sample_with_prior = sample_with_prior
         self.sample_with_posterior = sample_with_posterior
         self._transposed = False
 
     @empty_cache_on_exit
     def fit(self, D):
-        ij_target = create_matrix(D.event_df, D.user_df.index, D.item_df.index, 'ij')
-        dataset = np.array(ij_target, dtype=int).T
+        i, j = extract_past_ij(D.user_df, D.item_df.index)
+        dataset = np.transpose([i, j]).astype(int)
 
         N = len(dataset)
         train_set, valid_set = default_random_split(dataset)
@@ -140,11 +134,6 @@ class BPR(LightFM_BPR):
         model.user_proposal = (D.user_df['_hist_len'].values + 0.1) ** self.sample_with_posterior
         model.item_proposal = (D.item_df['_hist_len'].values + 0.1) ** self.sample_with_posterior
 
-        if self.sample_with_prior:
-            model.prior_score = auto_cast_lazy_score(getattr(D, "prior_score", None))
-        else:
-            model.prior_score = None
-
         trainer = Trainer(
             max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
@@ -154,7 +143,7 @@ class BPR(LightFM_BPR):
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
             DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
-        for attr in ['user_proposal', 'item_proposal', 'prior_score', 'prior_score_T']:
+        for attr in ['user_proposal', 'item_proposal']:
             delattr(model, attr)
 
         self.D = D

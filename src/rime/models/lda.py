@@ -2,7 +2,7 @@ import torch, dgl, numpy as np, pandas as pd
 from pytorch_lightning import LightningModule, Trainer
 from torch.utils.data import DataLoader
 from .third_party.lda.lda_model import LatentDirichletAllocation, DocData, WordData, doc_subgraph
-from ..util import (empty_cache_on_exit, LowRankDataFrame, create_matrix,
+from ..util import (empty_cache_on_exit, LowRankDataFrame, extract_past_ij,
                     _LitValidated, default_random_split, get_batch_size)
 
 
@@ -64,17 +64,18 @@ class LDA:
         self.max_epochs = max_epochs
         print(f"LDA initiated, batch_size={batch_size}, rho={rho}")
 
+    def _create_graph(self, user_df):
+        """ create doc->word graph, including empty docs """
+        i, j = extract_past_ij(user_df, self._item_list)
+        G = dgl.heterograph({('doc', '', 'word'): (i, j)},
+                            {'doc': len(user_df), 'word': len(self._item_list)})
+        return G
+
     @empty_cache_on_exit
     def fit(self, D):
-        """ learn from training_data on gpu w/ mini-batches; clear gpu in the end """
+        """ learn from D.user_df on gpu w/ mini-batches; clear gpu in the end """
 
-        user_index = D.user_df[D.user_df['_hist_len'] > 0].index  # prune empty users
-        i, j = create_matrix(D.event_df, user_index, self._item_list, 'ij')
-        G = dgl.heterograph(
-            {('doc', '', 'word'): (i, j)},
-            {'doc': len(user_index), 'word': len(self._item_list)},
-        )
-
+        G = self._create_graph(D.user_df[D.user_df['_hist_len'] > 0])
         lit = _LitLDA(self.model, G)
         trainer = Trainer(
             max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
@@ -96,16 +97,7 @@ class LDA:
     def transform(self, D, return_doc_data=False):
         """ run e-step to get doc data; output as low-rank nonnegative matrix """
 
-        user_non_empty = D.user_in_test.reset_index()[D.user_in_test['_hist_len'].values > 0]
-        past_event_df = user_non_empty['_hist_items'].explode().to_frame("ITEM_ID").join(
-            pd.Series({k: j for j, k in enumerate(self._item_list)}).to_frame("j"),
-            on="ITEM_ID", how="inner")  # drop oov items
-
-        G = dgl.heterograph(
-            {('doc', '', 'word'): (past_event_df.index.values, past_event_df['j'].values)},
-            {'doc': len(D.user_in_test), 'word': len(self._item_list)}
-        )
-
+        G = self._create_graph(D.user_in_test)
         trainer = Trainer(gpus=int(torch.cuda.is_available()))
         doc_nphi = trainer.predict(
             _LitLDA(self.model, G),

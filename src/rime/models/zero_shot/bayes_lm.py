@@ -87,7 +87,6 @@ class BayesLM:
         loss = self.loss(logits, targets.reshape(-1))
         return (-loss).reshape(targets.shape).mean(1).tolist()
 
-    @functools.lru_cache(2)
     @empty_cache_on_exit
     def transform(self, D):
         """ generate score matrix by evaluating top or random items in test """

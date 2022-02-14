@@ -9,15 +9,17 @@ from .plotting import plot_rec_results, plot_mtch_results
 
 
 class timed(contextlib.ContextDecorator):
-    def __init__(self, name=""):
+    def __init__(self, name="", inline=True):
         self.name = name
+        self.inline = inline
 
     def __enter__(self):
         self.tic = time.time()
-        print("entering", self.name)
+        print("timing", self.name, end=' ' if self.inline else '\n')
 
     def __exit__(self, *args, **kw):
-        print("exiting", self.name, "time {:.1f}s".format(time.time() - self.tic))
+        print("done", "." if self.inline else self.name,
+              "time {:.1f}s".format(time.time() - self.tic))
 
 
 def warn_nan_output(func):
@@ -166,51 +168,55 @@ def extract_user_item(event_df):
     return (user_df, item_df)
 
 
-def groupby_collect(series):
+def groupby_unexplode(series, index=None, return_type='series'):
     """
-    >>> groupby_collect(pd.Series([1,2,3,4,5], index=[1,1,2,3,3])).to_dict()
+    assume the input is an exploded dataframe with block-wise indices
+    >>> groupby_unexplode(pd.Series([1,2,3,4,5], index=[1,1,2,3,3])).to_dict()
     {1: [1, 2], 2: [3], 3: [4, 5]}
+    >>> groupby_unexplode(pd.Series([1,2,3,4,5], index=[1,1,2,3,3]), index=[0,1,-1,2,3,4]).to_dict()
+    {0: [], 1: [1, 2], -1: [], 2: [3], 3: [4, 5], 4: []}
     """
-    last_i = None
-    for i in series.index.values:
-        if last_i is not None and last_i > i:
-            warnings.warn("unsorted input to groupby_collect may be inefficient")
-            series = series.sort_index(kind='mergesort')
-            break
-        last_i = i
+    if len(series) == 0:
+        return pd.Series(index=index)
 
-    splits = np.where(
-        np.array(series.index.values[1:]) != np.array(series.index.values[:-1])
-    )[0] + 1
+    if index is None:
+        splits = np.where(
+            np.array(series.index.values[1:]) !=  # 1, 2, 3, 3
+            np.array(series.index.values[:-1])    # 1, 1, 2, 3
+        )[0] + 1  # [2, 3]
+        index = series.index.values[np.hstack([[0], splits])]  # 1, 2, 3
+    else:  # something like searchsorted, but unordered
+        splits = []
+        tape = enumerate(series.index)
+        N = len(series)
+        i, value = next(tape)
 
-    return pd.Series(
-        [x.tolist() for x in np.split(series.values, splits)],
-        index=series.index.values[np.hstack([[0], splits])]
-    ) if len(series) else pd.Series()
+        for key in index:
+            splits.append(i)
+            while i < N and key == value:
+                i, value = next(tape, (N, None))  # move past the current chunk
+        assert i == N, f"mismatch between series and index. {series.index} vs {index}"
+        splits = splits[1:]
+
+    if return_type == 'splits':
+        return splits
+    else:
+        return pd.Series([x.tolist() for x in np.split(series.values, splits)],
+                         index=index)
 
 
-def create_matrix(event_df, user_index, item_index, return_type='csr'):
-    """ create matrix and prune unknown indices """
-    user2ind = {k: i for i, k in enumerate(user_index)}
-    item2ind = {k: i for i, k in enumerate(item_index)}
-    event_df = event_df[
-        event_df['USER_ID'].isin(set(user_index)) &
-        event_df['ITEM_ID'].isin(set(item_index))
-    ]
-    i = [user2ind[k] for k in event_df['USER_ID']]
-    j = [item2ind[k] for k in event_df['ITEM_ID']]
+def indices2csr(indices, shape1):
+    indptr = np.cumsum([0] + [len(x) for x in indices])
+    return sps.csr_matrix((
+        np.ones(indptr[-1]), np.hstack(indices), indptr
+    ), shape=(len(indices), shape1))
 
-    if return_type == 'ij':
-        return (i, j)
 
-    data = np.ones(len(event_df))
-    shape = (len(user_index), len(item_index))
-    csr = sp.sparse.coo_matrix((data, (i, j)), shape=shape).tocsr()
-
-    if return_type == 'csr':
-        return csr
-    elif return_type == 'df':
-        return pd.DataFrame.sparse.from_spmatrix(csr, user_index, item_index)
+def extract_past_ij(user_df, item_index):
+    past_event_df = user_df.reset_index()['_hist_items'].explode().to_frame("ITEM_ID").join(
+        pd.Series({k: j for j, k in enumerate(item_index)}).to_frame('j'),
+        on="ITEM_ID", how="inner")  # drop empty users and oov items
+    return (past_event_df.index.values, past_event_df['j'].values)
 
 
 def fill_factory_inplace(df, isna, kv):
@@ -221,25 +227,6 @@ def fill_factory_inplace(df, isna, kv):
             df[k] = [v() if do else x for do, x in zip(isna, df[k])]
         else:
             warnings.warn(f"fill_factory_inplace missing {k}")
-
-
-def split_by_time(user_df, test_start, valid_start):
-    user_df = user_df.copy()
-    user_df['TEST_START_TIME'] = test_start
-    valid_df = user_df.copy()
-    valid_df['TEST_START_TIME'] = valid_start
-    return (user_df, valid_df)
-
-
-def split_by_user(user_df, in_groupA, test_start, relative=True):
-    """ test_start=+inf: training user without test window; -inf: user to exclude """
-    if relative:
-        test_start = user_df['_Tmin'] + test_start
-    train_df = user_df.copy()
-    train_df['TEST_START_TIME'] = np.where(in_groupA, float("inf"), test_start)
-    valid_df = user_df.copy()
-    valid_df['TEST_START_TIME'] = np.where(in_groupA, test_start, float("-inf"))
-    return (train_df, valid_df)
 
 
 def sample_groupA(user_df, frac=0.5, seed=888):

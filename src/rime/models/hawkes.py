@@ -14,7 +14,7 @@ class Hawkes:
             _input_fn, horizon=horizon, training_eps=training_eps, hetero=hetero)
         self.hetero = hetero
 
-    @timed("Hawkes.fit")
+    @timed("Hawkes.fit", inline=False)
     def fit(self, D):
         training_user = D.user_df[
             (D.user_df['_hist_ts'].apply(len) > 0) &
@@ -28,7 +28,6 @@ class Hawkes:
         print(pd.DataFrame(self._learned_coeffs))
         return self
 
-    @functools.lru_cache(1)
     def transform(self, D, state_only=False):
         X = D.user_in_test.apply(lambda x: self._input_fn(
             x['_hist_ts'], x['TEST_START_TIME'], training=False), axis=1).tolist()

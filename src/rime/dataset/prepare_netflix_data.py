@@ -1,7 +1,7 @@
 import os, pandas as pd
 from datetime import datetime
-from ..util import extract_user_item, split_by_time
-from .base import create_dataset
+from ..util import extract_user_item
+from .base import create_temporal_splits
 
 
 def prepare_netflix_data(
@@ -35,23 +35,13 @@ def prepare_netflix_data(
         movie_titles = pd.read_csv(title_path, encoding='latin1',
                                    names=['_ITEM_ID_number', '_', 'TITLE'])
         movie_titles.index = movie_titles['_ITEM_ID_number'].apply(lambda x: "{:d}.txt".format(x))
-        item_df = item_df.join(movie_titles[['TITLE']])
+        item_df = item_df.assign(_preserve_order=lambda x: x.index) \
+            .join(movie_titles[['TITLE']], on='_preserve_order').drop('_preserve_order', axis=1)
         assert item_df['TITLE'].notnull().all(), "movie titles should not be missing"
 
-    user_df, valid_df = split_by_time(user_df, test_start, valid_start)
-
-    D = create_dataset(event_df, user_df, item_df, test_end - test_start, **kw)
-    D.print_stats()
-    V = create_dataset(event_df, valid_df, item_df, test_start - valid_start, **kw)
-
-    V_extra = []
-    for k in range(num_V_extra):
-        extra_df = valid_df.copy()
-        extra_df['TEST_START_TIME'] = valid_start - (test_start - valid_start) * (k + 1)
-        V_extra.append(create_dataset(
-            V.training_data.event_df,
-            extra_df,
-            V.training_data.item_df[['_siz']],
-            test_start - valid_start,
-            **kw))
-    return (D, V, *V_extra)
+    return create_temporal_splits(
+        event_df, user_df, item_df, test_start,
+        horizon=test_end - test_start,
+        validating_horizon=test_start - valid_start,
+        num_V_extra=num_V_extra,
+        **kw)

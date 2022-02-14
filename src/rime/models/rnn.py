@@ -21,10 +21,8 @@ class RNN:
         load_from_checkpoint=None
     ):
         self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
-        self._truncated_input_steps = truncated_input_steps
         self._tokenize = {k: i for i, k in enumerate(self._padded_item_list)}
-        self._collate_fn = functools.partial(
-            _collate_fn, truncated_input_steps=truncated_input_steps, tbptt=True)
+        self._truncated_input_steps = truncated_input_steps
 
         self.model = _LitRNNModel(
             'GRU', len(self._padded_item_list),
@@ -49,7 +47,8 @@ class RNN:
     @torch.no_grad()
     def transform(self, D):
         dataset = self._extract_data(D.user_in_test)
-        collate_fn = functools.partial(self._collate_fn, training=False)
+        collate_fn = functools.partial(
+            _collate_fn, truncated_input_steps=self._truncated_input_steps, training=False)
         m, n_events, sample = _get_dataset_stats(dataset, collate_fn)
         print(f"transforming {m} users with {n_events} events, "
               f"truncated@{self._truncated_input_steps} per user")
@@ -81,7 +80,8 @@ class RNN:
     @empty_cache_on_exit
     def fit(self, D):
         dataset = self._extract_data(D.user_df[D.user_df['_hist_len'] > 0])
-        collate_fn = functools.partial(self._collate_fn, training=True)
+        collate_fn = functools.partial(
+            _collate_fn, truncated_input_steps=self._truncated_input_steps, training=True)
         m, n_events, sample = _get_dataset_stats(dataset, collate_fn)
         print(f"fitting {m} users with {n_events} events, "
               f"truncated@{self._truncated_input_steps} per user")
@@ -99,16 +99,13 @@ class RNN:
         return self
 
 
-def _collate_fn(batch, truncated_input_steps, training, tbptt):
+def _collate_fn(batch, truncated_input_steps, training):
     if truncated_input_steps > 0:
         batch = [seq[-truncated_input_steps:] for seq in batch]
     batch = [torch.tensor(seq, dtype=torch.int64) for seq in batch]
     batch, lengths = pad_packed_sequence(pack_sequence(batch, enforce_sorted=False))
     if training:
-        if tbptt:
-            return (batch[:-1].T, batch[1:].T)  # TBPTT assumes NT layout
-        else:
-            return (batch[:-1], batch[1:])  # TNC layout
+        return (batch[:-1].transpose(0, 1), batch[1:].transpose(0, 1))  # TBPTT assumes NT layout
     else:
         return (batch, lengths)  # RNN default TN layout
 
