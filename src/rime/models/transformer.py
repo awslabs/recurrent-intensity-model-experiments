@@ -14,7 +14,7 @@ class _LitTransformerModel(_LitRNNModel, _LitValidated):
 
     def training_step(self, batch, batch_idx):
         """ max length defined through truncated_input_steps=256 """
-        x, y = batch[0], batch[1]   # TN layout
+        x, y = batch[0].T, batch[1].T   # NT -> TN layout
         out = self.model(x, True)
         # print(batch_idx, out.softmax(dim=-1).detach().cpu().numpy().round(2))
         loss = self.loss(out.view(-1, self.ntoken), y.view(-1))

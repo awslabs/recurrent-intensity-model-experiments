@@ -48,8 +48,7 @@ class RNN:
     def transform(self, D):
         dataset = self._extract_data(D.user_in_test)
         collate_fn = functools.partial(
-            _collate_fn, truncated_input_steps=self._truncated_input_steps,
-            tbptt=self.model.truncated_bptt_steps, training=False)
+            _collate_fn, truncated_input_steps=self._truncated_input_steps, training=False)
         m, n_events, sample = _get_dataset_stats(dataset, collate_fn)
         print(f"transforming {m} users with {n_events} events, "
               f"truncated@{self._truncated_input_steps} per user")
@@ -82,8 +81,7 @@ class RNN:
     def fit(self, D):
         dataset = self._extract_data(D.user_df[D.user_df['_hist_len'] > 0])
         collate_fn = functools.partial(
-            _collate_fn, truncated_input_steps=self._truncated_input_steps,
-            tbptt=self.model.truncated_bptt_steps, training=True)
+            _collate_fn, truncated_input_steps=self._truncated_input_steps, training=True)
         m, n_events, sample = _get_dataset_stats(dataset, collate_fn)
         print(f"fitting {m} users with {n_events} events, "
               f"truncated@{self._truncated_input_steps} per user")
@@ -101,16 +99,13 @@ class RNN:
         return self
 
 
-def _collate_fn(batch, truncated_input_steps, training, tbptt):
+def _collate_fn(batch, truncated_input_steps, training):
     if truncated_input_steps > 0:
         batch = [seq[-truncated_input_steps:] for seq in batch]
     batch = [torch.tensor(seq, dtype=torch.int64) for seq in batch]
     batch, lengths = pad_packed_sequence(pack_sequence(batch, enforce_sorted=False))
     if training:
-        if tbptt:
-            return (batch[:-1].T, batch[1:].T)  # TBPTT assumes NT layout
-        else:
-            return (batch[:-1], batch[1:])  # TNC layout
+        return (batch[:-1].transpose(0, 1), batch[1:].transpose(0, 1))  # TBPTT assumes NT layout
     else:
         return (batch, lengths)  # RNN default TN layout
 
