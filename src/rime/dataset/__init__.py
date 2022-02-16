@@ -19,8 +19,8 @@ def prepare_minimal_dataset():
     user_df = pd.DataFrame([
         ("u3", 9),
         ("u2", 0),
-        ("u2", 6),
         ("u1", float('inf')),
+        ("u2", 6),
     ], columns=['USER_ID', 'TEST_START_TIME']).set_index('USER_ID')
 
     item_df = pd.DataFrame(index=["i1", "i2", "i3", "i4"])

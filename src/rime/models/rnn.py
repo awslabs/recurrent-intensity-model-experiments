@@ -52,8 +52,8 @@ class RNN:
         m, n_events, sample = _get_dataset_stats(dataset, collate_fn)
         print(f"transforming {m} users with {n_events} events, "
               f"truncated@{self._truncated_input_steps} per user")
-        print(f"sample[1]={sample[1].tolist()}")
         print(f"sample[0]={sample[0].tolist()}")
+        print(f"sample[1]={sample[1].tolist()}")
 
         if hasattr(dataset, "tolist"):  # pytorch lightning bug cannot take array input
             dataset = dataset.tolist()
@@ -85,6 +85,7 @@ class RNN:
         m, n_events, sample = _get_dataset_stats(dataset, collate_fn)
         print(f"fitting {m} users with {n_events} events, "
               f"truncated@{self._truncated_input_steps} per user")
+        print(f"sample[0]={sample[0].tolist()}")
         print(f"sample[1]={sample[1].tolist()}")
 
         train_set, valid_set = default_random_split(dataset)
@@ -113,7 +114,7 @@ def _collate_fn(batch, truncated_input_steps, training):
 def _get_dataset_stats(dataset, collate_fn):
     truncated_input_steps = collate_fn.keywords['truncated_input_steps']
     n_events = sum([min(truncated_input_steps, len(x)) for x in dataset])
-    sample = next(iter(DataLoader(dataset, 2, collate_fn=collate_fn, shuffle=True)))
+    sample = next(iter(DataLoader(dataset, 1, collate_fn=collate_fn, shuffle=True)))
     return len(dataset), n_events, sample
 
 

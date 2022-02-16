@@ -139,11 +139,11 @@ class GraphConv:
         """ create item -> user graph; allow same USER_ID with different TEST_START_TIME """
 
         user_non_empty = D.user_in_test.reset_index()[D.user_in_test['_hist_len'].values > 0]
-        past_event_df = user_non_empty['_hist_items'].explode().to_frame("ITEM_ID")
-        past_event_df["TIMESTAMP"] = user_non_empty['_hist_ts'].explode().values
-        past_event_df = past_event_df.join(  # item embeddings are shared for different times
-            pd.Series({k: j for j, k in enumerate(self._padded_item_list)}).to_frame("j"),
-            on="ITEM_ID", how='inner')  # drop oov items
+        item_map = {k: j for j, k in enumerate(self._padded_item_list)}
+        past_event_df = user_non_empty['_hist_items'].explode().to_frame("ITEM_ID").assign(
+            TIMESTAMP=user_non_empty['_hist_ts'].explode().values
+        ).assign(j=lambda x: x['ITEM_ID'].apply(lambda k: item_map.get(k, -1)))
+        past_event_df = past_event_df[past_event_df['j'] > -1]  # ignore oov items
 
         G = dgl.heterograph(
             {('user', 'source', 'item'): (past_event_df.index.values,

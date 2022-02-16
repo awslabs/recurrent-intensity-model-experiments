@@ -152,9 +152,11 @@ class Experiment:
             valid_mat = None
 
         self.item_rec[name] = evaluate_item_rec(
-            target_csr, score_mat, self._k1, device=self.device)
+            target_csr, score_mat, self._k1, device=self.device) \
+            if getattr(self, "_run_item_rec", True) else None
         self.user_rec[name] = evaluate_user_rec(
-            target_csr, score_mat, self._c1, device=self.device)
+            target_csr, score_mat, self._c1, device=self.device) \
+            if getattr(self, "_run_user_rec", True) else None
 
         print(pd.DataFrame({
             'item_rec': self.item_rec[name],
