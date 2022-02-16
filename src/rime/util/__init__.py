@@ -213,9 +213,11 @@ def indices2csr(indices, shape1):
 
 
 def extract_past_ij(user_df, item_index):
-    past_event_lists = user_df.reset_index()['_hist_items'].explode().to_frame("ITEM_ID").join(
-        pd.Series({k: j for j, k in enumerate(item_index)}).to_frame('j'),
-        on="ITEM_ID")['j'].dropna()  # drop empty users and oov items
+    item_map = {k: j for j, k in enumerate(item_index)}
+    past_event_lists = D.user_in_test.reset_index()[  # drop empty users
+        D.user_in_test['_hist_len'].values > 0
+    ]['_hist_items'].explode().apply(lambda x: item_map.get(x, -1))
+    past_event_lists = past_event_lists[past_event_lists > -1]  # ignore oov items
     return (past_event_lists.index.values, past_event_lists.values)
 
 

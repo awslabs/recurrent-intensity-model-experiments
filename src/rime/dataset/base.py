@@ -184,6 +184,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
             .assign(_preserve_order=lambda x: x.index.get_level_values(0)) \
             .join(event_df.set_index('USER_ID'), on='_preserve_order') \
             .dropna(subset=['ITEM_ID']).drop('_preserve_order', axis=1) \
+            .assign(ITEM_ID=lambda x: x['ITEM_ID'].astype(event_df['ITEM_ID'].dtype)) \
             .join(pd.Series(np.arange(len(item_df)), item_df.index).to_frame('_j'), on='ITEM_ID')
         hist_explode = user_explode[
             user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1)]
