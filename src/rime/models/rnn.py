@@ -113,7 +113,7 @@ def _collate_fn(batch, truncated_input_steps, training):
 def _get_dataset_stats(dataset, collate_fn):
     truncated_input_steps = collate_fn.keywords['truncated_input_steps']
     n_events = sum([min(truncated_input_steps, len(x)) for x in dataset])
-    sample = next(iter(DataLoader(dataset, 2, collate_fn=collate_fn, shuffle=True)))
+    sample = next(iter(DataLoader(dataset, 1, collate_fn=collate_fn, shuffle=True)))
     return len(dataset), n_events, sample
 
 

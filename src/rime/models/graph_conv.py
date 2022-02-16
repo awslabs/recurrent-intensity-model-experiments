@@ -143,7 +143,7 @@ class GraphConv:
         past_event_df["TIMESTAMP"] = user_non_empty['_hist_ts'].explode().values
         past_event_df = past_event_df.join(  # item embeddings are shared for different times
             pd.Series({k: j for j, k in enumerate(self._padded_item_list)}).to_frame("j"),
-            on="ITEM_ID", how='inner')  # drop oov items
+            on="ITEM_ID").dropna(subset=['j'])  # drop oov items
 
         G = dgl.heterograph(
             {('user', 'source', 'item'): (past_event_df.index.values,

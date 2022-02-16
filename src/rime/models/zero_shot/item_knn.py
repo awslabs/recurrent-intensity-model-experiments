@@ -45,6 +45,7 @@ class ItemKNN:
             self.model.eval()  # eval mode
             self.item_embeddings = self._compute_embeddings(item_df["TITLE"].values)
 
+    @empty_cache_on_exit
     @torch.no_grad()
     def _compute_embeddings(self, titles):
         """ find embedding of a batch of sequences """
