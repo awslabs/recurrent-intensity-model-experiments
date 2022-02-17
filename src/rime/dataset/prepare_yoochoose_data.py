@@ -6,7 +6,7 @@ from .base import create_user_splits
 def prepare_yoochoose_data(
     data_path="data/yoochoose-data/yoochoose-combined.csv",
     seed=0, user_sample_frac=0.1, min_user_len=4, min_item_len=10,
-    drop_duplicates=True,
+    drop_duplicates=True, num_V_extra=1,
     **kw
 ):
     event_df = pd.read_csv(data_path).sort_values('TIMESTAMP', kind="mergesort")
@@ -26,7 +26,7 @@ def prepare_yoochoose_data(
     return create_user_splits(
         event_df,
         user_df.assign(_in_GroupA=in_GroupA),
-        item_df, test_start_rel, horizon, num_V_extra=1,
+        item_df, test_start_rel, horizon, num_V_extra=num_V_extra,
         min_user_len=min_user_len, min_item_len=min_item_len, **kw)
 
 

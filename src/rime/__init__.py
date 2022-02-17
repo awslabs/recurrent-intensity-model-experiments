@@ -260,44 +260,50 @@ class Experiment:
 
         return registered
 
-    def run(self, models_to_run=None,
-            models_to_exclude=["ItemKNN-0", "ItemKNN-1", "BayesLM-0", "BayesLM-1"]):
+    def _validate_run_input(self, models_to_run):
+        """ return a dictionary of {model_name: model_str or model_obj} """
+        if models_to_run is None:
+            models_to_run = [m for m in self.models_to_run if m not in
+                             ['BayesLM-0', 'BayesLM-1', 'ItemKNN-0', 'ItemKNN-1']]
+        if isinstance(models_to_run, str):
+            models_to_run = [models_to_run]
+        if isinstance(models_to_run, list):
+            for model in models_to_run:
+                assert model in self.registered, f"{model} disabled or unregistered"
+                print("models to run", models_to_run)
+            models_to_run = {k: k for k in models_to_run}
+        return models_to_run
+
+    def run(self, models_to_run=None):
         """ models_to_exclude is ignored if models_to_run is explicitly provided """
 
-        if models_to_run is None:
-            models_to_run = [m for m in self.models_to_run if m not in models_to_exclude]
-        elif isinstance(models_to_run, str):
-            models_to_run = [models_to_run]
+        models_to_run = self._validate_run_input(models_to_run)
 
-        for model in models_to_run:
-            assert model in self.registered, f"{model} disabled or unregistered"
-        print("models to run", models_to_run)
+        for model_name, model_obj in models_to_run.items():
+            print("running", model_name)
+            if isinstance(model_obj, str):
+                transform_fn = self.registered[model_obj]
+            else:
+                transform_fn = model_obj.transform
 
-        for model in models_to_run:
-            print("running", model)
-            S = self.registered[model](self.D)
-
+            S = transform_fn(self.D)
             if self.D.prior_score is not None:
                 S = S + self.D.prior_score
-
             if self.tie_break:
                 warnings.warn("Using experimental RandScore class")
                 S = S + RandScore.like(S) * self.tie_break
 
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
-                T = self.registered[model](V)
-
+                T = transform_fn(V)
                 if V.prior_score is not None:
                     T = T + V.prior_score
-
                 if self.tie_break:
                     warnings.warn("Using experimental RandScore class")
                     T = T + RandScore.like(T) * self.tie_break
-
             else:
                 T = None
-            self.metrics_update(model, S, T)
+            self.metrics_update(model_name, S, T)
 
     @cached_property
     def _pop(self):
