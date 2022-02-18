@@ -102,7 +102,7 @@ class RNN:
 
 def _collate_fn(batch, truncated_input_steps, training):
     if truncated_input_steps > 0:
-        batch = [seq[-truncated_input_steps:] for seq in batch]
+        batch = [seq[-(truncated_input_steps + training):] for seq in batch]
     batch = [torch.tensor(seq, dtype=torch.int64) for seq in batch]
     batch, lengths = pad_packed_sequence(pack_sequence(batch, enforce_sorted=False))
     if training:

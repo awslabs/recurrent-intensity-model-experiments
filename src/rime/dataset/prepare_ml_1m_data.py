@@ -6,6 +6,7 @@ from .base import create_user_splits
 def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
                        seed=0, second_half_only=True,
                        title_path=None,
+                       num_V_extra=1,
                        **kw):
 
     event_df = pd.read_csv(
@@ -36,4 +37,4 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
     return create_user_splits(
         event_df,
         user_df.assign(_in_GroupA=in_GroupA),
-        item_df, test_start_rel, horizon, num_V_extra=1, **kw)
+        item_df, test_start_rel, horizon, num_V_extra=num_V_extra, **kw)
