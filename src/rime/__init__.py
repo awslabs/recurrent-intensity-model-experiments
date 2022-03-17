@@ -291,7 +291,7 @@ class Experiment:
                 S = S + self.D.prior_score
             if self.tie_break:
                 warnings.warn("Using experimental RandScore class")
-                S = S + RandScore.like(S) * self.tie_break
+                S = S + RandScore.create(S.shape) * self.tie_break
 
             if self.online:
                 V = self.V.reindex(self.D.item_in_test.index, axis=1)
@@ -300,7 +300,7 @@ class Experiment:
                     T = T + V.prior_score
                 if self.tie_break:
                     warnings.warn("Using experimental RandScore class")
-                    T = T + RandScore.like(T) * self.tie_break
+                    T = T + RandScore.create(T.shape) * self.tie_break
             else:
                 T = None
             self.metrics_update(model_name, S, T)

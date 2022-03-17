@@ -22,8 +22,7 @@ class Rand:
     def transform(self, D):
         """ return a constant of one """
         shape = (len(D.user_in_test), len(D.item_in_test))
-        return RandScore(np.random.choice(RandScore._MAXSEED) + np.arange(shape[0]),
-                         np.random.choice(RandScore._MAXSEED) + np.arange(shape[1]))
+        return RandScore.create(shape)
 
 
 class Pop:
@@ -55,7 +54,7 @@ class Pop:
         S = LowRankDataFrame(
             ind_logits, col_logits,
             index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
-        return S + RandScore.like(S) * self.tie_break_noise
+        return S + RandScore.create(S.shape) * self.tie_break_noise
 
 
 class EMA:

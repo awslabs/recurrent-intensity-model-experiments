@@ -256,16 +256,16 @@ class RandScore(LazyScoreBase):
     """ add random noise to break ties """
     row_seeds: list  # np.array for fast indexing
     col_seeds: list  # np.array for fast indexing
-    _MAX_SEED: ClassVar[int] = 10000
+    _DEFAULT_MAX_SEED: ClassVar[int] = 10000
 
     @property
     def shape(self):
         return (len(self.row_seeds), len(self.col_seeds))
 
     @classmethod
-    def like(cls, other):
-        return cls(np.random.choice(cls._MAX_SEED) + np.arange(other.shape[0]),
-                   np.random.choice(cls._MAX_SEED) + np.arange(other.shape[1]))
+    def create(cls, shape):
+        return cls(np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[0]),
+                   np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[1]))
 
     def eval(self, device=None):
         d1 = len(self.col_seeds)

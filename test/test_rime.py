@@ -93,7 +93,7 @@ def test_score_array(shape=(3, 4), device="cpu"):
     score_op((a + b) * c, "max")
     score_op((a + b) * c, "max", device)
     score_op(a.reindex(np.asarray([3, 4, 5]), axis=0, fill_value=0), "max", device)
-    score_op(a + RandScore.like(b) * 2, "max", device)
-    score_op(((a + b) * c + RandScore.like(b) + 3)
+    score_op(a + RandScore.create(b.shape) * 2, "max", device)
+    score_op(((a + b) * c + RandScore.create(b.shape) + 3)
              .reindex(np.asarray([3, 4, 5]), axis=0, fill_value=0, old_index=index),
              "max", device)
