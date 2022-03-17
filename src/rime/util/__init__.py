@@ -205,10 +205,12 @@ def groupby_unexplode(series, index=None, return_type='series'):
                          index=index)
 
 
-def indices2csr(indices, shape1):
+def indices2csr(indices, shape1, data=None):
     indptr = np.cumsum([0] + [len(x) for x in indices])
+    if data is None:
+        data = np.ones(indptr[-1])
     return sps.csr_matrix((
-        np.ones(indptr[-1]), np.hstack(indices), indptr
+        np.hstack(data), np.hstack(indices), indptr
     ), shape=(len(indices), shape1))
 
 

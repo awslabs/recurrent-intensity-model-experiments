@@ -270,7 +270,7 @@ class Experiment:
         if isinstance(models_to_run, list):
             for model in models_to_run:
                 assert model in self.registered, f"{model} disabled or unregistered"
-                print("models to run", models_to_run)
+            print("models to run", models_to_run)
             models_to_run = {k: k for k in models_to_run}
         return models_to_run
 
@@ -356,9 +356,7 @@ class Experiment:
     @cached_property
     def _graph_conv_extra(self):
         if len(self.V_extra) == 0:
-            warnings.warn("without V_extra, we are defaulting to _graph_conv_base")
-            return self._graph_conv_base
-
+            warnings.warn("w/o V_extra, GraphConv-Extra will perform the same as GraphConv-Base")
         return GraphConv(
             self.D, **self.model_hyps.get("GraphConv-Extra", {})
         ).fit(self.V, *self.V_extra)

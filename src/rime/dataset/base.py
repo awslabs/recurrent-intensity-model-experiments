@@ -12,12 +12,14 @@ def _check_inputs(event_df, user_df, item_df):
         "allow one entry per user-time instance"
     assert not item_df.index.has_duplicates, "allow one entry per item"
 
-    assert event_df['USER_ID'].isin(user_df.index).all(), \
-        "user_df must include all users in event_df"
-    assert event_df['ITEM_ID'].isin(item_df.index).all(), \
-        "item_df must include all items in event_df"
-    assert (event_df['TIMESTAMP'] >= 0).all(), \
-        "assume TIMESTAMP >= 0 for correct user padding and splitting"
+    unknown_user_drop = 1 - event_df['USER_ID'].isin(user_df.index).mean()
+    if unknown_user_drop > 0:
+        warnings.warn(f"unknown USER_ID are dropped from event_df: ({unknown_user_drop:%})")
+    unknown_item_drop = 1 - event_df['ITEM_ID'].isin(item_df.index).mean()
+    if unknown_item_drop > 0:
+        warnings.warn(f"unknown ITEM_ID are dropped from event_df: ({unknown_item_drop:%})")
+    if not (event_df['TIMESTAMP'] >= 0).all():
+        warnings.warn("negative TIMESTAMP may cause errors in user-side reindexing")
 
     with timed("checking for repeated user-item events"):
         nunique = len(set(event_df.set_index(['USER_ID', 'ITEM_ID']).index))
@@ -95,7 +97,7 @@ class Dataset:
 
         return {
             'user_df': {
-                '# test users': len(self.user_in_test),
+                '# test user-time instances': len(self.user_in_test),
                 '# train users': len(self.training_data.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': avg_hist_span,
@@ -157,6 +159,24 @@ class Dataset:
         return self.__class__(target_csr, user_in_test, item_in_test, self.horizon, prior_score,
                               self._item_rec_top_k, self._user_rec_top_c, self.training_data)
 
+    def sample(self, *, axis, **kw):
+        if axis == 0:
+            df = self.user_in_test.set_index('TEST_START_TIME', append=True)
+        else:
+            df = self.item_in_test
+        return self.reindex(df.sample(**kw).index, axis)
+
+    @classmethod
+    def concat(cls, *arr):
+        target_csr = sps.vstack([a.target_csr for a in arr], "csr")
+        user_in_test = pd.concat([a.user_in_test for a in arr])
+        _hist_len = np.sum([a.item_in_test['_hist_len'].values for a in arr], 0)
+        prior_score = None if arr[0].prior_score is None else \
+                      sps.vstack([a.prior_score for a in arr], "csr")
+        return cls(target_csr, user_in_test, arr[0].item_in_test.assign(_hist_len=_hist_len),
+                   arr[0].horizon, prior_score, arr[0]._item_rec_top_k, arr[0]._user_rec_top_c,
+                   None)
+
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
                    min_user_len=1, min_item_len=1, prior_score=None, exclude_train=False,
@@ -177,15 +197,17 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     Filter test users/items by _hist_len.
     """
     _check_inputs(event_df, user_df, item_df)
+    event_df = event_df[event_df['USER_ID'].isin(user_df.index) &
+                        event_df['ITEM_ID'].isin(item_df.index)]
+    item_to_j = {k: j for j, k in enumerate(item_df.index)}
 
-    with timed("creating user_time_index and user_explode"):
+    with timed("creating user_explode and etc"):
         user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
         user_explode = user_df.set_index('TEST_START_TIME', append=True) \
             .assign(_preserve_order=lambda x: x.index.get_level_values(0)) \
             .join(event_df.set_index('USER_ID'), on='_preserve_order') \
             .dropna(subset=['ITEM_ID']).drop('_preserve_order', axis=1) \
-            .assign(ITEM_ID=lambda x: x['ITEM_ID'].astype(event_df['ITEM_ID'].dtype)) \
-            .join(pd.Series(np.arange(len(item_df)), item_df.index).to_frame('_j'), on='ITEM_ID')
+            .assign(ITEM_ID=lambda x: x['ITEM_ID'].astype(event_df['ITEM_ID'].dtype))
         hist_explode = user_explode[
             user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1)]
         target_explode = user_explode[
@@ -206,15 +228,17 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         item_df = item_df.assign(_hist_len=_item_size.reindex(item_df.index, fill_value=0).values)
 
     with timed("generating targets"):
-        target_csr = indices2csr(groupby_unexplode(target_explode['_j'], user_time_index),
-                                 shape1=len(item_df))
+        target_csr = indices2csr(
+            groupby_unexplode(target_explode['ITEM_ID'].apply(item_to_j.get), user_time_index),
+            shape1=len(item_df))
 
     if exclude_train:
         print("optionally excluding training events in predictions and targets")
         assert prior_score is None, "double configuration for prior score"
 
-        exclude_csr = indices2csr(groupby_unexplode(hist_explode['_j'], user_time_index),
-                                  shape1=len(item_df))
+        exclude_csr = indices2csr(
+            groupby_unexplode(hist_explode['ITEM_ID'].apply(item_to_j.get), user_time_index),
+            shape1=len(item_df))
         prior_score = exclude_csr * -1e10    # clip -inf to avoid nan
 
         mask_csr = target_csr.astype(bool) > exclude_csr.astype(bool)

@@ -1,6 +1,6 @@
 import numpy as np, pandas as pd
 import torch, dataclasses, warnings, operator, builtins, numbers, os, itertools
-from typing import List
+from typing import List, ClassVar
 from torch.utils.data import DataLoader
 import scipy.sparse as sps
 
@@ -256,6 +256,7 @@ class RandScore(LazyScoreBase):
     """ add random noise to break ties """
     row_seeds: list  # np.array for fast indexing
     col_seeds: list  # np.array for fast indexing
+    _MAX_SEED: ClassVar[int] = 10000
 
     @property
     def shape(self):
@@ -263,7 +264,8 @@ class RandScore(LazyScoreBase):
 
     @classmethod
     def like(cls, other):
-        return cls(np.arange(other.shape[0]), np.arange(other.shape[1]))
+        return cls(np.random.choice(cls._MAX_SEED) + np.arange(other.shape[0]),
+                   np.random.choice(cls._MAX_SEED) + np.arange(other.shape[1]))
 
     def eval(self, device=None):
         d1 = len(self.col_seeds)
