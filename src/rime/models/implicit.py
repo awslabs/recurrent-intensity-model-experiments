@@ -1,6 +1,8 @@
 import torch, warnings, numpy as np, scipy.sparse as sps
 from ..util import extract_past_ij, LowRankDataFrame
 try:
+    from packaging import version
+    import implicit
     from implicit.als import AlternatingLeastSquares
     from implicit.lmf import LogisticMatrixFactorization
 except ImportError:
@@ -27,10 +29,12 @@ class ALS:
 
     def fit(self, D):
         i, j = extract_past_ij(D.user_df, D.item_df.index)
-        train_item_user = sps.coo_matrix((np.ones(len(i)), (i, j)),
-                                         shape=(len(D.user_df), len(D.item_df))).tocsr().T
-
-        self.als_model.fit(train_item_user)
+        train_user_item = sps.coo_matrix((np.ones(len(i)), (i, j)),
+                                         shape=(len(D.user_df), len(D.item_df))).tocsr()
+        if version.parse(implicit.__version__) >= version.parse('0.5'):
+            self.als_model.fit(train_user_item)
+        else:
+            self.als_model.fit(train_user_item.T)
         self.ind_logits = _to_numpy(self.als_model.user_factors)
         self.col_logits = _to_numpy(self.als_model.item_factors)
         delattr(self, "als_model")
@@ -63,9 +67,12 @@ class LogisticMF:
 
     def fit(self, D):
         i, j = extract_past_ij(D.user_df, D.item_df.index)
-        train_item_user = sps.coo_matrix((np.ones(len(i)), (i, j)),
-                                         shape=(len(D.user_df), len(D.item_df))).tocsr().T
-        self.lmf_model.fit(train_item_user)
+        train_user_item = sps.coo_matrix((np.ones(len(i)), (i, j)),
+                                         shape=(len(D.user_df), len(D.item_df))).tocsr()
+        if version.parse(implicit.__version__) >= version.parse('0.5'):
+            self.lmf_model.fit(train_user_item)
+        else:
+            self.lmf_model.fit(train_user_item.T)
         self.D = D
         return self
 
