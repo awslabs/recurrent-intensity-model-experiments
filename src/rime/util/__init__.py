@@ -111,8 +111,8 @@ def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
     else:
         batches = [S]
     for s in batches:
-        if hasattr(s, "eval"):
-            s = s.eval(device)
+        if hasattr(s, "as_tensor"):
+            s = s.as_tensor(device)
         else:
             s = torch.tensor(s, device=device)
         if tie_breaker:
@@ -138,8 +138,8 @@ def _argsort(S, tie_breaker=1e-10, device="cpu"):
         warnings.warn(f"switching numpy.argsort due to {S.batch_size}<{S.shape[0]}")
         device = None
 
-    if hasattr(S, "eval"):
-        S = S.eval(device)
+    if hasattr(S, "as_tensor"):
+        S = S.as_tensor(device)
 
     shape = S.shape
 

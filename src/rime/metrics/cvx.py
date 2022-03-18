@@ -109,8 +109,8 @@ class _LitCVX(LightningModule):
 
     @torch.no_grad()
     def forward(self, batch, v=None, epsilon=None, device="cpu"):
-        if hasattr(batch, "eval"):
-            batch = batch.eval(device).detach()
+        if hasattr(batch, "as_tensor"):
+            batch = batch.as_tensor(device).detach()
         else:
             batch = torch.as_tensor(batch)
 
@@ -126,8 +126,8 @@ class _LitCVX(LightningModule):
         return pi.cpu().numpy()
 
     def training_step(self, batch, batch_idx):
-        if hasattr(batch, "eval"):
-            batch = batch.eval(self.device).detach()
+        if hasattr(batch, "as_tensor"):
+            batch = batch.as_tensor(self.device).detach()
         else:
             batch = torch.as_tensor(batch)
 

@@ -1,5 +1,5 @@
 import torch, warnings, numpy as np, scipy.sparse as sps
-from ..util import extract_past_ij, LowRankDataFrame
+from ..util import extract_past_ij, find_iloc, LazyDenseMatrix
 try:
     from packaging import version
     import implicit
@@ -44,12 +44,10 @@ class ALS:
 
     def transform(self, D):
         """ (user_factor * item_factor) """
-
-        return LowRankDataFrame(
-            self.ind_logits, self.col_logits,
-            self.D.user_df.index, self.D.item_df.index, 'softplus') \
-            .reindex(D.user_in_test.index, fill_value=0) \
-            .reindex(D.item_in_test.index, axis=1, fill_value=0)
+        test_user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
+        test_item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
+        return (LazyDenseMatrix(self.ind_logits[test_user_iloc]) @
+                LazyDenseMatrix(self.col_logits[test_item_iloc]).T).softplus()
 
 
 class LogisticMF:
@@ -79,11 +77,10 @@ class LogisticMF:
     def transform(self, D):
         """ (user_factor * item_factor) """
 
-        ind_logits = self.lmf_model.user_factors
-        col_logits = self.lmf_model.item_factors
+        ind_logits = _to_numpy(self.lmf_model.user_factors)
+        col_logits = _to_numpy(self.lmf_model.item_factors)
 
-        return LowRankDataFrame(
-            _to_numpy(ind_logits), _to_numpy(col_logits),
-            self.D.user_df.index, self.D.item_df.index, 'sigmoid') \
-            .reindex(D.user_in_test.index, fill_value=0) \
-            .reindex(D.item_in_test.index, axis=1, fill_value=0)
+        test_user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
+        test_item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
+        return (LazyDenseMatrix(ind_logits[test_user_iloc]) @
+                LazyDenseMatrix(col_logits[test_item_iloc]).T).sigmoid()

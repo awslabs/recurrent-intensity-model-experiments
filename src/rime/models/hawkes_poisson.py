@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.optimize
 import functools
-from ..util import LowRankDataFrame
+from ..util import LazyDenseMatrix
 
 
 class HawkesPoisson:
@@ -30,9 +30,9 @@ class HawkesPoisson:
             Y = np.ravel(D.target_csr.sum(axis=1))
             print(f"transform loss {loss(self.coeffs.x, X, Y, 0)}")
 
-        return LowRankDataFrame(
-            np.log(intensity)[:, None], np.ones(len(D.item_in_test))[:, None],
-            index=H.index, columns=D.item_in_test.index, act='exp')
+        item_ones = np.ones(len(D.item_in_test))
+        return (LazyDenseMatrix(np.log(intensity)[:, None]) @
+                LazyDenseMatrix(item_ones[:, None]).T).exp()
 
 
 def loss(x, H, Y, alpha=1e-3):

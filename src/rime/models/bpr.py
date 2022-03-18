@@ -104,7 +104,7 @@ def _mnl_w_prior(S: LazyScoreBase, proposal, n_negatives, training_prior_fcn):
     out = []
     for i in range(0, len(S), S.batch_size):
         batch = S[i:min(len(S), i + S.batch_size)]
-        batch = training_prior_fcn(batch.eval(proposal.device))
+        batch = training_prior_fcn(batch.as_tensor(proposal.device))
         prob = (batch + proposal.log()).softmax(1)
         batch_out = torch.multinomial(prob, n_negatives, True)  # batch_size, n_negatives
         out.append(batch_out)

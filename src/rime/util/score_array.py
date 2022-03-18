@@ -17,6 +17,15 @@ def get_batch_size(shape, frac=float(os.environ.get("BATCH_SIZE_FRAC", 0.1))):
     return int(np.ceil(n_users / n_batches))
 
 
+def find_iloc(old_index, new_index, allow_missing=False):
+    iloc = pd.Series(
+        np.arange(len(old_index)), index=old_index
+    ).reindex(new_index, fill_value=-1).values
+    if not allow_missing and -1 in iloc:
+        raise IndexError("missing indices detected in a disallowed case")
+    return iloc
+
+
 def matrix_reindex(csr, old_index, new_index, axis, fill_value=0):
     """ pandas.reindex functionality on sparse or dense matrices as well as 1d arrays """
     if axis == 1:
@@ -30,9 +39,7 @@ def matrix_reindex(csr, old_index, new_index, axis, fill_value=0):
     else:
         csr = np.concatenate([csr, csr[:1] * 0 + fill_value], axis=0)
 
-    iloc = pd.Series(
-        np.arange(len(old_index)), index=old_index
-    ).reindex(new_index, fill_value=-1).values
+    iloc = find_iloc(old_index, new_index, allow_missing=True)
     return csr[iloc].copy()
 
 
@@ -45,32 +52,33 @@ def sps_to_torch(x, device):
 
 
 class LazyScoreBase:
-    """ Lazy element-wise A*B+C for sparse and low-rank matrices.
+    """ low-rank, sparse, and other expressions with deferred evaluations after subsampling
 
-    The base class wraps over scalar, scipy.sparse, and numpy dense.
-    Methods to overload include: eval, T, __getitem__, collate_fn.
-    Method `reindex` is only supported in the derived LowRankDataFrame subclass.
+    * Support expressions like (a @ b.T + c).exp() * d + e
+    * Support operations T, __getitem__, collate_fn
+    * Lazy evaluation until as_tensor(device) or numpy()
+    Drop support for reindex because it is nontrivial to find fill_values before activation.
     """
+    def __init__(self, shape):
+        self.shape = shape
 
-    def eval(self, device):
-        """ LazyScoreBase -> scalar, numpy (device is None), or torch (device) """
+    def numpy(self):
         raise NotImplementedError
 
+    def as_tensor(self, device=None):
+        raise NotImplementedError
+
+    @property
     def T(self):
-        """ LazyScoreBase -> LazyScoreBase(transposed) """
         raise NotImplementedError
 
     def __getitem__(self, key):
-        """ LazyScoreBase -> LazyScoreBase(sub-rows); used in pytorch dataloader """
+        """ slice by rows for pytorch dataloaders """
         raise NotImplementedError
 
     @classmethod
     def collate_fn(cls, D):
-        """ List[LazyScoreBase] -> LazyScoreBase; used in pytorch dataloader """
-        raise NotImplementedError
-
-    def reindex(self, new_index, axis, fill_value, old_index):
-        """ reindexing is extended from low-rank matrix to every applicable subclass """
+        """ collate by rows for pytorch dataloaders """
         raise NotImplementedError
 
     def __len__(self):
@@ -84,19 +92,23 @@ class LazyScoreBase:
     def batch_size(self):
         return get_batch_size(self.shape)
 
-    def _wrap_and_check(self, other):
-        other = auto_cast_lazy_score(other)
-        if not isinstance(self, _LazyScoreScalar) and not isinstance(other, _LazyScoreScalar):
-            assert np.allclose(self.shape, other.shape), "shape must be compatible"
-        return other
+    def __matmul__(self, other):
+        return MatMulExpression(self, other)
 
     def __add__(self, other):
-        other = self._wrap_and_check(other)
-        return LazyScoreExpression(operator.add, [self, other])
+        return ElementWiseExpression(operator.add, [self, other])
 
     def __mul__(self, other):
-        other = self._wrap_and_check(other)
-        return LazyScoreExpression(operator.mul, [self, other])
+        return ElementWiseExpression(operator.mul, [self, other])
+
+    def exp(self):
+        return ElementWiseExpression(torch.exp, [self])
+
+    def softplus(self):
+        return ElementWiseExpression(torch.nn.functional.softplus, [self])
+
+    def sigmoid(self):
+        return ElementWiseExpression(torch.nn.functional.sigmoid, [self])
 
 
 def auto_cast_lazy_score(other):
@@ -104,50 +116,24 @@ def auto_cast_lazy_score(other):
         return None  # prior_score=None -> None
     elif isinstance(other, LazyScoreBase):
         return other
-    elif isinstance(other, numbers.Number):
-        return _LazyScoreScalar(other)
     elif sps.issparse(other):
-        return LazyScoreSparseMatrix(other)
+        return LazySparseMatrix(other)
     elif isinstance(other, pd.DataFrame):
-        return LazyScoreDenseMatrix(other.values)
-    elif np.ndim(other) == 2:
-        return LazyScoreDenseMatrix(other)
-    else:
-        raise NotImplementedError(f"type {type(other)} is not supported")
+        return LazyDenseMatrix(other.values)
+    else:  # scalar or numpy arrays of 0, 1, 2 dimensions
+        return LazyDenseMatrix(other)
 
 
-class _LazyScoreScalar(LazyScoreBase):
-    def __init__(self, c):
-        self.c = c
-        self.shape = ()
-
-    def eval(self, device):
-        return self.c
-
-    @property
-    def T(self):
-        return self
-
-    def __getitem__(self, key):
-        return self
-
-    @classmethod
-    def collate_fn(cls, D):
-        return D[0]
-
-    def reindex(self, new_index, axis, fill_value, old_index):
-        warnings.warn("reindexing ignored on scalar values")
-        return self
-
-
-class LazyScoreSparseMatrix(LazyScoreBase):
+class LazySparseMatrix(LazyScoreBase):
     def __init__(self, c):
         self.c = c.tocsr()
         self.shape = c.shape
 
-    def eval(self, device):
-        return self.c.toarray() if device is None else \
-            sps_to_torch(self.c, device).to_dense()
+    def numpy(self):
+        return self.c.toarray()
+
+    def as_tensor(self, device=None):
+        return sps_to_torch(self.c, device).to_dense()
 
     @property
     def T(self):
@@ -161,7 +147,7 @@ class LazyScoreSparseMatrix(LazyScoreBase):
                 "keys": self.c.indices[slc],
                 "shape": self.c.shape[1],
             }
-            return _LazyScoreSparseDictFast(_dict)
+            return _LazySparseDictFast(_dict)
         else:
             return self.__class__(self.c[key])
 
@@ -169,12 +155,8 @@ class LazyScoreSparseMatrix(LazyScoreBase):
     def collate_fn(cls, D):
         return cls(sps.vstack([d.c for d in D]))
 
-    def reindex(self, new_index, axis, fill_value, old_index):
-        new_c = matrix_reindex(self.c, old_index, new_index, axis, fill_value)
-        return self.__class__(new_c)
 
-
-class _LazyScoreSparseDictFast(LazyScoreBase):
+class _LazySparseDictFast(LazyScoreBase):
     def __init__(self, c):
         self.c = c
         self.shape = (1, self.c['shape'])
@@ -187,47 +169,53 @@ class _LazyScoreSparseDictFast(LazyScoreBase):
             np.hstack([c['keys'] for c in C]),  # indices
             np.hstack([[0], np.cumsum([len(c['keys']) for c in C])]),  # indptr
         ), shape=(len(C), C[0]['shape']))
-        return LazyScoreSparseMatrix(csr)
+        return LazySparseMatrix(csr)
 
 
-class LazyScoreDenseMatrix(LazyScoreBase):
+class LazyDenseMatrix(LazyScoreBase):
+    """ cast scalar and arrays to 2-d arrays """
     def __init__(self, c):
-        self.c = c
-        self.shape = c.shape
+        self.c = np.array(c, ndmin=2)
+        self.shape = self.c.shape
 
-    def eval(self, device):
-        return self.c if device is None else torch.as_tensor(self.c, device=device)
+    def numpy(self):
+        return self.c
+
+    def as_tensor(self, device=None):
+        return torch.as_tensor(self.c, device=device)
 
     @property
     def T(self):
         return self.__class__(self.c.T)
 
     def __getitem__(self, key):
-        if np.isscalar(key):
-            key = [key]  # list or slice
+        """ take modulos for broadcasting purposes """
+        if isinstance(key, slice):
+            key = range(key.stop)[key]
+        key = np.array(key, ndmin=1) % self.shape[0]
         return self.__class__(self.c[key])
 
     @classmethod
     def collate_fn(cls, D):
         return cls(np.vstack([d.c for d in D]))
 
-    def reindex(self, new_index, axis, fill_value, old_index):
-        new_c = matrix_reindex(self.c, old_index, new_index, axis, fill_value)
-        return self.__class__(new_c)
 
-
-class LazyScoreExpression(LazyScoreBase):
-    """ Tree representation of score expression until final eval """
+class ElementWiseExpression(LazyScoreBase):
+    """ Tree representation of an element-wise expression; auto-broadcast """
     def __init__(self, op, children):
         self.op = op
-        self.children = children
-        for c in children:
-            assert isinstance(c, LazyScoreBase), f"please wrap {c} in LazyScoreBase"
+        self.children = [auto_cast_lazy_score(c) for c in children]
         self.shape = children[0].shape
 
-    def eval(self, device=None):
-        children = [c.eval(device) for c in self.children]
+    def as_tensor(self, device=None):
+        children = [c.as_tensor(device) for c in self.children]
         return self.op(*children)
+
+    def numpy(self):
+        try:
+            return self.op(*[c.numpy() for c in self.children])
+        except Exception:  # torch-only operation
+            return self.op(*[c.as_tensor() for c in self.children]).numpy()
 
     @property
     def T(self):
@@ -240,15 +228,38 @@ class LazyScoreExpression(LazyScoreBase):
 
     @classmethod
     def collate_fn(cls, batch):
-        first = batch[0]
+        template = batch[0]
         data = zip(*[b.children for b in batch])
-        children = [c.collate_fn(D) for c, D in zip(first.children, data)]
-        return cls(first.op, children)
+        children = [c.collate_fn(D) for c, D in zip(template.children, data)]
+        return cls(template.op, children)
 
-    def reindex(self, new_index, axis, fill_value, old_index):
-        children = [c.reindex(new_index, axis, fill_value, old_index)
-                    for c in self.children]
-        return self.__class__(self.op, children)
+
+class MatMulExpression(LazyScoreBase):
+    def __init__(self, left, right):
+        assert left.shape[1] == right.shape[0], \
+            f"matmul shape check fail: {left.shape} vs {right.shape}"
+        self.left = left
+        self.right = right
+        self.shape = (left.shape[0], right.shape[1])
+
+    def numpy(self):
+        return self.left.numpy() @ self.right.numpy()
+
+    def as_tensor(self, device=None):
+        return self.left.as_tensor(device) @ self.right.as_tensor(device)
+
+    @property
+    def T(self):
+        return self.__class__(self.right.T, self.left.T)
+
+    def __getitem__(self, key):
+        return self.__class__(self.left[key], self.right)
+
+    @classmethod
+    def collate_fn(cls, batch):
+        c = batch[0].left.__class__
+        left = c.collate_fn([b.left for b in batch])
+        return cls(left, batch[0].right)
 
 
 @dataclasses.dataclass(repr=False)
@@ -267,19 +278,18 @@ class RandScore(LazyScoreBase):
         return cls(np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[0]),
                    np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[1]))
 
-    def eval(self, device=None):
-        d1 = len(self.col_seeds)
-        if device is None:
-            return np.vstack([
-                np.random.RandomState(int(s)).rand(d1)
-                for s in self.row_seeds])
-        else:
-            rows = []
-            for s in self.row_seeds:
-                generator = torch.Generator(device).manual_seed(int(s))
-                new = torch.rand(d1, device=device, generator=generator)
-                rows.append(new)
-            return torch.vstack(rows)
+    def numpy(self):
+        return np.vstack([
+            np.random.RandomState(int(s)).rand(len(self.col_seeds))
+            for s in self.row_seeds])
+
+    def as_tensor(self, device=None):
+        rows = []
+        for s in self.row_seeds:
+            generator = torch.Generator(device).manual_seed(int(s))
+            new = torch.rand(len(self.col_seeds), device=device, generator=generator)
+            rows.append(new)
+        return torch.vstack(rows)
 
     @property
     def T(self):
@@ -296,160 +306,18 @@ class RandScore(LazyScoreBase):
     def collate_fn(cls, batch):
         return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds)
 
-    def reindex(self, new_index, axis, fill_value, old_index):
-        seeds = [self.row_seeds, self.col_seeds]
-        seed_map = {i: s for i, s in zip(old_index, seeds[axis])}
-        seeder = itertools.count(max(seed_map.values()))
-        for i in new_index:
-            if i not in seed_map:
-                seed_map[i] = next(seeder)
-        seeds[axis] = np.array([seed_map[i] for i in new_index])
-        return self.__class__(*seeds)
 
-
-@dataclasses.dataclass(repr=False)
-class LowRankDataFrame(LazyScoreBase):
-    """ mimics a pandas dataframe with low-rank structures and
-    nonnegative exp / softplus / sigmoid activation
-    """
-    ind_logits: List[list]
-    col_logits: List[list]
-    index: list    # np.array for fast indexing
-    columns: list  # np.array for fast indexing
-    act: str
-    ind_default: list = None
-    col_default: list = None
-
-    def __post_init__(self):
-        if self.ind_default is None:
-            self.ind_default = np.zeros_like(self.ind_logits[0])
-        if self.col_default is None:
-            self.col_default = np.zeros_like(self.col_logits[0])
-
-        assert self.ind_logits.shape[1] == self.col_logits.shape[1], "check hidden"
-        assert self.ind_logits.dtype == self.col_logits.dtype, "check dtype"
-        assert self.ind_logits.shape[0] == len(self.index), "check index"
-        assert self.col_logits.shape[0] == len(self.columns), "check columns"
-        assert self.act in ['exp', 'softplus', 'sigmoid', '_nnmf'], \
-            "requires nonnegative act to model intensity score"
-
-    def eval(self, device=None):
-        if device is None:
-            z = self.ind_logits @ self.col_logits.T
-            assert not np.isnan(z).any(), "low rank score must be valid"
-
-            if self.act == 'exp':
-                return np.exp(z)
-            elif self.act == 'softplus':
-                with warnings.catch_warnings():
-                    warnings.filterwarnings('ignore', 'overflow encountered in exp')
-                    return np.where(z > 0, z + np.log(1 + np.exp(-z)), np.log(1 + np.exp(z)))
-            elif self.act == 'sigmoid':
-                return 1. / (1 + np.exp(-z))
-            elif self.act == '_nnmf':
-                return z
-            else:
-                raise NotImplementedError
-        else:
-            ind_logits = torch.as_tensor(self.ind_logits, device=device)
-            col_logits = torch.as_tensor(self.col_logits, device=device)
-            z = ind_logits @ col_logits.T
-            assert not torch.isnan(z).any(), "low rank score must be valid"
-
-            if self.act == 'exp':
-                return z.exp()
-            elif self.act == 'softplus':
-                return torch.nn.functional.softplus(z)
-            elif self.act == 'sigmoid':
-                return z.sigmoid()
-            elif self.act == '_nnmf':
-                return z
-            else:
-                raise NotImplementedError
-
-    @property
-    def shape(self):
-        return (len(self.ind_logits), len(self.col_logits))
-
-    def __getitem__(self, key):
-        if np.isscalar(key):
-            key = [key]
-        return self.__class__(
-            self.ind_logits[key], self.col_logits,
-            self.index[key], self.columns, self.act,
-            self.ind_default, self.col_default)
-
-    @property
-    def T(self):
-        return self.__class__(
-            self.col_logits, self.ind_logits,
-            self.columns, self.index, self.act, self.col_default, self.ind_default)
-
-    @classmethod
-    def collate_fn(cls, batch):
-        first = batch[0]
-        ind_logits = []
-        index = []
-
-        for elm in batch:
-            ind_logits.append(elm.ind_logits)
-            index.extend(elm.index)
-
-        return cls(
-            np.vstack(ind_logits), first.col_logits, index,
-            first.columns, first.act, first.ind_default, first.col_default)
-
-    # new method only for this class
-
-    def reindex(self, index, axis=0, fill_value=float("nan"), old_index=None):
-        """ reindex with new hidden dim to express fill_value(0) as act(-inf * 1) """
-        if axis == 1:
-            return self.T.reindex(index, fill_value=fill_value).T
-
-        assert old_index is None or np.all(self.index == old_index), \
-                f"old index must be compatible {self.index} vs {old_index}"
-
-        ind_logits = np.vstack([self.ind_logits, self.ind_default])
-        ind_logits = np.hstack([ind_logits, np.zeros_like(ind_logits[:, :1])])
-        ind_default = np.hstack([self.ind_default, np.zeros_like(self.ind_default[:1])])
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "divide by zero encountered in log")
-
-            if self.act in ['exp', 'softplus']:
-                ind_logits[-1, -1] = np.log(fill_value)
-            elif self.act == 'sigmoid':
-                ind_logits[-1, -1] = np.log(fill_value) - np.log(1 - fill_value)
-            elif self.act == '_nnmf':
-                ind_logits[-1, -1] = fill_value
-            else:
-                raise NotImplementedError
-
-        col_logits = np.hstack([self.col_logits, np.ones_like(self.col_logits[:, :1])])
-        col_default = np.hstack([self.col_default, np.ones_like(self.col_default[:1])])
-
-        new_ind = pd.Series(
-            np.arange(len(self)), index=self.index
-        ).reindex(index, fill_value=-1).values
-
-        return self.__class__(
-            ind_logits[new_ind], col_logits, index, self.columns, self.act,
-            ind_default, col_default)
-
-
-def create_second_order_dataframe(
-    user_embeddings, item_embeddings, user_biases, item_biases,
-    user_index, item_index, act
-):
+def create_low_rank_matrix(user_embeddings, item_embeddings, user_biases=None, item_biases=None):
+    """ create optional low-rank with optional missing values """
+    parts = [(user_embeddings, item_embeddings)]
     if user_biases is not None:
-        user_embeddings = np.hstack([user_embeddings, user_biases[:, None]])
-        item_embeddings = np.hstack([item_embeddings, np.ones_like(item_embeddings[:, :1])])
-
+        parts.append((user_biases.reshape((-1, 1)), np.ones_like(item_embeddings[:, :1])))
     if item_biases is not None:
-        user_embeddings = np.hstack([user_embeddings, np.ones_like(user_embeddings[:, :1])])
-        item_embeddings = np.hstack([item_embeddings, item_biases[:, None]])
+        parts.append((np.ones_like(user_embeddings[:, :1]), item_biases.reshape((-1, 1))))
 
-    return LowRankDataFrame(user_embeddings, item_embeddings, user_index, item_index, act)
+    left = np.hstack([x for (x, y) in parts])
+    right = np.hstack([y for (x, y) in parts])
+    return LazyDenseMatrix(left) @ LazyDenseMatrix(right).T
 
 
 def score_op(S, op, device=None):
@@ -457,7 +325,7 @@ def score_op(S, op, device=None):
     out = None
     for i in range(0, len(S), S.batch_size):
         batch = S[i:min(len(S), i + S.batch_size)]
-        val = batch.eval(device)
+        val = batch.numpy() if device is None else batch.as_tensor(device)
         new = getattr(val, op)()
         out = new if out is None else getattr(builtins, op)([out, new])
     return out

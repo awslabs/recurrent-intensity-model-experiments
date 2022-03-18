@@ -2,8 +2,8 @@ import torch, numpy as np, warnings, pandas as pd, collections, torch.nn.functio
 from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import (_LitValidated, empty_cache_on_exit,
-                    create_second_order_dataframe, default_random_split, auto_cast_lazy_score)
+from ..util import (_LitValidated, empty_cache_on_exit, create_low_rank_matrix, find_iloc,
+                    default_random_split, auto_cast_lazy_score)
 from .bpr import _BPR_Common
 try:
     import dgl, dgl.function as fn
@@ -249,7 +249,7 @@ class GraphConv:
         user_embeddings = self.model.user_encoder(i, G).detach().numpy()
         user_biases = self.model.user_bias_vec(i, G).detach().numpy().ravel()
 
-        S = create_second_order_dataframe(
-            user_embeddings, self.item_embeddings, user_biases, self.item_biases,
-            D.user_in_test.index, self._padded_item_list, 'softplus')
-        return S.reindex(D.item_in_test.index, axis=1)
+        item_iloc = find_iloc(self._padded_item_list, D.item_in_test.index)
+        return create_low_rank_matrix(
+            user_embeddings, self.item_embeddings[item_iloc],
+            user_biases, self.item_biases[item_iloc]).softplus()

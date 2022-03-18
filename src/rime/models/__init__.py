@@ -15,7 +15,7 @@ except ImportError:
     ALS = LogisticMF = None
     warnings.warn("Implicit package not properly installed.")
 
-from rime.util import LowRankDataFrame, RandScore
+from rime.util import LazyDenseMatrix, RandScore
 
 
 class Rand:
@@ -51,9 +51,7 @@ class Pop:
         col_logits = np.transpose([
             np.ones(len(item_scores)), np.log(item_scores + self.item_pseudo)])
 
-        S = LowRankDataFrame(
-            ind_logits, col_logits,
-            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
+        S = (LazyDenseMatrix(ind_logits) @ LazyDenseMatrix(col_logits).T).exp()
         return S + RandScore.create(S.shape) * self.tie_break_noise
 
 
@@ -67,7 +65,6 @@ class EMA:
             return np.exp(-ttl).sum()
         user_scores = D.user_in_test.apply(
             lambda x: fn(x['_hist_ts'], x['TEST_START_TIME']), axis=1)
-
-        return LowRankDataFrame(
-            np.log(user_scores)[:, None], np.ones(len(D.item_in_test))[:, None],
-            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
+        item_ones = np.ones(len(D.item_in_test))
+        return (LazyDenseMatrix(np.log(user_scores)[:, None]) @
+                LazyDenseMatrix(item_ones[:, None]).T).exp()

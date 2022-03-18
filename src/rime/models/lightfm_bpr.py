@@ -1,4 +1,4 @@
-from ..util import extract_past_ij, LowRankDataFrame
+from ..util import extract_past_ij, find_iloc, LazyDenseMatrix
 import numpy as np, scipy.sparse as sps
 from lightfm import LightFM
 
@@ -47,8 +47,7 @@ class LightFM_BPR:
         if self._transposed:
             ind_logits, col_logits = col_logits, ind_logits
 
-        return LowRankDataFrame(
-            ind_logits, col_logits, self.D.user_df.index, self.D.item_df.index, 'softplus'
-        ) \
-            .reindex(D.user_in_test.index, fill_value=0) \
-            .reindex(D.item_in_test.index, axis=1, fill_value=0)
+        test_user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
+        test_item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
+        return (LazyDenseMatrix(ind_logits[test_user_iloc]) @
+                LazyDenseMatrix(col_logits[test_item_iloc]).T).softplus()

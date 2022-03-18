@@ -27,16 +27,13 @@ def prepare_minimal_dataset():
 
     D = create_dataset(event_df, user_df, item_df, 100, exclude_train=True, _item_rec_top_k=2)
 
-    # It is possible to reindex to unseen items, but they often receive zero prediction scores.
-    D = D.reindex(D.item_in_test.index.tolist() + ['unseen item'], axis=1)
-
     test_user_ids = D.user_in_test.set_index('TEST_START_TIME', append=True).index.tolist()
     test_item_ids = D.item_in_test.index.tolist()
     train_user_ids = D.training_data.user_df.set_index('TEST_START_TIME', append=True).index.tolist()
     train_item_ids = D.training_data.item_df.index.tolist()
 
     assert test_user_ids == [('u3', 9.0), ('u2', 6.0)], f"{test_user_ids}"
-    assert test_item_ids == ['i1', 'i3', 'unseen item'], f"{test_item_ids}"
+    assert test_item_ids == ['i1', 'i3'], f"{test_item_ids}"
     assert train_user_ids == [('u3', 9.0), ('u2', 0.0), ('u1', float('inf'))], f"{train_user_ids}"
     assert train_item_ids == ['i1', 'i2', 'i3', 'i4'], f"{train_item_ids}"
 

@@ -9,8 +9,8 @@ from .third_party.word_language_model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import (_LitValidated, empty_cache_on_exit, LowRankDataFrame, _ReduceLRLoadCkpt,
-                    default_random_split, get_top_items)
+from ..util import (_LitValidated, empty_cache_on_exit, _ReduceLRLoadCkpt,
+                    default_random_split, get_top_items, find_iloc, LazyDenseMatrix)
 
 
 class RNN:
@@ -71,11 +71,8 @@ class RNN:
         col_logits = np.hstack([
             item_hidden, np.ones_like(item_log_bias)[:, None], item_log_bias[:, None]
         ])
-
-        return LowRankDataFrame(
-            ind_logits, col_logits, D.user_in_test.index,
-            self._padded_item_list, act='exp'
-        ).reindex(D.item_in_test.index, axis=1, fill_value=0)
+        test_item_iloc = find_iloc(self._padded_item_list, D.item_in_test.index)
+        return (LazyDenseMatrix(ind_logits) @ LazyDenseMatrix(col_logits[test_item_iloc]).T).exp()
 
     @empty_cache_on_exit
     def fit(self, D):

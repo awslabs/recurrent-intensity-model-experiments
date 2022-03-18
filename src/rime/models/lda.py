@@ -2,7 +2,7 @@ import torch, dgl, numpy as np, pandas as pd
 from pytorch_lightning import LightningModule, Trainer
 from torch.utils.data import DataLoader
 from .third_party.lda.lda_model import LatentDirichletAllocation, DocData, WordData, doc_subgraph
-from ..util import (empty_cache_on_exit, LowRankDataFrame, extract_past_ij,
+from ..util import (empty_cache_on_exit, find_iloc, LazyDenseMatrix, extract_past_ij,
                     _LitValidated, default_random_split, get_batch_size)
 
 
@@ -106,10 +106,9 @@ class LDA:
         doc_data = DocData(self.model.prior['doc'], torch.vstack(doc_nphi))
 
         u = doc_data._expectation().numpy()
-        v = np.vstack([w._expectation().numpy() for w in self.model.word_data])
-        out = LowRankDataFrame(
-            u, v.T, D.user_in_test.index, np.array(self._item_list), '_nnmf'
-        ).reindex(D.item_in_test.index, axis=1, fill_value=0)
+        vT = np.vstack([w._expectation().numpy() for w in self.model.word_data])
+        test_v_iloc = find_iloc(self._item_list, D.item_in_test.index)
+        out = LazyDenseMatrix(u) @ LazyDenseMatrix(vT[:, test_v_iloc])
 
         if return_doc_data:
             out = (out, doc_data)
