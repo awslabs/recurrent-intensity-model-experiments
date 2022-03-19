@@ -101,6 +101,12 @@ class LazyScoreBase:
     def __mul__(self, other):
         return ElementWiseExpression(operator.mul, [self, other])
 
+    def __sub__(self, other):
+        return ElementWiseExpression(operator.sub, [self, other])
+
+    def __truediv__(self, other):
+        return ElementWiseExpression(operator.truediv, [self, other])
+
     def exp(self):
         return ElementWiseExpression(torch.exp, [self])
 
@@ -206,6 +212,9 @@ class ElementWiseExpression(LazyScoreBase):
         self.op = op
         self.children = [auto_cast_lazy_score(c) for c in children]
         self.shape = children[0].shape
+
+    def __repr__(self):
+        return object.__repr__(self) + f" ({self.op})"
 
     def as_tensor(self, device=None):
         children = [c.as_tensor(device) for c in self.children]

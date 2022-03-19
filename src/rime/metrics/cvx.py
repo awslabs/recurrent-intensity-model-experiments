@@ -42,7 +42,7 @@ class CVX:
 
     @empty_cache_on_exit
     def transform(self, score_mat):
-        score_mat = score_mat * (1. / self.score_max)
+        score_mat = score_mat / self.score_max
         batch_size = self.model.batch_size
 
         def fn(i):
@@ -54,7 +54,7 @@ class CVX:
 
     @empty_cache_on_exit
     def fit(self, score_mat):
-        score_mat = score_mat * (1. / self.score_max)
+        score_mat = score_mat / self.score_max
 
         model = _LitCVX(*self._model_args)
         trainer = Trainer(**self._trainer_kw)
@@ -108,38 +108,37 @@ class _LitCVX(LightningModule):
         self.log("epsilon", self.epsilon, prog_bar=True)
 
     @torch.no_grad()
-    def forward(self, batch, v=None, epsilon=None, device="cpu"):
-        if hasattr(batch, "as_tensor"):
-            batch = batch.as_tensor(device).detach()
-        else:
-            batch = torch.as_tensor(batch)
-
-        if v is None:
-            v = self.v.detach().to(batch.device)
-
-        if epsilon is None:
-            epsilon = self.epsilon
-
-        u, _ = dual_solve_u(v, batch, self.alpha, epsilon, gtol=self.gtol)
+    def forward(self, batch, device="cpu"):
+        batch = _to_tensor(batch - self.v.cpu().numpy().reshape((1, -1)), device)
+        u, _ = dual_solve_u(batch, self.alpha, self.epsilon, gtol=self.gtol, s_guess=-self.v.max())
         u = dual_clip(u, "ub")
-        pi = primal_solution(u, v, batch, epsilon)
+        pi = primal_solution(batch - u.reshape((-1, 1)), self.epsilon)
         return pi.cpu().numpy()
 
     def training_step(self, batch, batch_idx):
-        if hasattr(batch, "as_tensor"):
-            batch = batch.as_tensor(self.device).detach()
-        else:
-            batch = torch.as_tensor(batch)
+        batch = _to_tensor(batch, self.device)
 
-        u, u_iters = dual_solve_u(
-            self.v.detach(), batch, self.alpha, self.epsilon, gtol=self.gtol)
-        u = dual_clip(u, "ub")
-        self.log("u_iters", float(u_iters), prog_bar=True)
+        with torch.no_grad():
+            u, u_iters = dual_solve_u(
+                batch - self.v.reshape((1, -1)),
+                self.alpha, self.epsilon, gtol=self.gtol, s_guess=-self.v.max())
+            u = dual_clip(u, "ub")
+            self.log("u_iters", float(u_iters), prog_bar=True)
 
-        v, v_iters = dual_solve_u(u, batch.T, self.beta, self.epsilon, gtol=self.gtol)
-        v = dual_clip(v, self.constraint_type)
-        self.log("v_iters", float(v_iters), prog_bar=True)
+        with torch.no_grad():
+            v, v_iters = dual_solve_u(
+                batch.T - u.reshape((1, -1)),
+                self.beta, self.epsilon, gtol=self.gtol, s_guess=-u.max())
+            v = dual_clip(v, self.constraint_type)
+            self.log("v_iters", float(v_iters), prog_bar=True)
 
         loss = ((self.v - v)**2).mean() / 2
         self.log("train_loss", loss)
         return loss
+
+
+def _to_tensor(batch, device):
+    if hasattr(batch, "as_tensor"):
+        return batch.as_tensor(device)
+    else:
+        return torch.as_tensor(batch).to(device)
