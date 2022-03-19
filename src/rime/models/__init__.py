@@ -43,16 +43,13 @@ class Pop:
         user_scores = self.user_pseudo + D.user_in_test['_hist_len'] \
             if self.user_rec else np.ones(len(D.user_in_test))
 
-        item_scores = self.item_scores.reindex(D.item_in_test.index, fill_value=0) \
+        item_scores = self.item_pseudo + self.item_scores.reindex(D.item_in_test.index, fill_value=0) \
             if self.item_rec else np.ones(len(D.item_in_test))
 
-        ind_logits = np.transpose([
-            np.log(user_scores + self.user_pseudo), np.ones(len(user_scores))])
-        col_logits = np.transpose([
-            np.ones(len(item_scores)), np.log(item_scores + self.item_pseudo)])
-
-        S = (LazyDenseMatrix(ind_logits) @ LazyDenseMatrix(col_logits).T).exp()
-        return S + RandScore.create(S.shape) * self.tie_break_noise
+        S = LazyDenseMatrix(user_scores[:, None]) * LazyDenseMatrix(item_scores)  # mtpp implies *
+        if self.tie_break_noise > 0:
+            S = S + RandScore.create(S.shape) * self.tie_break_noise
+        return S
 
 
 class EMA:
@@ -65,6 +62,5 @@ class EMA:
             return np.exp(-ttl).sum()
         user_scores = D.user_in_test.apply(
             lambda x: fn(x['_hist_ts'], x['TEST_START_TIME']), axis=1)
-        item_ones = np.ones(len(D.item_in_test))
-        return (LazyDenseMatrix(np.log(user_scores)[:, None]) @
-                LazyDenseMatrix(item_ones[:, None]).T).exp()
+        item_zeros = np.zeros(len(D.item_in_test))
+        return LazyDenseMatrix(user_scores[:, None]) + LazyDenseMatrix(item_zeros)

@@ -94,8 +94,6 @@ def dual_solve_u(s, alpha, eps, verbose=False, n_iters=100, gtol=0, s_guess=None
     Note: provide s_guess when exclude_train=True to trim the search space
     """
     alpha = torch.as_tensor(alpha, device=s.device)
-    if alpha.ndim > 0 and alpha.shape[0] > 1:
-        return [dual_solve_u(s, a, eps, verbose, n_iters, gtol, s_guess) for a in alpha]
     if alpha.max() <= 0 or alpha.min() >= 1:
         c = torch.sign(alpha - 0.5) * np.inf
         u = -c * torch.ones_like(s[:, 0])
@@ -126,6 +124,10 @@ def dual_solve_u(s, alpha, eps, verbose=False, n_iters=100, gtol=0, s_guess=None
         u_max = torch.where(g > 0, u, u_max)
 
     return u, (i + 1)
+
+
+def dual_solve_u_list(s, alpha_list, *args, **kw):
+    return [dual_solve_u(s, alpha, *args, **kw) for alpha in alpha_list]
 
 
 def dual_clip(u, constraint_type):

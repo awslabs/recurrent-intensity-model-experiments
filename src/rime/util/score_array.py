@@ -57,10 +57,13 @@ class LazyScoreBase:
     * Support expressions like (a @ b.T + c).exp() * d + e
     * Support operations T, __getitem__, collate_fn
     * Lazy evaluation until as_tensor(device) or numpy()
-    Drop support for reindex because it is nontrivial to find fill_values before activation.
+    Drop support for reindex because it is nontrivial to find fill_values through activation.
     """
     def __init__(self, shape):
         self.shape = shape
+
+    def __repr__(self):
+        return f"<{type(self).__name__} {self.shape}>"
 
     def numpy(self):
         raise NotImplementedError
@@ -208,18 +211,21 @@ class LazyDenseMatrix(LazyScoreBase):
         return cls(np.vstack([d.c for d in D]))
 
 
-class ElementWiseExpression(LazyScoreBase):
-    """ Tree representation of an element-wise expression; auto-broadcast """
+class LazyExpressionBase:
     def __init__(self, op, children):
         self.op = op
         self.children = [auto_cast_lazy_score(c) for c in children]
-        self.shape = children[0].shape
 
-    def __repr__(self):
-        type_ = type(self)
-        module = type_.__module__
-        qualname = type_.__qualname__
-        return f"<{module}.{qualname} ({self.op}) object at {hex(id(self))}>"
+    def traverse(self):
+        builder = ""
+        for i, c in enumerate(self.children):
+            if hasattr(c, "traverse"):
+                builder = builder + f" ({c.traverse()}) "
+            else:
+                builder = builder + f" {c} "
+            if i == 0:
+                builder = builder + f" {self.op.__name__} "
+        return builder
 
     def as_tensor(self, device=None):
         children = [c.as_tensor(device) for c in self.children]
@@ -230,6 +236,14 @@ class ElementWiseExpression(LazyScoreBase):
             return self.op(*[c.numpy() for c in self.children])
         except Exception:  # torch-only operation
             return self.op(*[c.as_tensor() for c in self.children]).numpy()
+
+
+class ElementWiseExpression(LazyExpressionBase, LazyScoreBase):
+    """ Tree representation of an element-wise expression; auto-broadcast """
+    def __init__(self, op, children):
+        super().__init__(op, children)
+        shape = np.transpose([c.shape for c in self.children])
+        self.shape = (max(shape[0]), max(shape[1]))  # consider broadcast
 
     @property
     def T(self):
@@ -248,19 +262,14 @@ class ElementWiseExpression(LazyScoreBase):
         return cls(op, children)
 
 
-class MatMulExpression(LazyScoreBase):
+class MatMulExpression(LazyExpressionBase, LazyScoreBase):
     def __init__(self, left, right):
         assert left.shape[1] == right.shape[0], \
             f"matmul shape check fail: {left.shape} vs {right.shape}"
-        self.left = auto_cast_lazy_score(left)
-        self.right = auto_cast_lazy_score(right)
-        self.shape = (left.shape[0], right.shape[1])
-
-    def numpy(self):
-        return self.left.numpy() @ self.right.numpy()
-
-    def as_tensor(self, device=None):
-        return self.left.as_tensor(device) @ self.right.as_tensor(device)
+        super().__init__(operator.matmul, [left, right])
+        self.left = self.children[0]
+        self.right = self.children[1]
+        self.shape = (self.left.shape[0], self.right.shape[1])
 
     @property
     def T(self):

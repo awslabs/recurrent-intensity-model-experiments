@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from ..util import empty_cache_on_exit, get_batch_size, score_op, LazyScoreBase
-from ..util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
+from ..util.cvx_bisect import dual_solve_u_list, dual_clip, primal_solution
 
 
 class CVX:
@@ -27,7 +27,8 @@ class CVX:
 
         tb_logger = loggers.TensorBoardLogger(
             "logs/",
-            name=f"{prefix}-{alpha_lb:.3f}-{alpha_ub:.3f}-{beta_lb:.3f}-{beta_ub:.3f}")
+            name=f"{prefix}-{np.mean(alpha_lb):.3f}-{np.mean(alpha_ub):.3f}"
+                 f"-{np.mean(beta_lb):.3f}-{np.mean(beta_ub):.3f}")
         self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
                                log_every_n_steps=1, callbacks=[ModelCheckpoint()],
                                # change default save path from . to logger path
@@ -84,11 +85,11 @@ class _LitCVX(LightningModule):
         self.epsilon_gamma = (min_epsilon / epsilon) ** (1 / max_epochs)
 
         if v is None:
-            if beta_lb <= 0:
+            if beta_lb <= 0:  # ub-only
                 v = torch.rand(n_items)
-            elif beta_ub >= 1:
+            elif beta_ub >= 1:  # lb-only
                 v = -torch.rand(n_items)
-            else:  # range
+            else:  # range or eq
                 v = torch.rand(n_items) * 2 - 1
         self.v = torch.nn.Parameter(v)
 
@@ -102,7 +103,7 @@ class _LitCVX(LightningModule):
     @torch.no_grad()
     def forward(self, batch):
         batch = _to_tensor(batch, self.device)
-        (u_neg, _), (u_pos, _) = dual_solve_u(
+        (u_neg, _), (u_pos, _) = dual_solve_u_list(
             batch - self.v, [self.alpha_lb, self.alpha_ub], self.epsilon,
             gtol=self.gtol, s_guess=-self.v.max())
         u = u_neg.clip(None, 0) + u_pos.clip(0, None)
@@ -112,7 +113,7 @@ class _LitCVX(LightningModule):
         batch = _to_tensor(batch, self.device)
 
         with torch.no_grad():
-            (u_neg, u_neg_iters), (u_pos, u_pos_iters) = dual_solve_u(
+            (u_neg, u_neg_iters), (u_pos, u_pos_iters) = dual_solve_u_list(
                 batch - self.v, [self.alpha_lb, self.alpha_ub], self.epsilon,
                 gtol=self.gtol, s_guess=-self.v.max())
             u = u_neg.clip(None, 0) + u_pos.clip(0, None)
@@ -120,7 +121,7 @@ class _LitCVX(LightningModule):
             self.log("u_pos_iters", float(u_pos_iters), prog_bar=True)
 
         with torch.no_grad():
-            (v_neg, v_neg_iters), (v_pos, v_pos_iters) = dual_solve_u(
+            (v_neg, v_neg_iters), (v_pos, v_pos_iters) = dual_solve_u_list(
                 batch.T - u, [self.beta_lb, self.beta_ub], self.epsilon,
                 gtol=self.gtol, s_guess=-u.max())
             v = v_neg.clip(None, 0) + v_pos.clip(0, None)

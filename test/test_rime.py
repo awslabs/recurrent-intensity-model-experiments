@@ -62,7 +62,8 @@ def test_solve_cvx(maximization, expect, **kw):
     if not maximization:
         score_mat = 10 - score_mat
 
-    solver = CVX(score_mat, -1, 1 / score_mat.shape[1], -1, 1 / score_mat.shape[0], **kw)
+    solver = CVX(score_mat, alpha_ub=np.ones(3) / score_mat.shape[1],
+                 beta_ub=np.ones(3) / score_mat.shape[0], **kw)
     pi = solver.fit(score_mat).transform(score_mat)
     if sp.sparse.issparse(pi):
         pi = pi.toarray()
@@ -91,3 +92,4 @@ def test_score_array(shape=(3, 4), device="cpu"):
     score_op(a[[1, 2]], "max", device)
     score_op(a + RandScore.create(b.shape) * 2, "max", device)
     score_op(((a + b) * c + RandScore.create(b.shape) + 3)[[1, 2]], "max", device)
+    print(((a + b) * c + RandScore.create(b.shape) + 3)[[1, 2]].traverse())

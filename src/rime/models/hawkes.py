@@ -45,9 +45,8 @@ class Hawkes:
             ])
             if hasattr(D, '_is_synthetic_data') and D._is_synthetic_data:
                 _verify_estimated_intensity(self.model, X, user_intensities)
-            item_ones = np.ones(len(D.item_in_test))
-            return (LazyDenseMatrix(np.log(user_intensities)[:, None]) @
-                    LazyDenseMatrix(item_ones[:, None]).T).exp()
+            item_zeros = np.zeros(len(D.item_in_test))
+            return LazyDenseMatrix(user_intensities[:, None]) + LazyDenseMatrix(item_zeros)
 
 
 def _input_fn(hist_ts, test_start_time, horizon, training, training_eps, hetero):

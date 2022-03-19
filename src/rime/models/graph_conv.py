@@ -125,7 +125,7 @@ class GraphConv:
                  truncated_input_steps=256, auto_pad_item=True, **kw):
         self._padded_item_list = [None] * auto_pad_item + D.training_data.item_df.index.tolist()
         self._tokenize = {k: j for j, k in enumerate(self._padded_item_list)}
-        self.n_padded_items = len(self._padded_item_list)
+        self.n_tokens = len(self._tokenize)
         self._truncated_input_steps = truncated_input_steps
 
         self.batch_size = batch_size
@@ -157,7 +157,7 @@ class GraphConv:
         G = dgl.heterograph(
             {('user', 'source', 'item'): (past_event_df.index.values,
                                           past_event_df["j"].values)},
-            {'user': len(D.user_in_test), 'item': self.n_padded_items}
+            {'user': len(D.user_in_test), 'item': self.n_tokens}
         )
         G.edata['t'] = torch.as_tensor(past_event_df["TIMESTAMP"].values.astype('float64'))
 
@@ -195,7 +195,7 @@ class GraphConv:
     def fit(self, *V_arr):
         V_arr = [V for V in V_arr if V is not None]
         if len(V_arr) == 0:
-            self.model = _GraphConv(None, self.n_padded_items, **self._model_kw)
+            self.model = _GraphConv(None, self.n_tokens, **self._model_kw)
             return self
 
         dataset, G_list, user_proposal, item_proposal, prior_score = zip(*[
@@ -208,7 +208,7 @@ class GraphConv:
         if "embedding" in V_arr[0].user_in_test:
             self._model_kw["user_embeddings"] = np.vstack(
                 V_arr[0].user_in_test['embedding'].iloc[:1])  # just need shape[1]
-        model = _GraphConv(None, self.n_padded_items, **self._model_kw)
+        model = _GraphConv(None, self.n_tokens, **self._model_kw)
 
         N = len(dataset)
         train_set, valid_set = default_random_split(dataset)
@@ -237,11 +237,11 @@ class GraphConv:
 
     @property
     def item_embeddings(self):
-        return self.model.item_encoder(torch.arange(self.n_padded_items)).detach().numpy()
+        return self.model.item_encoder(torch.arange(self.n_tokens)).detach().numpy()
 
     @property
     def item_biases(self):
-        return self.model.item_bias_vec(torch.arange(self.n_padded_items)).detach().numpy().ravel()
+        return self.model.item_bias_vec(torch.arange(self.n_tokens)).detach().numpy().ravel()
 
     def transform(self, D):
         G = self._extract_features(D)
