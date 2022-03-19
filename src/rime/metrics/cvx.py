@@ -3,85 +3,77 @@ import torch
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from ..util import empty_cache_on_exit, get_batch_size, score_op
+from ..util import empty_cache_on_exit, get_batch_size, score_op, LazyScoreBase
 from ..util.cvx_bisect import dual_solve_u, dual_clip, primal_solution
 
 
 class CVX:
-    def __init__(self, score_mat, topk, C, constraint_type='ub', device='cpu',
+    def __init__(self, score_mat, alpha_lb=-1, alpha_ub=2, beta_lb=-1, beta_ub=2, device='cpu',
                  max_epochs=100, min_epsilon=1e-10, gpus=int(torch.cuda.is_available()),
                  prefix='CVX'):
 
-        n_users, n_items = score_mat.shape
-        alpha = topk / n_items
-        beta = C / n_users
-
-        if hasattr(score_mat, "collate_fn"):
+        if isinstance(score_mat, LazyScoreBase):
             # assert not score_mat.has_nan(), "score matrix has nan"
             self.score_max = float(score_op(score_mat, "max", device))
             self.score_min = float(score_op(score_mat, "min", device))
         else:
             self.score_max = float(score_mat.max())
             self.score_min = float(score_mat.min())
-
         print(f"entering {prefix} CVX score (min={self.score_min}, max={self.score_max})")
-        self.device = device
 
-        self._model_args = (
-            n_users, n_items, alpha, beta, constraint_type, 0.1 / max(score_mat.shape),
+        self.model = _LitCVX(
+            *score_mat.shape, alpha_lb, alpha_ub, beta_lb, beta_ub, 0.1 / max(score_mat.shape),
             max_epochs, min_epsilon)
 
         tb_logger = loggers.TensorBoardLogger(
             "logs/",
-            name=f"{prefix}-{topk}-{np.mean(C):.1f}-{constraint_type}-{not np.isscalar(C)}")
-
-        self._trainer_kw = dict(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
-                                log_every_n_steps=1, callbacks=[ModelCheckpoint()],
-                                # change default save path from . to logger path
-                                )
+            name=f"{prefix}-{alpha_lb:.3f}-{alpha_ub:.3f}-{beta_lb:.3f}-{beta_ub:.3f}")
+        self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
+                               log_every_n_steps=1, callbacks=[ModelCheckpoint()],
+                               # change default save path from . to logger path
+                               )
+        print("trainer log at:", self.trainer.logger.log_dir)
 
     @empty_cache_on_exit
-    def transform(self, score_mat):
+    @torch.no_grad()
+    def transform(self, score_mat, return_lazy=False):
         score_mat = score_mat / self.score_max
-        batch_size = self.model.batch_size
-
-        def fn(i):
-            batch = score_mat[i:min(i + batch_size, len(score_mat))]
-            return self.model.forward(batch, device=self.device)
-
-        pi = np.vstack([fn(i) for i in range(0, len(score_mat), batch_size)])
-        return pi
+        if isinstance(score_mat, LazyScoreBase):
+            collate_fn = score_mat[0].collate_fn
+        else:
+            score_mat = score_mat.tolist()  # pytorch-lightning bug
+            collate_fn = torch.utils.data.dataloader.default_collate
+        u = self.trainer.predict(
+            self.model,
+            DataLoader(score_mat, self.model.batch_size, collate_fn=collate_fn)
+        )
+        z = (score_mat - np.hstack(u)[:, None] - self.model.v.cpu().numpy()) / self.model.epsilon
+        pi = z.sigmoid() if hasattr(z, 'sigmoid') else torch.as_tensor(z).sigmoid()
+        return pi if return_lazy else pi.numpy()
 
     @empty_cache_on_exit
     def fit(self, score_mat):
         score_mat = score_mat / self.score_max
-
-        model = _LitCVX(*self._model_args)
-        trainer = Trainer(**self._trainer_kw)
-        print("trainer log at:", trainer.logger.log_dir)
-
         collate_fn = getattr(score_mat[0], "collate_fn",
                              torch.utils.data.dataloader.default_collate)
-
-        trainer.fit(
-            model,
-            DataLoader(score_mat, model.batch_size, True, collate_fn=collate_fn),
+        self.trainer.fit(
+            self.model,
+            DataLoader(score_mat, self.model.batch_size, True, collate_fn=collate_fn)
         )
-        v = model.v.detach().cpu().numpy()
+        v = self.model.v.detach().cpu().numpy()
         print('v', pd.Series(v.ravel()).describe().to_dict())
-
-        self.model = _LitCVX(*self._model_args, v=model.v, epsilon=model.epsilon)
         return self
 
 
 class _LitCVX(LightningModule):
-    def __init__(self, n_users, n_items, alpha, beta, constraint_type, gtol,
+    def __init__(self, n_users, n_items, alpha_lb, alpha_ub, beta_lb, beta_ub, gtol,
                  max_epochs=100, min_epsilon=1e-10, v=None, epsilon=1):
 
         super().__init__()
-        self.alpha = alpha
-        self.beta = beta
-        self.constraint_type = constraint_type
+        self.alpha_lb = alpha_lb
+        self.alpha_ub = alpha_ub
+        self.beta_lb = beta_lb
+        self.beta_ub = beta_ub
         self.gtol = gtol
 
         self.batch_size = get_batch_size((n_users, n_items))
@@ -92,11 +84,11 @@ class _LitCVX(LightningModule):
         self.epsilon_gamma = (min_epsilon / epsilon) ** (1 / max_epochs)
 
         if v is None:
-            if constraint_type == 'ub':
+            if beta_lb <= 0:
                 v = torch.rand(n_items)
-            elif constraint_type == 'lb':
+            elif beta_ub >= 1:
                 v = -torch.rand(n_items)
-            else:  # eq
+            else:  # range
                 v = torch.rand(n_items) * 2 - 1
         self.v = torch.nn.Parameter(v)
 
@@ -108,37 +100,42 @@ class _LitCVX(LightningModule):
         self.log("epsilon", self.epsilon, prog_bar=True)
 
     @torch.no_grad()
-    def forward(self, batch, device="cpu"):
-        batch = _to_tensor(batch - self.v.cpu().numpy().reshape((1, -1)), device)
-        u, _ = dual_solve_u(batch, self.alpha, self.epsilon, gtol=self.gtol, s_guess=-self.v.max())
-        u = dual_clip(u, "ub")
-        pi = primal_solution(batch - u.reshape((-1, 1)), self.epsilon)
-        return pi.cpu().numpy()
+    def forward(self, batch):
+        batch = _to_tensor(batch, self.device)
+        (u_neg, _), (u_pos, _) = dual_solve_u(
+            batch - self.v, [self.alpha_lb, self.alpha_ub], self.epsilon,
+            gtol=self.gtol, s_guess=-self.v.max())
+        u = u_neg.clip(None, 0) + u_pos.clip(0, None)
+        return u.cpu().numpy()
 
     def training_step(self, batch, batch_idx):
         batch = _to_tensor(batch, self.device)
 
         with torch.no_grad():
-            u, u_iters = dual_solve_u(
-                batch - self.v.reshape((1, -1)),
-                self.alpha, self.epsilon, gtol=self.gtol, s_guess=-self.v.max())
-            u = dual_clip(u, "ub")
-            self.log("u_iters", float(u_iters), prog_bar=True)
+            (u_neg, u_neg_iters), (u_pos, u_pos_iters) = dual_solve_u(
+                batch - self.v, [self.alpha_lb, self.alpha_ub], self.epsilon,
+                gtol=self.gtol, s_guess=-self.v.max())
+            u = u_neg.clip(None, 0) + u_pos.clip(0, None)
+            self.log("u_neg_iters", float(u_neg_iters), prog_bar=True)
+            self.log("u_pos_iters", float(u_pos_iters), prog_bar=True)
 
         with torch.no_grad():
-            v, v_iters = dual_solve_u(
-                batch.T - u.reshape((1, -1)),
-                self.beta, self.epsilon, gtol=self.gtol, s_guess=-u.max())
-            v = dual_clip(v, self.constraint_type)
-            self.log("v_iters", float(v_iters), prog_bar=True)
+            (v_neg, v_neg_iters), (v_pos, v_pos_iters) = dual_solve_u(
+                batch.T - u, [self.beta_lb, self.beta_ub], self.epsilon,
+                gtol=self.gtol, s_guess=-u.max())
+            v = v_neg.clip(None, 0) + v_pos.clip(0, None)
+            self.log("v_neg_iters", float(v_neg_iters), prog_bar=True)
+            self.log("v_pos_iters", float(v_pos_iters), prog_bar=True)
 
         loss = ((self.v - v)**2).mean() / 2
         self.log("train_loss", loss)
         return loss
 
 
-def _to_tensor(batch, device):
+def _to_tensor(batch, device=None):
     if hasattr(batch, "as_tensor"):
         return batch.as_tensor(device)
+    elif isinstance(batch, list):
+        return torch.vstack(batch).to(device)
     else:
         return torch.as_tensor(batch).to(device)

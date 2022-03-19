@@ -62,7 +62,7 @@ def test_solve_cvx(maximization, expect, **kw):
     if not maximization:
         score_mat = 10 - score_mat
 
-    solver = CVX(score_mat, 1, 1, **kw)
+    solver = CVX(score_mat, -1, 1 / score_mat.shape[1], -1, 1 / score_mat.shape[0], **kw)
     pi = solver.fit(score_mat).transform(score_mat)
     if sp.sparse.issparse(pi):
         pi = pi.toarray()

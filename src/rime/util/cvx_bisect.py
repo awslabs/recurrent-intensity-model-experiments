@@ -94,7 +94,9 @@ def dual_solve_u(s, alpha, eps, verbose=False, n_iters=100, gtol=0, s_guess=None
     Note: provide s_guess when exclude_train=True to trim the search space
     """
     alpha = torch.as_tensor(alpha, device=s.device)
-    if alpha <= 0 or alpha >= 1:
+    if alpha.ndim > 0 and alpha.shape[0] > 1:
+        return [dual_solve_u(s, a, eps, verbose, n_iters, gtol, s_guess) for a in alpha]
+    if alpha.max() <= 0 or alpha.min() >= 1:
         c = torch.sign(alpha - 0.5) * np.inf
         u = -c * torch.ones_like(s[:, 0])
         return u, 0
@@ -137,7 +139,7 @@ def dual_clip(u, constraint_type):
 
 ### the following is mostly used for visualization
 
-def dual(v, s, alpha, beta, eps, constraint_type='ub'):
+def dual_v(v, s, alpha, beta, eps, constraint_type='ub'):
     """
     min_{v<=0} d(v)
         = min_{u>=0} max_pi L(pi, u, v)
@@ -186,7 +188,7 @@ if __name__ == '__main__':
     v_list = np.linspace(-1, 3.8, 100)
     colors = []
     for i, eps in enumerate([1, 0.5, 0.01]):
-        f = [dual(torch.as_tensor([v]), s, alpha, beta, eps).tolist()
+        f = [dual_v(torch.as_tensor([v]), s, alpha, beta, eps).tolist()
              for v in v_list]
         p = pl.plot(v_list, f, ls=':', label=f'$\epsilon$={eps}')  # noqa: W605
         colors.append(p[0].get_color())

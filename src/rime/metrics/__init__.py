@@ -58,7 +58,10 @@ def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None,
         C = (C * np.asarray(item_prior) / np.mean(item_prior))
 
     if cvx:
-        self = CVX(valid_mat, topk, C, constraint_type, device=device, **kw)
+        n_users, n_items = valid_mat.shape
+        kw['alpha_ub'] = topk / n_items
+        kw['beta_' + constraint_type] = C / n_users
+        self = CVX(valid_mat, device=device, **kw)
         assigned_csr = self.fit(valid_mat).transform(score_mat)
         if assigned_csr.sum() == 0:
             warnings.warn("cvx should not return empty assignments unless in Rand")

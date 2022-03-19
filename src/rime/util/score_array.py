@@ -126,6 +126,8 @@ def auto_cast_lazy_score(other):
         return LazySparseMatrix(other)
     elif isinstance(other, pd.DataFrame):
         return LazyDenseMatrix(other.values)
+    elif torch.is_tensor(other):
+        return LazyDenseMatrix(other.detach().cpu().numpy())
     else:  # scalar or numpy arrays of 0, 1, 2 dimensions
         return LazyDenseMatrix(other)
 
