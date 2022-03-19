@@ -107,8 +107,8 @@ class LDA:
 
         u = doc_data._expectation().numpy()
         vT = np.vstack([w._expectation().numpy() for w in self.model.word_data])
-        test_v_iloc = find_iloc(self._item_list, D.item_in_test.index)
-        out = LazyDenseMatrix(u) @ LazyDenseMatrix(vT[:, test_v_iloc])
+        v_iloc = find_iloc(self._item_list, D.item_in_test.index)
+        out = LazyDenseMatrix(u) @ LazyDenseMatrix(vT[:, v_iloc])
 
         if return_doc_data:
             out = (out, doc_data)

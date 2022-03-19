@@ -35,8 +35,8 @@ class ALS:
             self.als_model.fit(train_user_item)
         else:
             self.als_model.fit(train_user_item.T)
-        self.ind_logits = _to_numpy(self.als_model.user_factors)
-        self.col_logits = _to_numpy(self.als_model.item_factors)
+        self.user_hstack = _to_numpy(self.als_model.user_factors)
+        self.item_hstack = _to_numpy(self.als_model.item_factors)
         delattr(self, "als_model")
 
         self.D = D
@@ -44,10 +44,10 @@ class ALS:
 
     def transform(self, D):
         """ (user_factor * item_factor) """
-        test_user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
-        test_item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
-        return (LazyDenseMatrix(self.ind_logits[test_user_iloc]) @
-                LazyDenseMatrix(self.col_logits[test_item_iloc]).T).softplus()
+        user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
+        item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
+        return (LazyDenseMatrix(self.user_hstack[user_iloc]) @
+                LazyDenseMatrix(self.item_hstack[item_iloc]).T).softplus()
 
 
 class LogisticMF:
@@ -77,10 +77,10 @@ class LogisticMF:
     def transform(self, D):
         """ (user_factor * item_factor) """
 
-        ind_logits = _to_numpy(self.lmf_model.user_factors)
-        col_logits = _to_numpy(self.lmf_model.item_factors)
+        user_hstack = _to_numpy(self.lmf_model.user_factors)
+        item_hstack = _to_numpy(self.lmf_model.item_factors)
 
-        test_user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
-        test_item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
-        return (LazyDenseMatrix(ind_logits[test_user_iloc]) @
-                LazyDenseMatrix(col_logits[test_item_iloc]).T).sigmoid()
+        user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
+        item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
+        return (LazyDenseMatrix(user_hstack[user_iloc]) @
+                LazyDenseMatrix(item_hstack[item_iloc]).T).sigmoid()

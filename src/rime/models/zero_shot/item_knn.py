@@ -1,6 +1,6 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer, BertForMaskedLM
 import torch, pandas as pd, numpy as np, functools, json, warnings
-from rime.util import (find_iloc, create_low_rank_matrix, _to_cuda, empty_cache_on_exit,
+from rime.util import (matrix_reindex, LazyDenseMatrix, _to_cuda, empty_cache_on_exit,
                        explode_user_titles)
 from tqdm import tqdm
 
@@ -89,7 +89,7 @@ class ItemKNN:
             np.split(weights, splits), np.split(np.vstack(explode_embeddings), splits)
         )]) / self.temperature
 
-        test_item_iloc = find_iloc(self.item_index, D.item_in_test.index)
-        return create_low_rank_matrix(
-            user_embeddings, self.item_embeddings[test_item_iloc],
-            None, self.item_biases[test_item_iloc]).softplus()
+        item_reindex = lambda x, fill_value=0: matrix_reindex(
+            x, self.item_index, D.item_in_test.index, axis=0, fill_value=fill_value)
+        return (LazyDenseMatrix(user_embeddings) @ item_reindex(self.item_embeddings).T
+                + item_reindex(self.item_biases, fill_value=-np.inf)).softplus()

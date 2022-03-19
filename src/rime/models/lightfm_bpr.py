@@ -32,22 +32,22 @@ class LightFM_BPR:
     def transform(self, D):
         """ (user_embed * item_embed + user_bias + item_bias).softplus() """
 
-        ind_logits = np.hstack([
+        user_hstack = np.hstack([
             self.bpr_model.user_embeddings,
             self.bpr_model.user_biases[:, None],
             np.ones_like(self.bpr_model.user_biases)[:, None],
         ])
 
-        col_logits = np.hstack([
+        item_hstack = np.hstack([
             self.bpr_model.item_embeddings,
             np.ones_like(self.bpr_model.item_biases)[:, None],
             self.bpr_model.item_biases[:, None],
         ])
 
         if self._transposed:
-            ind_logits, col_logits = col_logits, ind_logits
+            user_hstack, item_hstack = item_hstack, user_hstack
 
-        test_user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
-        test_item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
-        return (LazyDenseMatrix(ind_logits[test_user_iloc]) @
-                LazyDenseMatrix(col_logits[test_item_iloc]).T).softplus()
+        user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
+        item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
+        return (LazyDenseMatrix(user_hstack[user_iloc]) @
+                LazyDenseMatrix(item_hstack[item_iloc]).T).softplus()

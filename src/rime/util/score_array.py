@@ -214,7 +214,10 @@ class ElementWiseExpression(LazyScoreBase):
         self.shape = children[0].shape
 
     def __repr__(self):
-        return object.__repr__(self) + f" ({self.op})"
+        type_ = type(self)
+        module = type_.__module__
+        qualname = type_.__qualname__
+        return f"<{module}.{qualname} ({self.op}) object at {hex(id(self))}>"
 
     def as_tensor(self, device=None):
         children = [c.as_tensor(device) for c in self.children]
@@ -237,18 +240,18 @@ class ElementWiseExpression(LazyScoreBase):
 
     @classmethod
     def collate_fn(cls, batch):
-        template = batch[0]
+        op, template = batch[0].op, batch[0].children
         data = zip(*[b.children for b in batch])
-        children = [c.collate_fn(D) for c, D in zip(template.children, data)]
-        return cls(template.op, children)
+        children = [c.collate_fn(D) for c, D in zip(template, data)]
+        return cls(op, children)
 
 
 class MatMulExpression(LazyScoreBase):
     def __init__(self, left, right):
         assert left.shape[1] == right.shape[0], \
             f"matmul shape check fail: {left.shape} vs {right.shape}"
-        self.left = left
-        self.right = right
+        self.left = auto_cast_lazy_score(left)
+        self.right = auto_cast_lazy_score(right)
         self.shape = (left.shape[0], right.shape[1])
 
     def numpy(self):
@@ -314,19 +317,6 @@ class RandScore(LazyScoreBase):
     @classmethod
     def collate_fn(cls, batch):
         return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds)
-
-
-def create_low_rank_matrix(user_embeddings, item_embeddings, user_biases=None, item_biases=None):
-    """ create optional low-rank with optional missing values """
-    parts = [(user_embeddings, item_embeddings)]
-    if user_biases is not None:
-        parts.append((user_biases.reshape((-1, 1)), np.ones_like(item_embeddings[:, :1])))
-    if item_biases is not None:
-        parts.append((np.ones_like(user_embeddings[:, :1]), item_biases.reshape((-1, 1))))
-
-    left = np.hstack([x for (x, y) in parts])
-    right = np.hstack([y for (x, y) in parts])
-    return LazyDenseMatrix(left) @ LazyDenseMatrix(right).T
 
 
 def score_op(S, op, device=None):

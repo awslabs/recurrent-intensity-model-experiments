@@ -249,13 +249,6 @@ def filter_min_len(event_df, min_user_len, min_item_len):
     ]
 
 
-def get_top_items(item_df, max_item_size, sort_by='_hist_len'):
-    sorted_items = item_df.sort_values(sort_by, ascending=False, kind='mergesort')
-    if len(sorted_items) > max_item_size:
-        warnings.warn(f"clipping item size from {len(sorted_items)} to {max_item_size}")
-    return sorted_items.iloc[:max_item_size]
-
-
 def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_title='???'):
     """ explode last few user events and match with item titles;
     return splits and discount weights; empty user_hist will be turned into a single pad_title. """

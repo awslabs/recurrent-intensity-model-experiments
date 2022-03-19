@@ -2,7 +2,7 @@ import torch, numpy as np, warnings, pandas as pd, collections, torch.nn.functio
 from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import (_LitValidated, empty_cache_on_exit, create_low_rank_matrix, find_iloc,
+from ..util import (_LitValidated, empty_cache_on_exit, LazyDenseMatrix, matrix_reindex,
                     default_random_split, auto_cast_lazy_score)
 from .bpr import _BPR_Common
 try:
@@ -122,8 +122,8 @@ class _GraphConv(_BPR_Common):
 class GraphConv:
     def __init__(self, D, batch_size=10000, max_epochs=50,
                  sample_with_prior=True, sample_with_posterior=0.5,
-                 truncated_input_steps=256, **kw):
-        self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
+                 truncated_input_steps=256, auto_pad_item=True, **kw):
+        self._padded_item_list = [None] * auto_pad_item + D.training_data.item_df.index.tolist()
         self._tokenize = {k: j for j, k in enumerate(self._padded_item_list)}
         self.n_padded_items = len(self._padded_item_list)
         self._truncated_input_steps = truncated_input_steps
@@ -249,7 +249,8 @@ class GraphConv:
         user_embeddings = self.model.user_encoder(i, G).detach().numpy()
         user_biases = self.model.user_bias_vec(i, G).detach().numpy().ravel()
 
-        item_iloc = find_iloc(self._padded_item_list, D.item_in_test.index)
-        return create_low_rank_matrix(
-            user_embeddings, self.item_embeddings[item_iloc],
-            user_biases, self.item_biases[item_iloc]).softplus()
+        item_reindex = lambda x, fill_value=0: matrix_reindex(
+            x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)
+        return (LazyDenseMatrix(user_embeddings) @ item_reindex(self.item_embeddings).T
+                + user_biases[:, None] + item_reindex(self.item_biases, fill_value=-np.inf)
+                ).softplus()

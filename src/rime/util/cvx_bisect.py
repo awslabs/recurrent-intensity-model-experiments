@@ -93,13 +93,13 @@ def dual_solve_u(s, alpha, eps, verbose=False, n_iters=100, gtol=0, s_guess=None
 
     Note: provide s_guess when exclude_train=True to trim the search space
     """
-    alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
-    c = alpha.log() - (1 - alpha).log()  # allows +-infinity
-
-    if torch.isinf(c):
+    alpha = torch.as_tensor(alpha, device=s.device)
+    if alpha <= 0 or alpha >= 1:
+        c = torch.sign(alpha - 0.5) * np.inf
         u = -c * torch.ones_like(s[:, 0])
         return u, 0
 
+    c = alpha.log() - (1 - alpha).log()  # |c| < inf
     u_min = s.amin(1) - c * eps - 1e-3
     u_max = s.amax(1) - c * eps + 1e-3
     u_guess = []
