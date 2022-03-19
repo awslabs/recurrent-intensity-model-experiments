@@ -1,18 +1,17 @@
 import torch, dgl, numpy as np, pandas as pd
 from pytorch_lightning import LightningModule, Trainer
 from torch.utils.data import DataLoader
-from .third_party.lda.lda_model import LatentDirichletAllocation, DocData, WordData, doc_subgraph
-from ..util import (empty_cache_on_exit, find_iloc, LazyDenseMatrix, extract_past_ij,
+from .third_party.lda.lda_model import LatentDirichletAllocation, DocData, WordData
+from ..util import (empty_cache_on_exit, find_iloc, LazyDenseMatrix, indices2csr,
                     _LitValidated, default_random_split, get_batch_size)
 
 
 class _LitLDA(_LitValidated):
     """ use pytorch lightning to extract random subgraphs """
-    def __init__(self, model, G):
+    def __init__(self, model):
         super().__init__()
         self.automatic_optimization = False
         self.model = model
-        self.G = G
 
         # TODO: this should help checkpoint parameters, but I don't know how
         # pytorch lightning works with distributed parameters.
@@ -25,7 +24,11 @@ class _LitLDA(_LitValidated):
         self.model.device_list = [nphi.device for nphi in word_nphi]  # cpu
 
     def forward(self, batch, op=None):
-        B = doc_subgraph(self.G, batch.tolist()).to(batch.device)
+        i = torch.hstack([torch.ones_like(j) * i for i, j in enumerate(batch)])
+        j = torch.hstack(batch)
+        unique_j, inverse_j = torch.unique(j, return_inverse=True)
+        B = dgl.heterograph({('doc', '', 'word'): (i, inverse_j)})
+        B.nodes['word'].data['_ID'] = unique_j
         if op is None:
             op = lambda B: self.model.transform(B).nphi.to("cpu")
         return op(B)
@@ -64,30 +67,30 @@ class LDA:
         self.max_epochs = max_epochs
         print(f"LDA initiated, batch_size={batch_size}, rho={rho}")
 
-    def _create_graph(self, user_df):
+    def _create_past_tokens(self, user_df):
         """ create doc->word graph, including empty docs """
-        i, j = extract_past_ij(user_df, self._item_list)
-        G = dgl.heterograph({('doc', '', 'word'): (i, j)},
-                            {'doc': len(user_df), 'word': len(self._item_list)})
-        return G
+        tokenize = {k: j for j, k in enumerate(self._item_list)}
+        past_tokens = user_df['_hist_items'].apply(
+            lambda x: [tokenize[y] for y in x if y in tokenize])
+        return past_tokens.tolist()
 
     @empty_cache_on_exit
     def fit(self, D):
         """ learn from D.user_df on gpu w/ mini-batches; clear gpu in the end """
 
-        G = self._create_graph(D.user_df[D.user_df['_hist_len'] > 0])
-        lit = _LitLDA(self.model, G)
+        past_tokens = self._create_past_tokens(D.user_df[D.user_df['_hist_len'] > 0])
+        lit = _LitLDA(self.model)
         trainer = Trainer(
             max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             limit_val_batches=2, callbacks=[lit._checkpoint],
         )
         print(trainer.log_dir)
 
-        train_set, valid_set = default_random_split(np.arange(G.num_nodes('doc')))
+        train_set, valid_set = default_random_split(past_tokens)
         trainer.fit(
             lit,
-            DataLoader(train_set, self.batch_size, shuffle=True),
-            DataLoader(valid_set, self.batch_size),
+            DataLoader(train_set, self.batch_size, shuffle=True, collate_fn=_collate_fn),
+            DataLoader(valid_set, self.batch_size, collate_fn=_collate_fn),
         )
         lit._load_best_checkpoint("best")
         lit._update_model_from_buffer_change_device()
@@ -97,11 +100,11 @@ class LDA:
     def transform(self, D, return_doc_data=False):
         """ run e-step to get doc data; output as low-rank nonnegative matrix """
 
-        G = self._create_graph(D.user_in_test)
+        past_tokens = self._create_past_tokens(D.user_in_test)
         trainer = Trainer(gpus=int(torch.cuda.is_available()))
         doc_nphi = trainer.predict(
-            _LitLDA(self.model, G),
-            DataLoader(np.arange(G.num_nodes('doc')).tolist(), self.batch_size),
+            _LitLDA(self.model),
+            DataLoader(past_tokens, self.batch_size, collate_fn=_collate_fn),
         )
         doc_data = DocData(self.model.prior['doc'], torch.vstack(doc_nphi))
 
@@ -113,3 +116,8 @@ class LDA:
         if return_doc_data:
             out = (out, doc_data)
         return out
+
+
+def _collate_fn(x):
+    """ works for empty lists; pytorch-lightning somehow yields the right device as well """
+    return [torch.as_tensor(y, dtype=torch.int64) for y in x]
