@@ -220,12 +220,15 @@ class LazyExpressionBase:
         builder = ""
         for i, c in enumerate(self.children):
             if hasattr(c, "traverse"):
-                builder = builder + f" ({c.traverse()}) "
+                builder = builder + f"({c.traverse()})"
             else:
-                builder = builder + f" {c} "
+                builder = builder + f"{c}"
             if i == 0:
                 builder = builder + f" {self.op.__name__} "
         return builder
+
+    def __repr__(self):
+        return self.traverse()
 
     def as_tensor(self, device=None):
         children = [c.as_tensor(device) for c in self.children]

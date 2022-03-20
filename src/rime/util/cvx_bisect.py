@@ -52,7 +52,7 @@ def dual_complete(u, v, s, alpha, beta, eps):
     return (u * alpha).mean() + (v * beta).mean() + sp.mean()
 
 
-def grad_u(s, alpha, eps=1):
+def grad_u(s, alpha, eps):
     """
     alpha - E_y[sigmoid(s_xy / eps)], where
 
@@ -67,11 +67,11 @@ def grad_u(s, alpha, eps=1):
     elif int(os.environ.get('CVX_STABLE', 0)):
         alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
         c = alpha.log() - (1 - alpha).log()
-        z = s if eps == 1 else s / eps
-        sgn = torch.sign(c - z)
+        c = c.reshape((-1, 1))
+        sgn = torch.sign(c * eps - s)
         alpha_pi = sgn * (
-            torch.log1p(-torch.exp(-torch.abs(c - z)))
-            - F.softplus(-sgn * c) - F.softplus(sgn * z)
+            torch.log1p(-torch.exp(-torch.abs(c - s / eps)))
+            - F.softplus(-sgn * c) - F.softplus(sgn * s / eps)
         ).exp()
         return alpha_pi.mean(1)
     else:
