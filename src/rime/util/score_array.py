@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd
-import torch, dataclasses, warnings, operator, builtins, numbers, os, itertools
+import torch, dataclasses, warnings, operator, builtins, numbers, os, itertools, functools
 from typing import List, ClassVar
 from torch.utils.data import DataLoader
 import scipy.sparse as sps
@@ -117,7 +117,7 @@ class LazyScoreBase:
         return ElementWiseExpression(torch.nn.functional.softplus, [self])
 
     def sigmoid(self):
-        return ElementWiseExpression(torch.nn.functional.sigmoid, [self])
+        return ElementWiseExpression(torch.sigmoid, [self])
 
 
 def auto_cast_lazy_score(other):
@@ -333,12 +333,18 @@ class RandScore(LazyScoreBase):
         return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds)
 
 
-def score_op(S, op, device=None):
-    """ aggregation operations (e.g., max, min) across entire matrix """
-    out = None
+def batch_op_iter(S, op, device=None):
+    if isinstance(op, str):
+        op = getattr(torch, op)  # max, min, sum
     for i in range(0, len(S), S.batch_size):
         batch = S[i:min(len(S), i + S.batch_size)]
-        val = batch.numpy() if device is None else batch.as_tensor(device)
-        new = getattr(val, op)()
-        out = new if out is None else getattr(builtins, op)([out, new])
-    return out
+        val = batch.as_tensor(device)
+        yield op(val)
+
+
+def score_op(S, op, device=None, reduce_fn=None):
+    """ aggregation operations (e.g., max, min, sum) across entire matrix """
+    if reduce_fn is None:
+        reduce_fn = {"max": max, "min": min, "sum": operator.add}[op]
+    iterable = batch_op_iter(S, op, device)
+    return functools.reduce(reduce_fn, iterable)

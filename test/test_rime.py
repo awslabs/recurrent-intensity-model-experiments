@@ -65,8 +65,7 @@ def test_solve_cvx(maximization, expect, **kw):
     solver = CVX(score_mat, alpha_ub=np.ones(3) / score_mat.shape[1],
                  beta_ub=np.ones(3) / score_mat.shape[0], **kw)
     pi = solver.fit(score_mat).transform(score_mat)
-    if sp.sparse.issparse(pi):
-        pi = pi.toarray()
+    pi = pi.numpy()
     v = solver.model.v.detach().numpy()[None, :]
 
     print(np.round(pi, 2))

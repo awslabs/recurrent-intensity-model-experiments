@@ -4,13 +4,13 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from ..util import empty_cache_on_exit, get_batch_size, score_op, auto_cast_lazy_score
-from ..util.cvx_bisect import dual_solve_u_list, dual_clip, primal_solution
+from ..util.cvx_bisect import dual_solve_u, primal_solution
 
 
 class CVX:
     def __init__(self, score_mat, alpha_lb=-1, alpha_ub=2, beta_lb=-1, beta_ub=2, device='cpu',
                  max_epochs=100, min_epsilon=1e-10, gpus=int(torch.cuda.is_available()),
-                 prefix='CVX', return_lazy=False):
+                 prefix='CVX'):
 
         score_mat = auto_cast_lazy_score(score_mat)
         self.score_max = float(score_op(score_mat, "max", device))
@@ -19,12 +19,12 @@ class CVX:
 
         self.model = _LitCVX(
             *score_mat.shape, alpha_lb, alpha_ub, beta_lb, beta_ub, 0.1 / max(score_mat.shape),
-            max_epochs, min_epsilon, return_lazy=return_lazy)
+            max_epochs, min_epsilon)
 
         tb_logger = loggers.TensorBoardLogger(
             "logs/",
-            name=f"{prefix}-{np.mean(alpha_lb):.3f}-{np.mean(alpha_ub):.3f}"
-                 f"-{np.mean(beta_lb):.3f}-{np.mean(beta_ub):.3f}")
+            name=f"{prefix}+{np.mean(alpha_lb):.1%}+{np.mean(alpha_ub):.1%}"
+                 f"+{np.mean(beta_lb):.1%}+{np.mean(beta_ub):.1%}")
         self.trainer = Trainer(max_epochs=max_epochs, gpus=gpus, logger=tb_logger,
                                log_every_n_steps=1, callbacks=[ModelCheckpoint()],
                                # change default save path from . to logger path
@@ -35,15 +35,11 @@ class CVX:
     @torch.no_grad()
     def transform(self, score_mat):
         score_mat = auto_cast_lazy_score(score_mat) / self.score_max
-        batches = self.trainer.predict(
+        u = self.trainer.predict(
             self.model,
             DataLoader(score_mat, self.model.batch_size, collate_fn=score_mat[0].collate_fn)
         )
-        if self.model.return_lazy:
-            u = np.hstack(batches)
-            return ((score_mat - u[:, None] - self.model.v) / self.model.epsilon).sigmoid()
-        else:
-            return np.vstack(batches)  # pi
+        return ((score_mat - np.hstack(u)[:, None] - self.model.v) / self.model.epsilon).sigmoid()
 
     @empty_cache_on_exit
     def fit(self, score_mat):
@@ -59,7 +55,7 @@ class CVX:
 
 class _LitCVX(LightningModule):
     def __init__(self, n_users, n_items, alpha_lb, alpha_ub, beta_lb, beta_ub, gtol,
-                 max_epochs=100, min_epsilon=1e-10, v=None, epsilon=1, return_lazy=False):
+                 max_epochs=100, min_epsilon=1e-10, v=None, epsilon=1):
 
         super().__init__()
         self.alpha_lb = alpha_lb
@@ -74,7 +70,6 @@ class _LitCVX(LightningModule):
 
         self.epsilon = epsilon
         self.epsilon_gamma = (min_epsilon / epsilon) ** (1 / max_epochs)
-        self.return_lazy = return_lazy
 
         if v is None:
             if beta_lb <= 0:  # ub-only
@@ -94,31 +89,26 @@ class _LitCVX(LightningModule):
 
     @torch.no_grad()
     def _solve_u(self, batch):
-        (u_neg, u_neg_iters), (u_pos, u_pos_iters) = dual_solve_u_list(
-            batch - self.v, [self.alpha_lb, self.alpha_ub], self.epsilon,
-            gtol=self.gtol, s_guess=-self.v.max())
+        s = batch - self.v
+        fn = lambda alpha: dual_solve_u(s, alpha, self.epsilon,
+                                        gtol=self.gtol, s_guess=-self.v.max())
+        u_neg, u_neg_iters = fn(self.alpha_lb)
+        u_pos, u_pos_iters = fn(self.alpha_ub)
         u = u_neg.clip(None, 0) + u_pos.clip(0, None)
         return u, u_neg_iters, u_pos_iters
 
     @torch.no_grad()
     def _solve_v(self, batch, u):
-        (v_neg, v_neg_iters), (v_pos, v_pos_iters) = dual_solve_u_list(
-            batch.T - u, [self.beta_lb, self.beta_ub], self.epsilon,
-            gtol=self.gtol, s_guess=-u.max())
+        s = batch.T - u
+        fn = lambda beta: dual_solve_u(s, beta, self.epsilon,
+                                       gtol=self.gtol, s_guess=-u.max())
+        v_neg, v_neg_iters = fn(self.beta_lb)
+        v_pos, v_pos_iters = fn(self.beta_ub)
         v = v_neg.clip(None, 0) + v_pos.clip(0, None)
         return v, v_neg_iters, v_pos_iters
 
-    @torch.no_grad()
-    def forward(self, batch):
-        batch = _to_tensor(batch, self.device)
-        u, *_ = self._solve_u(batch)
-        if self.return_lazy:
-            return u.cpu().numpy()
-        else:
-            return primal_solution(batch, u, self.v, self.epsilon).cpu().numpy()
-
     def training_step(self, batch, batch_idx):
-        batch = _to_tensor(batch, self.device)
+        batch = batch.as_tensor(self.device)
 
         u, u_neg_iters, u_pos_iters = self._solve_u(batch)
         self.log("u_neg_iters", float(u_neg_iters), prog_bar=True)
@@ -132,11 +122,8 @@ class _LitCVX(LightningModule):
         self.log("train_loss", loss)
         return loss
 
-
-def _to_tensor(batch, device=None):
-    if hasattr(batch, "as_tensor"):
-        return batch.as_tensor(device)
-    elif isinstance(batch, list):
-        return torch.vstack(batch).to(device)
-    else:
-        return torch.as_tensor(batch).to(device)
+    @torch.no_grad()
+    def forward(self, batch):
+        batch = batch.as_tensor(self.device)
+        u, *_ = self._solve_u(batch)
+        return u.cpu().numpy()

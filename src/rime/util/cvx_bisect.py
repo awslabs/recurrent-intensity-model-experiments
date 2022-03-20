@@ -100,11 +100,11 @@ def dual_solve_u(s, alpha, eps, verbose=False, n_iters=100, gtol=0, s_guess=None
         return u, 0
 
     c = alpha.log() - (1 - alpha).log()  # |c| < inf
-    u_min = s.amin(1) - c * eps - 1e-3
-    u_max = s.amax(1) - c * eps + 1e-3
+    u_min = s.amin(1) - c * eps - 1e-2
+    u_max = s.amax(1) - c * eps + 1e-2
     u_guess = []
     if s_guess is not None:
-        u_guess.append(torch.as_tensor(s_guess).to(s) - c * eps - 1e-3)
+        u_guess.append(torch.as_tensor(s_guess).to(s) - c * eps - 1e-2)
     # k = (alpha * s.shape[1] + 1).clip(None, s.shape[1]).int()
     # u_guess.append(s.topk(k).values[:, -3:].T)
 
@@ -124,10 +124,6 @@ def dual_solve_u(s, alpha, eps, verbose=False, n_iters=100, gtol=0, s_guess=None
         u_max = torch.where(g > 0, u, u_max)
 
     return u, (i + 1)
-
-
-def dual_solve_u_list(s, alpha_list, *args, **kw):
-    return [dual_solve_u(s, alpha, *args, **kw) for alpha in alpha_list]
 
 
 def dual_clip(u, constraint_type):
