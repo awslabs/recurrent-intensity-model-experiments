@@ -31,7 +31,7 @@ class HawkesPoisson:
             print(f"transform loss {loss(self.coeffs.x, X, Y, 0)}")
 
         item_zeros = np.zeros(len(D.item_in_test))
-        return LazyDenseMatrix(intensity[:, None]) + LazyDenseMatrix(item_zeros)
+        return LazyDenseMatrix(intensity[:, None]) + LazyDenseMatrix(item_zeros[None, :])
 
 
 def loss(x, H, Y, alpha=1e-3):

@@ -68,7 +68,7 @@ class RNN:
             x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)
 
         return (LazyDenseMatrix(user_hidden) @ item_reindex(item_hidden).T
-                + user_log_bias[:, None] + item_reindex(item_log_bias, -np.inf)).exp()
+                + user_log_bias[:, None] + item_reindex(item_log_bias, -np.inf)[None, :]).exp()
 
     @empty_cache_on_exit
     def fit(self, D):

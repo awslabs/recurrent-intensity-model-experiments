@@ -39,7 +39,8 @@ class Dual:
             self.model,
             DataLoader(score_mat, self.model.batch_size, collate_fn=score_mat[0].collate_fn)
         )
-        return ((score_mat - np.hstack(u)[:, None] - self.model.v) / self.model.epsilon).sigmoid()
+        return ((score_mat - np.hstack(u)[:, None] - self.model.v[None, :])
+                / self.model.epsilon).sigmoid()
 
     @empty_cache_on_exit
     def fit(self, score_mat):
@@ -89,7 +90,7 @@ class _LitDual(LightningModule):
 
     @torch.no_grad()
     def _solve_u(self, batch):
-        s = batch - self.v
+        s = batch - self.v[None, :]
         fn = lambda alpha: dual_solve_u(s, alpha, self.epsilon,
                                         gtol=self.gtol, s_guess=-self.v.max())
         u_neg, u_neg_iters = fn(self.alpha_lb)
@@ -99,7 +100,7 @@ class _LitDual(LightningModule):
 
     @torch.no_grad()
     def _solve_v(self, batch, u):
-        s = batch.T - u
+        s = batch.T - u[None, :]
         fn = lambda beta: dual_solve_u(s, beta, self.epsilon,
                                        gtol=self.gtol, s_guess=-u.max())
         v_neg, v_neg_iters = fn(self.beta_lb)

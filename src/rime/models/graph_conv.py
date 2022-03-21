@@ -252,5 +252,5 @@ class GraphConv:
         item_reindex = lambda x, fill_value=0: matrix_reindex(
             x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)
         return (LazyDenseMatrix(user_embeddings) @ item_reindex(self.item_embeddings).T
-                + user_biases[:, None] + item_reindex(self.item_biases, fill_value=-np.inf)
+                + user_biases[:, None] + item_reindex(self.item_biases, fill_value=-np.inf)[None, :]
                 ).softplus()
