@@ -51,15 +51,15 @@ Repository to reproduce the experiments in these papers:
 
     Notice the optional config that excludes training user-item pairs from reappearing in predictions (and targets) by automatically generating a prior_score attribute in dataset class. This helps non-temporal matrix-factorization models.
 
-4. Run matching experiment with CVX-Online allocation and plot diversity-relevance trade-off
+4. Run matching experiment with Dual-Online allocation and plot diversity-relevance trade-off
    ```
-   cvx_online = rime.Experiment(D, V, *V_extra,
-                                mult=[0, 0.3, 0.7, 1, 3, 10, 200],  # turn on mtch calculation
-                                cvx=True, online=True)  # optional; default => offline-greedy mtch
-   cvx_online.run(["Rand", "Pop", "HP", "ALS", "BPR", "GraphConv-Extra",
+   online = rime.Experiment(D, V, *V_extra,
+                            mult=[0, 0.3, 0.7, 1, 3, 10, 200],  # turn on match calculation
+                            online=True)  # optional; default offline = greedy match
+   online.run(["Rand", "Pop", "HP", "ALS", "BPR", "GraphConv-Extra",
                    "Transformer", "Transformer-Pop", "Transformer-HP",])
-   cvx_online.print_results()  # tabular results
-   fig = rime.util.plot_mtch_results(cvx_online)
+   online.print_results()  # tabular results
+   fig = rime.util.plot_mtch_results(online)
    ```
 
     <img src="figure/online-ml-1m.png" alt="online-ml-1m" width="50%"/>
@@ -72,10 +72,11 @@ Repository to reproduce the experiments in these papers:
 
 The simplest way to prepare data is via `create_dataset` function:
 ```
-rime.dataset.base.create_dataset(event_df: pd.DataFrame(columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP']),
-                                 user_df: pd.DataFrame(columns=['TEST_START_TIME'], index=USER_ID),
-                                 item_df: pd.DataFrame(index=ITEM_ID),
-                                 horizon: float >= 0 in the same unit as the TIMESTAMP column)
+rime.dataset.base.create_dataset(
+    event_df: pd.DataFrame(columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP']),
+    user_df: pd.DataFrame(columns=['TEST_START_TIME'], index=USER_ID),
+    item_df: pd.DataFrame(index=ITEM_ID),
+    horizon: float >= 0 in the same unit as the TIMESTAMP column)
 ```
 The `create_dataset` function will then regard events with `TIMESTAMP < TEST_START_TIME` as user histories and events within `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon` as prediction targets. We collect user histories in dataframe order without artificial sorting by time. The collected user histories (`user_df._hist_items` and `user_df._hist_ts`) will be used for both auto-regressive training and user-side feature creation in prediction tasks. The function returns a `rime.dataset.base.Dataset` object.
 
@@ -84,7 +85,7 @@ We also filter by `user_in_test[TEST_START_TIME] < +inf`, which is an obvious ne
 Another advanced case is having multiple test-start times for the same `USER_ID`, which we naturally handle by creating multiple rows in `user_in_test` with the corresponding histories. However, this case may also cause undesirable repetitions in the `user_df` attribute for training purposes. We thus deduplicate `user_df` by keeping the first entry per user in dataframe order. Similarly, we consider only the first row of each user in `user_df` towards the number of historical visits in `item_df._hist_len`.
 For additional details, including a template for the created `Dataset` class as well as the use of `exclude_train` priors for cleaner model evaluations, please visit the example in `rime.dataset.prepare_minimal_dataset`.
 
-For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `CVX-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
+For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `Dual-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
 
 **Step 1. Predictions**
 
@@ -108,20 +109,20 @@ user_rec_metrics = evaluate_assigned(D.target_csr, user_rec_assignments, axis=0,
 
 **Step 3. Online simulation**
 
-RIME contains an optional configuration *"CVX-Online"*, which simulates a scenario where we may not observe the full set of users ahead of time, but must make real-time decisions immediately and unregretfully as each user arrives one at a time.
+RIME contains an optional configuration *"Dual-Online"*, which simulates a scenario where we may not observe the full set of users ahead of time, but must make real-time decisions immediately and unregretfully as each user arrives one at a time.
 This scenario is useful in the case of multi-day marketing campaigns with budgets allocated for the long-term prospects.
 Our basic idea is to approximate a quantile threshold `v(y)` per item-y from an observable user sample and then generalize it to the testing set.
 We pick the user sample from a "validation" data split `V`.
-Additionally, we align the item_in_test between D and V, because cvx also considers the competitions for the limited user capacities from different items.
+Additionally, we align the item_in_test between D and V, because Dual also considers the competitions for the limited user capacities from different items.
 ```
 V = V.reindex(D.item_in_test.index, axis=1) # align on the item_in_test to generalize
-T = rnn.transform(V) * hawkes.transform(V)  # solve CVX based on the validation set
-cvx_online = rime.metrics.cvx.CVX(S, item_rec_topk, user_rec_C, ...) # set hyperparameters
-online_assignments = cvx_online.fit(T).transform(S)
-out = evaluate_assigned(D.target_csr, online_assignments, axis=0)
+T = rnn.transform(V) * hawkes.transform(V)  # solve Dual based on the validation set
+dual = rime.metrics.dual.Dual(S, item_rec_topk, user_rec_C, ...) # set hyperparameters
+dual_assigned = dual.fit(T).transform(S)
+out = evaluate_assigned(D.target_csr, dual_assigned, axis=0)
 ```
 
-CVX-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
+Dual-Online is integrated as `self.metrics_update("RNN-Hawkes", S, T)`,
 when `self.online=True` and `T is not None`.
 
 **Misc**

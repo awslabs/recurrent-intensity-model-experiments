@@ -25,7 +25,7 @@ except DistributionNotFound:
 
 @dataclasses.dataclass
 class ExperimentResult:
-    cvx: bool
+    dual: bool
     online: bool
     _k1: int
     _c1: int
@@ -91,7 +91,7 @@ class Experiment:
         models_to_run=None,
         model_hyps={},
         device="cuda" if torch.cuda.is_available() else "cpu",
-        cvx=False,
+        dual=False,
         online=False,
         tie_break=0,
         cache=None,
@@ -113,10 +113,10 @@ class Experiment:
         self.device = device
 
         if online:
-            if not cvx:
-                warnings.warn("online requires cvx, resetting cvx to True")
-                cvx = True
-            assert V is not None, "online cvx is trained with explicit valid_mat"
+            if not dual:
+                warnings.warn("online requires dual, resetting dual to True")
+                dual = True
+            assert V is not None, "online dual is trained with explicit valid_mat"
 
         self.tie_break = tie_break
         if cache is not None:
@@ -125,7 +125,7 @@ class Experiment:
 
         if results is None:
             results = ExperimentResult(
-                cvx, online,
+                dual, online,
                 _k1=self.D.default_item_rec_top_k,
                 _c1=self.D.default_user_rec_top_c,
                 _kmax=len(self.D.item_in_test),
@@ -146,7 +146,7 @@ class Experiment:
 
         if self.online:
             valid_mat = T
-        elif self.cvx:
+        elif self.dual:
             valid_mat = score_mat
         else:
             valid_mat = None
@@ -179,7 +179,7 @@ class Experiment:
                 confs.append((self._k1 * m, self._c1, 'ub'))
 
         mtch_kw = self.mtch_kw.copy()
-        if self.cvx:
+        if self.dual:
             mtch_kw['valid_mat'] = valid_mat
             mtch_kw['prefix'] = f"{name}-{self.online}"
         else:
@@ -189,7 +189,7 @@ class Experiment:
         for k, c, constraint_type in confs:
             res = evaluate_mtch(
                 target_csr, score_mat, k, c, constraint_type=constraint_type,
-                cvx=self.cvx, device=self.device,
+                dual=self.dual, device=self.device,
                 item_prior=1 + self.D.item_in_test['_hist_len'].values,
                 **mtch_kw
             )

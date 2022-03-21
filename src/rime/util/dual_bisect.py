@@ -64,7 +64,7 @@ def grad_u(s, alpha, eps):
     if eps == 0:
         pi = primal_solution(s, eps=eps)
         return _subgradient(alpha, pi)
-    elif int(os.environ.get('CVX_STABLE', 0)):
+    elif int(os.environ.get('DUAL_STABLE', 0)):
         alpha = torch.as_tensor(alpha, device=s.device).clip(0, 1)
         c = alpha.log() - (1 - alpha).log()
         c = c.reshape((-1, 1))
@@ -229,4 +229,4 @@ if __name__ == '__main__':
     pl.xlabel("dual variable v", fontsize=12)
     pl.legend(loc='upper right')
 
-    fig.savefig('cvx_synthetic.pdf', bbox_inches='tight')
+    fig.savefig('dual_synthetic.pdf', bbox_inches='tight')

@@ -4,20 +4,20 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule, Trainer, loggers
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from ..util import empty_cache_on_exit, get_batch_size, score_op, auto_cast_lazy_score
-from ..util.cvx_bisect import dual_solve_u, primal_solution
+from ..util.dual_bisect import dual_solve_u
 
 
-class CVX:
+class Dual:
     def __init__(self, score_mat, alpha_lb=-1, alpha_ub=2, beta_lb=-1, beta_ub=2, device='cpu',
                  max_epochs=100, min_epsilon=1e-10, gpus=int(torch.cuda.is_available()),
-                 prefix='CVX'):
+                 prefix='Dual'):
 
         score_mat = auto_cast_lazy_score(score_mat)
         self.score_max = float(score_op(score_mat, "max", device))
         self.score_min = float(score_op(score_mat, "min", device))
-        print(f"entering {prefix} CVX score (min={self.score_min}, max={self.score_max})")
+        print(f"entering {prefix} Dual score (min={self.score_min}, max={self.score_max})")
 
-        self.model = _LitCVX(
+        self.model = _LitDual(
             *score_mat.shape, alpha_lb, alpha_ub, beta_lb, beta_ub, 0.1 / max(score_mat.shape),
             max_epochs, min_epsilon)
 
@@ -53,7 +53,7 @@ class CVX:
         return self
 
 
-class _LitCVX(LightningModule):
+class _LitDual(LightningModule):
     def __init__(self, n_users, n_items, alpha_lb, alpha_ub, beta_lb, beta_ub, gtol,
                  max_epochs=100, min_epsilon=1e-10, v=None, epsilon=1):
 

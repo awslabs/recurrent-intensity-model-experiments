@@ -1,8 +1,8 @@
 import numpy as np, pandas as pd, scipy.sparse as sps, warnings, torch, operator
 from torch.utils.data import DataLoader
 from ..util import perplexity, _assign_topk, empty_cache_on_exit, score_op, LazyScoreBase
-from .matching import assign_mtch
-from .cvx import CVX
+from .greedy_mtch import assign_mtch
+from .dual import Dual
 
 
 def _multiply(x, y):
@@ -77,16 +77,16 @@ def evaluate_user_rec(target_csr, score_mat, C, device="cpu", **kw):
     return evaluate_assigned(target_csr, assigned_csr, score_mat, axis=0, device=device)
 
 
-def evaluate_mtch(target_csr, score_mat, topk, C, cvx=False, valid_mat=None,
+def evaluate_mtch(target_csr, score_mat, topk, C, dual=False, valid_mat=None,
                   relative=False, item_prior=None, constraint_type='ub', device="cpu", **kw):
     if relative:
         C = (C * np.asarray(item_prior) / np.mean(item_prior))
 
-    if cvx:
+    if dual:
         n_users, n_items = valid_mat.shape
         kw['alpha_ub'] = topk / n_items
         kw['beta_' + constraint_type] = C / n_users
-        self = CVX(valid_mat, device=device, **kw)
+        self = Dual(valid_mat, device=device, **kw)
         assigned_csr = self.fit(valid_mat).transform(score_mat)
     else:
         assigned_csr = assign_mtch(score_mat, topk, C, constraint_type, device=device, **kw)
