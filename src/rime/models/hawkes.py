@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import functools
-from ..util import timed, LowRankDataFrame
+from ..util import timed, LazyDenseMatrix
 
 from tick.hawkes import HawkesSumExpKern
 
@@ -45,9 +45,8 @@ class Hawkes:
             ])
             if hasattr(D, '_is_synthetic_data') and D._is_synthetic_data:
                 _verify_estimated_intensity(self.model, X, user_intensities)
-            return LowRankDataFrame(
-                np.log(user_intensities)[:, None], np.ones(len(D.item_in_test))[:, None],
-                index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
+            item_zeros = np.zeros(len(D.item_in_test))
+            return LazyDenseMatrix(user_intensities[:, None]) + LazyDenseMatrix(item_zeros[None, :])
 
 
 def _input_fn(hist_ts, test_start_time, horizon, training, training_eps, hetero):

@@ -5,37 +5,29 @@ from ..util import (perplexity, timed, groupby_unexplode, indices2csr,
                     matrix_reindex, fill_factory_inplace, LazyScoreBase)
 
 
-def _check_inputs(event_df, user_df, item_df):
-    assert user_df['TEST_START_TIME'].notnull().all(), \
-        "user_df must include TEST_START_TIME for all users"
-    assert not user_df.set_index('TEST_START_TIME', append=True).index.has_duplicates, \
-        "allow one entry per user-time instance"
-    assert not item_df.index.has_duplicates, "allow one entry per item"
+def _sanitize_inputs(event_df, user_df, item_df):
+    assert user_df['TEST_START_TIME'].notnull().all(), "require explicit TEST_START_TIME"
+    if not user_df.set_index('TEST_START_TIME', append=True).index.is_unique:
+        warnings.warn("repeated (index, TEST_START_TIME) may cause issues in reindexing")
+    assert item_df.index.is_unique, "require unique index for item_df"
 
-    assert event_df['USER_ID'].isin(user_df.index).all(), \
-        "user_df must include all users in event_df"
-    assert event_df['ITEM_ID'].isin(item_df.index).all(), \
-        "item_df must include all items in event_df"
-    assert (event_df['TIMESTAMP'] >= 0).all(), \
-        "assume TIMESTAMP >= 0 for correct user padding and splitting"
+    user_is_known = event_df['USER_ID'].isin(user_df.index)
+    if not user_is_known.all():
+        warnings.warn(f"dropping unknown USER_ID, accouting for {(~user_is_known).mean():%}")
+        event_df = event_df[user_is_known]
+
+    item_is_known = event_df['ITEM_ID'].isin(item_df.index)
+    if not item_is_known.all():
+        warnings.warn(f"dropping unknown ITEM_ID, accouting for {(~item_is_known).mean():%}")
+        event_df = event_df[item_is_known]
 
     with timed("checking for repeated user-item events"):
         nunique = len(set(event_df.set_index(['USER_ID', 'ITEM_ID']).index))
         if nunique < len(event_df):
             warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
 
-
-def _reindex_user_hist(user_df, index, factory={
-        "_hist_items": list,
-        "_hist_ts": list,
-        "_hist_len": lambda: 0,
-        "TEST_START_TIME": lambda: 0,
-}):
-    missing = [i not in user_df.index for i in index]
-    user_df = user_df.reindex(index)
-    if any(missing):
-        fill_factory_inplace(user_df, missing, factory)
-    return user_df
+    item_tokenize = {k: j for j, k in enumerate(item_df.index)}
+    return event_df.copy(), item_tokenize
 
 
 @dataclasses.dataclass
@@ -95,7 +87,7 @@ class Dataset:
 
         return {
             'user_df': {
-                '# test users': len(self.user_in_test),
+                '# test user-time instances': len(self.user_in_test),
                 '# train users': len(self.training_data.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': avg_hist_span,
@@ -128,19 +120,17 @@ class Dataset:
         if axis == 0:
             if np.size(index[0]) < 2:
                 old_index = self.user_in_test.index
-                user_in_test = _reindex_user_hist(self.user_in_test, index)
-            else:  # MultiIndex(USER_ID, TEST_START_TIME)
-                old_index = self.user_in_test.set_index('TEST_START_TIME', append=True).index
-                user_in_test = _reindex_user_hist(
-                    self.user_in_test.set_index('TEST_START_TIME', append=True), index,
-                    {'_hist_items': list, '_hist_ts': list, '_hist_len': lambda: 0}
-                ).reset_index(level=1)
+                user_in_test = self.user_in_test.reindex(index)
+            else:
+                user_in_test = self.user_in_test.set_index('TEST_START_TIME', append=True)
+                old_index = user_in_test.index
+                user_in_test = user_in_test.reindex(index).reset_index(level=1)
             item_in_test = self.item_in_test
 
         else:
             old_index = self.item_in_test.index
             user_in_test = self.user_in_test
-            item_in_test = self.item_in_test.reindex(index, fill_value=0)
+            item_in_test = self.item_in_test.reindex(index, fill_value=0)  # hist_len
 
         target_csr = matrix_reindex(
             self.target_csr, old_index, index, axis, fill_value=0)
@@ -156,6 +146,24 @@ class Dataset:
 
         return self.__class__(target_csr, user_in_test, item_in_test, self.horizon, prior_score,
                               self._item_rec_top_k, self._user_rec_top_c, self.training_data)
+
+    def sample(self, *, axis, **kw):
+        if axis == 0:
+            df = self.user_in_test.set_index('TEST_START_TIME', append=True)
+        else:
+            df = self.item_in_test
+        return self.reindex(df.sample(**kw).index, axis)
+
+    @classmethod
+    def concat(cls, *arr):
+        target_csr = sps.vstack([a.target_csr for a in arr], "csr")
+        user_in_test = pd.concat([a.user_in_test for a in arr])
+        _hist_len = np.sum([a.item_in_test['_hist_len'].values for a in arr], 0)
+        prior_score = None if arr[0].prior_score is None else \
+                      sps.vstack([a.prior_score for a in arr], "csr")
+        return cls(target_csr, user_in_test, arr[0].item_in_test.assign(_hist_len=_hist_len),
+                   arr[0].horizon, prior_score, arr[0]._item_rec_top_k, arr[0]._user_rec_top_c,
+                   None)
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
@@ -176,16 +184,16 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     Infer target labels from TEST_START_TIME (per user) and horizon.
     Filter test users/items by _hist_len.
     """
-    _check_inputs(event_df, user_df, item_df)
+    event_df, item_tokenize = _sanitize_inputs(event_df, user_df, item_df)
 
-    with timed("creating user_time_index and user_explode"):
+    with timed("creating user_explode and etc"):
+        # SELECT * FROM user_df LEFT JOIN event_df on USER_ID  # preserve left order
         user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
-        user_explode = user_df.set_index('TEST_START_TIME', append=True) \
-            .assign(_preserve_order=lambda x: x.index.get_level_values(0)) \
+        user_explode = user_df[user_df.index.isin(set(event_df['USER_ID']))] \
+            .assign(_preserve_order=lambda x: x.index) \
             .join(event_df.set_index('USER_ID'), on='_preserve_order') \
-            .dropna(subset=['ITEM_ID']).drop('_preserve_order', axis=1) \
-            .assign(ITEM_ID=lambda x: x['ITEM_ID'].astype(event_df['ITEM_ID'].dtype)) \
-            .join(pd.Series(np.arange(len(item_df)), item_df.index).to_frame('_j'), on='ITEM_ID')
+            .drop('_preserve_order', axis=1) \
+            .set_index('TEST_START_TIME', append=True)
         hist_explode = user_explode[
             user_explode['TIMESTAMP'] < user_explode.index.get_level_values(1)]
         target_explode = user_explode[
@@ -206,15 +214,17 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         item_df = item_df.assign(_hist_len=_item_size.reindex(item_df.index, fill_value=0).values)
 
     with timed("generating targets"):
-        target_csr = indices2csr(groupby_unexplode(target_explode['_j'], user_time_index),
-                                 shape1=len(item_df))
+        target_csr = indices2csr(
+            groupby_unexplode(target_explode['ITEM_ID'].apply(item_tokenize.get), user_time_index),
+            shape1=len(item_df))
 
     if exclude_train:
         print("optionally excluding training events in predictions and targets")
         assert prior_score is None, "double configuration for prior score"
 
-        exclude_csr = indices2csr(groupby_unexplode(hist_explode['_j'], user_time_index),
-                                  shape1=len(item_df))
+        exclude_csr = indices2csr(
+            groupby_unexplode(hist_explode['ITEM_ID'].apply(item_tokenize.get), user_time_index),
+            shape1=len(item_df))
         prior_score = exclude_csr * -1e10    # clip -inf to avoid nan
 
         mask_csr = target_csr.astype(bool) > exclude_csr.astype(bool)

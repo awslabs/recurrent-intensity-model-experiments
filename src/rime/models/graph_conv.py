@@ -2,8 +2,8 @@ import torch, numpy as np, warnings, pandas as pd, collections, torch.nn.functio
 from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import (_LitValidated, empty_cache_on_exit,
-                    create_second_order_dataframe, default_random_split, auto_cast_lazy_score)
+from ..util import (_LitValidated, empty_cache_on_exit, LazyDenseMatrix, matrix_reindex,
+                    default_random_split, auto_cast_lazy_score)
 from .bpr import _BPR_Common
 try:
     import dgl, dgl.function as fn
@@ -23,12 +23,13 @@ class _GraphConv(_BPR_Common):
     """
     def __init__(self, n_users=None, n_items=None,
                  user_rec=True, item_rec=True, no_components=32,
-                 n_negatives=10, lr=1, weight_decay=1e-5,
+                 n_negatives=10, lr=1, weight_decay=1e-5, training_prior_fcn=lambda x: x,
                  user_conv_model='GCN',  # plain_average
                  user_embeddings=None, item_embeddings=None, item_zero_bias=False,
                  recency_boundary_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf")):
 
-        super().__init__(user_rec, item_rec, n_negatives, lr, weight_decay)
+        super().__init__(user_rec, item_rec, n_negatives, lr, weight_decay,
+                         training_prior_fcn)
 
         if item_embeddings is not None:
             warnings.warn("setting no_components according to provided embeddings")
@@ -108,9 +109,10 @@ class _GraphConv(_BPR_Common):
             self.G_list, self.user_proposal, self.item_proposal,
             self.prior_score, self.prior_score_T
         )):
-            single_loss = self._bpr_training_step(batch[k == s, :-1], u_p, i_p, p, pT,
-                                                  user_kw={"G": G})
-            loss_list.append(single_loss)
+            if any(k == s):
+                single_loss = self._bpr_training_step(batch[k == s, :-1], u_p, i_p, p, pT,
+                                                      user_kw={"G": G})
+                loss_list.append(single_loss)
 
         loss = torch.stack(loss_list).mean()
         self.log("train_loss", loss, prog_bar=True)
@@ -119,8 +121,12 @@ class _GraphConv(_BPR_Common):
 
 class GraphConv:
     def __init__(self, D, batch_size=10000, max_epochs=50,
-                 sample_with_prior=True, sample_with_posterior=0.5, **kw):
-        self._padded_item_list = [None] + D.training_data.item_df.index.tolist()
+                 sample_with_prior=True, sample_with_posterior=0.5,
+                 truncated_input_steps=256, auto_pad_item=True, **kw):
+        self._padded_item_list = [None] * auto_pad_item + D.training_data.item_df.index.tolist()
+        self._tokenize = {k: j for j, k in enumerate(self._padded_item_list)}
+        self.n_tokens = len(self._tokenize)
+        self._truncated_input_steps = truncated_input_steps
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
@@ -139,16 +145,19 @@ class GraphConv:
         """ create item -> user graph; allow same USER_ID with different TEST_START_TIME """
 
         user_non_empty = D.user_in_test.reset_index()[D.user_in_test['_hist_len'].values > 0]
-        item_map = {k: j for j, k in enumerate(self._padded_item_list)}
-        past_event_df = user_non_empty['_hist_items'].explode().to_frame("ITEM_ID").assign(
-            TIMESTAMP=user_non_empty['_hist_ts'].explode().values
-        ).assign(j=lambda x: x['ITEM_ID'].apply(lambda k: item_map.get(k, -1)))
+
+        past_event_df = user_non_empty['_hist_items'].apply(
+            lambda x: x[-self._truncated_input_steps:]
+        ).explode().to_frame("ITEM_ID").assign(
+            TIMESTAMP=user_non_empty['_hist_ts'].apply(
+                lambda x: x[-self._truncated_input_steps:]).explode().values
+        ).assign(j=lambda x: x['ITEM_ID'].apply(lambda k: self._tokenize.get(k, -1)))
         past_event_df = past_event_df[past_event_df['j'] > -1]  # ignore oov items
 
         G = dgl.heterograph(
             {('user', 'source', 'item'): (past_event_df.index.values,
                                           past_event_df["j"].values)},
-            {'user': len(D.user_in_test), 'item': len(self._padded_item_list)}
+            {'user': len(D.user_in_test), 'item': self.n_tokens}
         )
         G.edata['t'] = torch.as_tensor(past_event_df["TIMESTAMP"].values.astype('float64'))
 
@@ -174,16 +183,21 @@ class GraphConv:
 
         V = V.reindex(self._padded_item_list, axis=1)
         target_coo = V.target_csr.tocoo()
-        dataset = np.transpose([
-            target_coo.row, target_coo.col, k * np.ones_like(target_coo.row),
-        ]).astype(int)
-
+        data_unit = target_coo.data[target_coo.data > 0].min()
+        dataset = np.array([
+            (i, j, k) for i, j, d in zip(target_coo.row, target_coo.col, target_coo.data)
+            for _ in range(int(d // data_unit))
+        ], dtype=int)
         G = self._extract_features(V)
-
         return dataset, G, user_proposal, item_proposal, getattr(V, "prior_score", None)
 
     @empty_cache_on_exit
     def fit(self, *V_arr):
+        V_arr = [V for V in V_arr if V is not None]
+        if len(V_arr) == 0:
+            self.model = _GraphConv(None, self.n_tokens, **self._model_kw)
+            return self
+
         dataset, G_list, user_proposal, item_proposal, prior_score = zip(*[
             self._extract_task(k, V) for k, V in enumerate(V_arr)
         ])
@@ -194,7 +208,7 @@ class GraphConv:
         if "embedding" in V_arr[0].user_in_test:
             self._model_kw["user_embeddings"] = np.vstack(
                 V_arr[0].user_in_test['embedding'].iloc[:1])  # just need shape[1]
-        model = _GraphConv(None, len(self._padded_item_list), **self._model_kw)
+        model = _GraphConv(None, self.n_tokens, **self._model_kw)
 
         N = len(dataset)
         train_set, valid_set = default_random_split(dataset)
@@ -218,12 +232,16 @@ class GraphConv:
         model._load_best_checkpoint("best")
         for attr in ['G_list', 'user_proposal', 'item_proposal', 'prior_score', 'prior_score_T']:
             delattr(model, attr)
-
-        src_j = torch.arange(len(self._padded_item_list))
-        self.item_embeddings = model.item_encoder(src_j).detach().numpy()
-        self.item_biases = model.item_bias_vec(src_j).detach().numpy().ravel()
         self.model = model
         return self
+
+    @property
+    def item_embeddings(self):
+        return self.model.item_encoder(torch.arange(self.n_tokens)).detach().numpy()
+
+    @property
+    def item_biases(self):
+        return self.model.item_bias_vec(torch.arange(self.n_tokens)).detach().numpy().ravel()
 
     def transform(self, D):
         G = self._extract_features(D)
@@ -231,7 +249,8 @@ class GraphConv:
         user_embeddings = self.model.user_encoder(i, G).detach().numpy()
         user_biases = self.model.user_bias_vec(i, G).detach().numpy().ravel()
 
-        S = create_second_order_dataframe(
-            user_embeddings, self.item_embeddings, user_biases, self.item_biases,
-            D.user_in_test.index, self._padded_item_list, 'softplus')
-        return S.reindex(D.item_in_test.index, axis=1)
+        item_reindex = lambda x, fill_value=0: matrix_reindex(
+            x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)
+        return (LazyDenseMatrix(user_embeddings) @ item_reindex(self.item_embeddings).T
+                + user_biases[:, None] + item_reindex(self.item_biases, fill_value=-np.inf)[None, :]
+                ).softplus()

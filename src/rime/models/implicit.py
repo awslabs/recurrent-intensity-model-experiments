@@ -1,6 +1,8 @@
 import torch, warnings, numpy as np, scipy.sparse as sps
-from ..util import extract_past_ij, LowRankDataFrame
+from ..util import extract_past_ij, find_iloc, LazyDenseMatrix
 try:
+    from packaging import version
+    import implicit
     from implicit.als import AlternatingLeastSquares
     from implicit.lmf import LogisticMatrixFactorization
 except ImportError:
@@ -27,12 +29,14 @@ class ALS:
 
     def fit(self, D):
         i, j = extract_past_ij(D.user_df, D.item_df.index)
-        train_item_user = sps.coo_matrix((np.ones(len(i)), (i, j)),
-                                         shape=(len(D.user_df), len(D.item_df))).tocsr().T
-
-        self.als_model.fit(train_item_user)
-        self.ind_logits = _to_numpy(self.als_model.user_factors)
-        self.col_logits = _to_numpy(self.als_model.item_factors)
+        train_user_item = sps.coo_matrix((np.ones(len(i)), (i, j)),
+                                         shape=(len(D.user_df), len(D.item_df))).tocsr()
+        if version.parse(implicit.__version__) >= version.parse('0.5'):
+            self.als_model.fit(train_user_item)
+        else:
+            self.als_model.fit(train_user_item.T)
+        self.user_hstack = _to_numpy(self.als_model.user_factors)
+        self.item_hstack = _to_numpy(self.als_model.item_factors)
         delattr(self, "als_model")
 
         self.D = D
@@ -40,12 +44,10 @@ class ALS:
 
     def transform(self, D):
         """ (user_factor * item_factor) """
-
-        return LowRankDataFrame(
-            self.ind_logits, self.col_logits,
-            self.D.user_df.index, self.D.item_df.index, 'softplus') \
-            .reindex(D.user_in_test.index, fill_value=0) \
-            .reindex(D.item_in_test.index, axis=1, fill_value=0)
+        user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
+        item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
+        return (LazyDenseMatrix(self.user_hstack[user_iloc]) @
+                LazyDenseMatrix(self.item_hstack[item_iloc]).T).softplus()
 
 
 class LogisticMF:
@@ -63,20 +65,22 @@ class LogisticMF:
 
     def fit(self, D):
         i, j = extract_past_ij(D.user_df, D.item_df.index)
-        train_item_user = sps.coo_matrix((np.ones(len(i)), (i, j)),
-                                         shape=(len(D.user_df), len(D.item_df))).tocsr().T
-        self.lmf_model.fit(train_item_user)
+        train_user_item = sps.coo_matrix((np.ones(len(i)), (i, j)),
+                                         shape=(len(D.user_df), len(D.item_df))).tocsr()
+        if version.parse(implicit.__version__) >= version.parse('0.5'):
+            self.lmf_model.fit(train_user_item)
+        else:
+            self.lmf_model.fit(train_user_item.T)
         self.D = D
         return self
 
     def transform(self, D):
         """ (user_factor * item_factor) """
 
-        ind_logits = self.lmf_model.user_factors
-        col_logits = self.lmf_model.item_factors
+        user_hstack = _to_numpy(self.lmf_model.user_factors)
+        item_hstack = _to_numpy(self.lmf_model.item_factors)
 
-        return LowRankDataFrame(
-            _to_numpy(ind_logits), _to_numpy(col_logits),
-            self.D.user_df.index, self.D.item_df.index, 'sigmoid') \
-            .reindex(D.user_in_test.index, fill_value=0) \
-            .reindex(D.item_in_test.index, axis=1, fill_value=0)
+        user_iloc = find_iloc(self.D.user_df.index, D.user_in_test.index)
+        item_iloc = find_iloc(self.D.item_df.index, D.item_in_test.index)
+        return (LazyDenseMatrix(user_hstack[user_iloc]) @
+                LazyDenseMatrix(item_hstack[item_iloc]).T).sigmoid()

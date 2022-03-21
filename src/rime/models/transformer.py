@@ -1,7 +1,6 @@
 import torch, functools, numpy as np
 from .third_party.word_language_model import TransformerModel
-from .rnn import (RNN, Trainer, _LitRNNModel, _LitValidated, _collate_fn, LearningRateMonitor,
-                  get_top_items)
+from .rnn import (RNN, Trainer, _LitRNNModel, _LitValidated, _collate_fn, LearningRateMonitor)
 
 
 class _LitTransformerModel(_LitRNNModel, _LitValidated):
@@ -28,10 +27,10 @@ class Transformer(RNN):
         num_hidden=128, nlayers=2, max_epochs=20, nhead=2, lr=0.1 / 4,
         gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, batch_size=64,
-        load_from_checkpoint=None, tie_weights=True,
+        load_from_checkpoint=None, tie_weights=True, auto_pad_item=True,
     ):
 
-        self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
+        self._padded_item_list = [None] * auto_pad_item + item_df.index[:max_item_size].tolist()
         self._tokenize = {k: i for i, k in enumerate(self._padded_item_list)}
         self._truncated_input_steps = truncated_input_steps
 

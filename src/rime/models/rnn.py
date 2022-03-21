@@ -9,8 +9,8 @@ from .third_party.word_language_model import RNNModel
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
-from ..util import (_LitValidated, empty_cache_on_exit, LowRankDataFrame, _ReduceLRLoadCkpt,
-                    default_random_split, get_top_items)
+from ..util import (_LitValidated, empty_cache_on_exit, _ReduceLRLoadCkpt,
+                    default_random_split, LazyDenseMatrix, matrix_reindex)
 
 
 class RNN:
@@ -18,9 +18,9 @@ class RNN:
         self, item_df, max_item_size=int(30e3),
         num_hidden=128, nlayers=2, max_epochs=20, gpus=int(torch.cuda.is_available()),
         truncated_input_steps=256, truncated_bptt_steps=32, batch_size=64,
-        load_from_checkpoint=None
+        load_from_checkpoint=None, auto_pad_item=True,
     ):
-        self._padded_item_list = [None] + get_top_items(item_df, max_item_size).index.tolist()
+        self._padded_item_list = [None] * auto_pad_item + item_df.index[:max_item_size].tolist()
         self._tokenize = {k: i for i, k in enumerate(self._padded_item_list)}
         self._truncated_input_steps = truncated_input_steps
 
@@ -60,22 +60,15 @@ class RNN:
         batches = self.trainer.predict(
             self.model,
             dataloaders=DataLoader(dataset, 1000, collate_fn=collate_fn))
-
         user_hidden, user_log_bias = [np.concatenate(x) for x in zip(*batches)]
-        ind_logits = np.hstack([
-            user_hidden, user_log_bias[:, None], np.ones_like(user_log_bias)[:, None]
-        ])
 
         item_hidden = self.model.model.decoder.weight.detach().cpu().numpy()
         item_log_bias = self.model.model.decoder.bias.detach().cpu().numpy()
-        col_logits = np.hstack([
-            item_hidden, np.ones_like(item_log_bias)[:, None], item_log_bias[:, None]
-        ])
+        item_reindex = lambda x, fill_value=0: matrix_reindex(
+            x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)
 
-        return LowRankDataFrame(
-            ind_logits, col_logits, D.user_in_test.index,
-            self._padded_item_list, act='exp'
-        ).reindex(D.item_in_test.index, axis=1, fill_value=0)
+        return (LazyDenseMatrix(user_hidden) @ item_reindex(item_hidden).T
+                + user_log_bias[:, None] + item_reindex(item_log_bias, -np.inf)[None, :]).exp()
 
     @empty_cache_on_exit
     def fit(self, D):

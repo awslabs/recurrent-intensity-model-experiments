@@ -15,40 +15,41 @@ except ImportError:
     ALS = LogisticMF = None
     warnings.warn("Implicit package not properly installed.")
 
-from rime.util import LowRankDataFrame, RandScore
+from rime.util import LazyDenseMatrix, RandScore
 
 
 class Rand:
     def transform(self, D):
         """ return a constant of one """
         shape = (len(D.user_in_test), len(D.item_in_test))
-        return RandScore(np.arange(shape[0]), np.arange(shape[1]))
+        return RandScore.create(shape)
 
 
 class Pop:
-    def __init__(self, user_rec=True, item_rec=True):
+    def __init__(self, user_rec=True, item_rec=True,
+                 item_pseudo=0.01, user_pseudo=0.01, tie_break_noise=0.01):
         self.user_rec = user_rec
         self.item_rec = item_rec
+        self.item_pseudo = item_pseudo
+        self.user_pseudo = user_pseudo
+        self.tie_break_noise = tie_break_noise
 
     def fit(self, D):
-        self.item_scores = np.fmax(0.01, D.item_df['_hist_len'])
+        self.item_scores = D.item_df['_hist_len']
         return self
 
     def transform(self, D):
         """ user_score * item_score = (user_log_bias + item_log_bias).exp() """
-        user_scores = np.fmax(0.01, D.user_in_test['_hist_len']) \
+        user_scores = self.user_pseudo + D.user_in_test['_hist_len'] \
             if self.user_rec else np.ones(len(D.user_in_test))
 
-        item_scores = self.item_scores.reindex(D.item_in_test.index, fill_value=0.01) \
+        item_scores = self.item_pseudo + self.item_scores.reindex(D.item_in_test.index, fill_value=0) \
             if self.item_rec else np.ones(len(D.item_in_test))
 
-        ind_logits = np.vstack([np.log(user_scores), np.ones(len(user_scores))]).T
-        col_logits = np.vstack([np.ones(len(item_scores)), np.log(item_scores)]).T
-
-        S = LowRankDataFrame(
-            ind_logits, col_logits,
-            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
-        return S + RandScore.like(S) * 0.01
+        S = LazyDenseMatrix(user_scores[:, None]) * LazyDenseMatrix(item_scores[None, :])  # mtpp implies *
+        if self.tie_break_noise > 0:
+            S = S + RandScore.create(S.shape) * self.tie_break_noise
+        return S
 
 
 class EMA:
@@ -61,7 +62,5 @@ class EMA:
             return np.exp(-ttl).sum()
         user_scores = D.user_in_test.apply(
             lambda x: fn(x['_hist_ts'], x['TEST_START_TIME']), axis=1)
-
-        return LowRankDataFrame(
-            np.log(user_scores)[:, None], np.ones(len(D.item_in_test))[:, None],
-            index=D.user_in_test.index, columns=D.item_in_test.index, act='exp')
+        item_zeros = np.zeros(len(D.item_in_test))
+        return LazyDenseMatrix(user_scores[:, None]) + LazyDenseMatrix(item_zeros[None, :])

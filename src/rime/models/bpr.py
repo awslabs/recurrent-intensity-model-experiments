@@ -9,13 +9,15 @@ from .lightfm_bpr import LightFM_BPR
 
 class _BPR_Common(_LitValidated):
     """ assumes item/user_encoder, bias_vec """
-    def __init__(self, user_rec, item_rec, n_negatives, lr, weight_decay):
+    def __init__(self, user_rec, item_rec, n_negatives, lr, weight_decay,
+                 training_prior_fcn=lambda x: x):
         super().__init__()
         self.user_rec = user_rec
         self.item_rec = item_rec
         self.n_negatives = n_negatives
         self.lr = lr
         self.weight_decay = weight_decay
+        self.training_prior_fcn = training_prior_fcn
 
     def forward(self, i, j, user_kw={}):
         user_embeddings = self.user_encoder(i, **user_kw)
@@ -36,7 +38,8 @@ class _BPR_Common(_LitValidated):
         if self.user_rec:
             user_proposal = torch.as_tensor(user_proposal).to(batch.device)
             if prior_score_T is not None:
-                ni = _mnl_w_prior(prior_score_T[j.tolist()], user_proposal, self.n_negatives)
+                ni = _mnl_w_prior(prior_score_T[j.tolist()], user_proposal,
+                                  self.n_negatives, self.training_prior_fcn)
             else:
                 ni = torch.multinomial(user_proposal, np.prod(n_shape), True).reshape(n_shape)
             ni_score = self.forward(ni, j, **kw)
@@ -45,7 +48,8 @@ class _BPR_Common(_LitValidated):
         if self.item_rec:
             item_proposal = torch.as_tensor(item_proposal).to(batch.device)
             if prior_score is not None:
-                nj = _mnl_w_prior(prior_score[i.tolist()], item_proposal, self.n_negatives)
+                nj = _mnl_w_prior(prior_score[i.tolist()], item_proposal,
+                                  self.n_negatives, self.training_prior_fcn)
             else:
                 nj = torch.multinomial(item_proposal, np.prod(n_shape), True).reshape(n_shape)
             nj_score = self.forward(i, nj, **kw)
@@ -96,11 +100,12 @@ class _BPR(_BPR_Common):
 
 
 @torch.no_grad()
-def _mnl_w_prior(S: LazyScoreBase, proposal, n_negatives):
+def _mnl_w_prior(S: LazyScoreBase, proposal, n_negatives, training_prior_fcn):
     out = []
     for i in range(0, len(S), S.batch_size):
         batch = S[i:min(len(S), i + S.batch_size)]
-        prob = (batch.eval(proposal.device) + proposal.log()).softmax(1)
+        batch = training_prior_fcn(batch.as_tensor(proposal.device))
+        prob = (batch + proposal.log()).softmax(1)
         batch_out = torch.multinomial(prob, n_negatives, True)  # batch_size, n_negatives
         out.append(batch_out)
     return torch.vstack(out).T  # n_negatives, batch_size

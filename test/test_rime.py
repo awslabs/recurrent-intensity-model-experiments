@@ -22,8 +22,8 @@ def test_minimal_dataset():
     do_synthetic_common(prepare_data_name="prepare_minimal_dataset")
 
 
-def test_minimal_cvx():
-    do_synthetic_common(prepare_data_name="prepare_minimal_dataset", cvx=True, max_epochs=2)
+def test_minimal_dual():
+    do_synthetic_common(prepare_data_name="prepare_minimal_dataset", dual=True, max_epochs=2)
 
 
 @pytest.mark.parametrize("split_fn_name", ["split_by_time", "split_by_user"])
@@ -31,9 +31,8 @@ def test_synthetic_split(split_fn_name):
     do_synthetic_common(split_fn_name)
 
 
-@pytest.mark.parametrize("online", [False, True])
-def test_synthetic_cvx_online(online):
-    do_synthetic_common("split_by_user", cvx=True, online=online, max_epochs=2)
+def test_synthetic_online():
+    do_synthetic_common("split_by_user", online=True, max_epochs=2)
 
 
 def test_synthetic_exclude_train():
@@ -55,17 +54,17 @@ def test_do_experiment(name):
     (False, [[0, 0, 1], [0, 1, 0], [1, 0, 0]]),
     (True, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]),
 ])
-def test_solve_cvx(maximization, expect, **kw):
-    """ we expect to see cvx = 3+4+3 < 1+4+9 = greedy """
-    from rime.metrics.cvx import CVX
+def test_solve_dual(maximization, expect, **kw):
+    """ we expect to see dual = 3+4+3 < 1+4+9 = greedy """
+    from rime.metrics.dual import Dual
     score_mat = np.array([[1, 2, 3], [2, 4, 6], [3, 6, 9]])
     if not maximization:
         score_mat = 10 - score_mat
 
-    solver = CVX(score_mat, 1, 1, **kw)
+    solver = Dual(score_mat, alpha_ub=np.ones(3) / score_mat.shape[1],
+                  beta_ub=np.ones(3) / score_mat.shape[0], **kw)
     pi = solver.fit(score_mat).transform(score_mat)
-    if sp.sparse.issparse(pi):
-        pi = pi.toarray()
+    pi = pi.numpy()
     v = solver.model.v.detach().numpy()[None, :]
 
     print(np.round(pi, 2))
@@ -76,14 +75,10 @@ def test_solve_cvx(maximization, expect, **kw):
 
 
 def test_score_array(shape=(3, 4), device="cpu"):
-    from rime.util.score_array import LowRankDataFrame, RandScore, score_op
-    index = np.arange(shape[0]) + 2    # [2, 3, 4]
-    columns = np.arange(shape[1]) + 5  # [5, 6, 7, 8]
-
-    a = LowRankDataFrame(
-        np.zeros((len(index), 2)), np.zeros((len(columns), 2)), index, columns, 'exp'
-    )
-    b = sps.eye(len(index), len(columns), 1)
+    from rime.util.score_array import LazyDenseMatrix, RandScore, score_op
+    a = (LazyDenseMatrix(np.zeros((shape[0], 1))) @
+         LazyDenseMatrix(np.zeros((shape[1], 1))).T).exp()
+    b = sps.eye(*shape, 1)
     c = 3
 
     print(a.batch_size)
@@ -92,8 +87,7 @@ def test_score_array(shape=(3, 4), device="cpu"):
     score_op(a + b, "max")
     score_op((a + b) * c, "max")
     score_op((a + b) * c, "max", device)
-    score_op(a.reindex(np.asarray([3, 4, 5]), axis=0, fill_value=0), "max", device)
-    score_op(a + RandScore.like(b) * 2, "max", device)
-    score_op(((a + b) * c + RandScore.like(b) + 3)
-             .reindex(np.asarray([3, 4, 5]), axis=0, fill_value=0, old_index=index),
-             "max", device)
+    score_op(a[[1, 2]], "max", device)
+    score_op(a + RandScore.create(b.shape) * 2, "max", device)
+    score_op(((a + b) * c + RandScore.create(b.shape) + 3)[[1, 2]], "max", device)
+    print(((a + b) * c + RandScore.create(b.shape) + 3)[[1, 2]].traverse())

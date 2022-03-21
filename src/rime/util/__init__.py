@@ -111,8 +111,8 @@ def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
     else:
         batches = [S]
     for s in batches:
-        if hasattr(s, "eval"):
-            s = s.eval(device)
+        if hasattr(s, "as_tensor"):
+            s = s.as_tensor(device)
         else:
             s = torch.tensor(s, device=device)
         if tie_breaker:
@@ -138,8 +138,8 @@ def _argsort(S, tie_breaker=1e-10, device="cpu"):
         warnings.warn(f"switching numpy.argsort due to {S.batch_size}<{S.shape[0]}")
         device = None
 
-    if hasattr(S, "eval"):
-        S = S.eval(device)
+    if hasattr(S, "as_tensor"):
+        S = S.as_tensor(device)
 
     shape = S.shape
 
@@ -205,10 +205,12 @@ def groupby_unexplode(series, index=None, return_type='series'):
                          index=index)
 
 
-def indices2csr(indices, shape1):
+def indices2csr(indices, shape1, data=None):
     indptr = np.cumsum([0] + [len(x) for x in indices])
+    if data is None:
+        data = np.ones(indptr[-1])
     return sps.csr_matrix((
-        np.ones(indptr[-1]), np.hstack(indices), indptr
+        np.hstack(data), np.hstack(indices), indptr
     ), shape=(len(indices), shape1))
 
 
@@ -245,13 +247,6 @@ def filter_min_len(event_df, min_user_len, min_item_len):
         event_df['USER_ID'].isin(users[users >= min_user_len].index) &
         event_df['ITEM_ID'].isin(items[items >= min_item_len].index)
     ]
-
-
-def get_top_items(item_df, max_item_size, sort_by='_hist_len'):
-    sorted_items = item_df.sort_values(sort_by, ascending=False, kind='mergesort')
-    if len(sorted_items) > max_item_size:
-        warnings.warn(f"clipping item size from {len(sorted_items)} to {max_item_size}")
-    return sorted_items.iloc[:max_item_size]
 
 
 def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_title='???'):
