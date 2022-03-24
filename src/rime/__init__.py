@@ -253,7 +253,7 @@ class Experiment:
                            'GraphConv-Base', 'GraphConv-Extra']:
                 registered.pop(model, None)
 
-        if 'TITLE' not in self.D.training_data.item_df:
+        if 'TITLE' not in self.D.item_df:
             warnings.warn("disabling zero-shot models due to missing item TITLE")
             for model in ['BayesLM-0', 'BayesLM-1', 'ItemKNN-0', 'ItemKNN-1']:
                 registered.pop(model, None)
@@ -307,27 +307,27 @@ class Experiment:
 
     @cached_property
     def _pop(self):
-        return Pop().fit(self.D.training_data)
+        return Pop().fit(self.D.auto_regressive)
 
     @cached_property
     def _pop_item(self):
-        return Pop(user_rec=False, item_rec=True).fit(self.D.training_data)
+        return Pop(user_rec=False, item_rec=True).fit(self.D.auto_regressive)
 
     @cached_property
     def _rnn(self):
         return RNN(
-            self.D.training_data.item_df, **self.model_hyps.get("RNN", {})
-        ).fit(self.D.training_data)
+            self.D.item_df, **self.model_hyps.get("RNN", {})
+        ).fit(self.D.auto_regressive)
 
     @cached_property
     def _transformer(self):
         return Transformer(
-            self.D.training_data.item_df, **self.model_hyps.get("Transformer", {})
-        ).fit(self.D.training_data)
+            self.D.item_df, **self.model_hyps.get("Transformer", {})
+        ).fit(self.D.auto_regressive)
 
     @cached_property
     def _hawkes(self):
-        return Hawkes(self.D.horizon).fit(self.D.training_data)
+        return Hawkes(self.D.horizon).fit(self.D.auto_regressive)
 
     @cached_property
     def _hawkes_poisson(self):
@@ -336,15 +336,15 @@ class Experiment:
 
     @cached_property
     def _bpr_item(self):
-        return LightFM_BPR(item_rec=True).fit(self.D.training_data)
+        return LightFM_BPR(item_rec=True).fit(self.D.auto_regressive)
 
     @cached_property
     def _bpr_user(self):
-        return LightFM_BPR(user_rec=True).fit(self.D.training_data)
+        return LightFM_BPR(user_rec=True).fit(self.D.auto_regressive)
 
     @cached_property
     def _bpr(self):
-        return BPR(**self.model_hyps.get("BPR", {})).fit(self.D.training_data)
+        return BPR(**self.model_hyps.get("BPR", {})).fit(self.D.auto_regressive)
 
     @cached_property
     def _graph_conv_base(self):
@@ -364,35 +364,35 @@ class Experiment:
     @cached_property
     def _lda(self):
         return LDA(
-            self.D.training_data, **self.model_hyps.get("LDA", {})
-        ).fit(self.D.training_data)
+            self.D.auto_regressive, **self.model_hyps.get("LDA", {})
+        ).fit(self.D.auto_regressive)
 
     @cached_property
     def _als(self):
-        return ALS().fit(self.D.training_data)
+        return ALS().fit(self.D.auto_regressive)
 
     @cached_property
     def _logistic_mf(self):
-        return LogisticMF().fit(self.D.training_data)
+        return LogisticMF().fit(self.D.auto_regressive)
 
     @cached_property
     def _bayes_lm_0(self):
-        return BayesLM(self.D.training_data.item_df, item_pop_power=0,
+        return BayesLM(self.D.item_df, item_pop_power=0,
                         **self.model_hyps.get("BayesLM-0", {}))
 
     @cached_property
     def _bayes_lm_1(self):
-        return BayesLM(self.D.training_data.item_df, item_pop_power=1,
+        return BayesLM(self.D.item_df, item_pop_power=1,
                         **self.model_hyps.get("BayesLM-1", {}))
 
     @cached_property
     def _item_knn_0(self):
-        return ItemKNN(self.D.training_data.item_df, item_pop_power=0,
+        return ItemKNN(self.D.item_df, item_pop_power=0,
                         **self.model_hyps.get("ItemKNN-0", {}))
 
     @cached_property
     def _item_knn_1(self):
-        return ItemKNN(self.D.training_data.item_df, item_pop_power=1,
+        return ItemKNN(self.D.item_df, item_pop_power=1,
                         **self.model_hyps.get("ItemKNN-1", {}))
 
     def update_cache(self, other):

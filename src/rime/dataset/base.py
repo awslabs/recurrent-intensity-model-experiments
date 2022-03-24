@@ -46,7 +46,8 @@ class Dataset:
     prior_score: pd.DataFrame = None    # index=USER_ID, column=ITEM_ID
     _item_rec_top_k: int = None     # leave unset (common) to allow the corresponding
     _user_rec_top_c: int = None     # defaults to adapt after reindexing
-    training_data: argparse.Namespace = None  # contains training user_df and item_df
+    user_df: pd.DataFrame = None    # could be different (often larger) than item_in_test
+    item_df: pd.DataFrame = None    # often different from user_in_test; do not use for OnlnMtch simulation
 
     def __post_init__(self):
         assert self.target_csr.shape == (len(self.user_in_test), len(self.item_in_test)), \
@@ -56,10 +57,11 @@ class Dataset:
             assert (self.prior_score.shape == self.target_csr.shape), \
                 "prior_score shape must match with test target_csr"
 
-        if self.training_data is None:
-            self.training_data = argparse.Namespace(
-                user_df=self.user_in_test.groupby(level=0, sort=False).first(),
-                item_df=self.item_in_test)
+        if self.user_df is None:
+            self.user_df = self.user_in_test.groupby(level=0, sort=False).first()
+
+        if self.item_df is None:
+            self.item_df = self.item_in_test
 
     @property
     def shape(self):
@@ -82,14 +84,8 @@ class Dataset:
             else int(np.ceil(len(self.user_in_test) / 100))
 
     @property
-    def item_df(self):
-        """ could be different (often larger) than item_in_test """
-        return self.training_data.item_df if self.training_data is not None else self.item_in_test
-
-    @property
-    def user_df(self):
-        """ often different from user_in_test; do not use for OnlnMtch simulation """
-        return self.training_data.user_df if self.training_data is not None else self.user_in_test
+    def auto_regressive(self):
+        return argparse.Namespace(user_df=self.user_df, item_df=self.item_df)
 
     @property
     def user_ppl_baseline(self):
@@ -113,19 +109,19 @@ class Dataset:
         return {
             'user_df': {
                 '# test user-time instances': len(self.user_in_test),
-                '# train users': len(self.training_data.user_df),
+                '# train users': len(self.auto_regressive.user_df),
                 'avg hist len': self.user_in_test['_hist_len'].mean(),
                 'avg hist span': avg_hist_span,
                 'avg target len': self.target_csr.sum(axis=1).mean(),
             },
             'item_df': {
                 '# test items': len(self.item_in_test),
-                '# train items': len(self.training_data.item_df),
+                '# train items': len(self.auto_regressive.item_df),
                 'avg hist len': self.item_in_test['_hist_len'].mean(),
                 'avg target len': self.target_csr.sum(axis=0).mean(),
             },
             'event_df': {
-                '# train events': self.training_data.user_df['_hist_len'].sum(),
+                '# train events': self.auto_regressive.user_df['_hist_len'].sum(),
                 '# test events': self.target_csr.sum(),
                 'horizon': self.horizon,
                 'default_user_rec_top_c': self.default_user_rec_top_c,
@@ -170,7 +166,7 @@ class Dataset:
                 self.prior_score, old_index, index, axis, fill_value=0)
 
         return self.__class__(target_csr, user_in_test, item_in_test, self.horizon, prior_score,
-                              self._item_rec_top_k, self._user_rec_top_c, self.training_data)
+                              self._item_rec_top_k, self._user_rec_top_c, self.user_df, self.item_df)
 
     def sample(self, *, axis, **kw):
         if axis == 0:
@@ -187,8 +183,7 @@ class Dataset:
         prior_score = None if arr[0].prior_score is None else \
                       sps.vstack([a.prior_score for a in arr], "csr")
         return cls(target_csr, user_in_test, arr[0].item_in_test.assign(_hist_len=_hist_len),
-                   arr[0].horizon, prior_score, arr[0]._item_rec_top_k, arr[0]._user_rec_top_c,
-                   None)
+                   arr[0].horizon, prior_score, arr[0]._item_rec_top_k, arr[0]._user_rec_top_c)
 
 
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
@@ -266,7 +261,8 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
                 item_df[item_in_test_bool].copy(),
                 horizon,
                 None if prior_score is None else prior_score[user_in_test_bool][:, item_in_test_bool],
-                training_data=argparse.Namespace(user_df=training_user_df, item_df=item_df),
+                user_df=training_user_df,
+                item_df=item_df,
                 **kw)
     print("Dataset created!")
     return D

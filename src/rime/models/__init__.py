@@ -40,14 +40,15 @@ class Pop:
 
     def transform(self, D):
         """ user_score * item_score = (user_log_bias + item_log_bias).exp() """
-        user_scores = self.user_pseudo + D.user_in_test['_hist_len'] \
+        user_scores = self.user_pseudo + D.user_in_test['_hist_len'].values \
             if self.user_rec else np.ones(len(D.user_in_test))
 
-        item_scores = self.item_pseudo + self.item_scores.reindex(D.item_in_test.index, fill_value=0) \
+        item_scores = self.item_pseudo + self.item_scores.reindex(
+                D.item_in_test.index, fill_value=0).values \
             if self.item_rec else np.ones(len(D.item_in_test))
 
-        S = LazyDenseMatrix(user_scores.values[:, None]) * \
-            LazyDenseMatrix(item_scores.values[None, :])  # mtpp implies *
+        S = LazyDenseMatrix(user_scores[:, None]) * \
+            LazyDenseMatrix(item_scores[None, :])  # mtpp implies *
         if self.tie_break_noise > 0:
             S = S + RandScore.create(S.shape) * self.tie_break_noise
         return S

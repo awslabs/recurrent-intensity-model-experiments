@@ -29,8 +29,8 @@ def prepare_minimal_dataset():
 
     test_user_ids = D.user_in_test.set_index('TEST_START_TIME', append=True).index.tolist()
     test_item_ids = D.item_in_test.index.tolist()
-    train_user_ids = D.training_data.user_df.set_index('TEST_START_TIME', append=True).index.tolist()
-    train_item_ids = D.training_data.item_df.index.tolist()
+    train_user_ids = D.user_df.set_index('TEST_START_TIME', append=True).index.tolist()
+    train_item_ids = D.item_df.index.tolist()
 
     assert test_user_ids == [('u3', 9.0), ('u2', 6.0)], f"{test_user_ids}"
     assert test_item_ids == ['i1', 'i3'], f"{test_item_ids}"
@@ -64,8 +64,8 @@ def prepare_synthetic_data(split_fn_name, exclude_train=False,
 
 
 def prepare_simple_pattern():
-    """ Transformer(D.training_data.item_df, max_epochs=100).fit(D.training_data) # flaky
-    RNN(D.training_data.item_df, max_epochs=50).fit(D.training_data) # stable
+    """ Transformer(D.item_df, max_epochs=100).fit(D.auto_regressive) # flaky
+    RNN(D.item_df, max_epochs=50).fit(D.auto_regressive) # stable
     """
     event_df = pd.DataFrame({
         "USER_ID": 1,

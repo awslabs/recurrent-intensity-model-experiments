@@ -123,7 +123,7 @@ class GraphConv:
     def __init__(self, D, batch_size=10000, max_epochs=50,
                  sample_with_prior=True, sample_with_posterior=0.5,
                  truncated_input_steps=256, auto_pad_item=True, **kw):
-        self._padded_item_list = [None] * auto_pad_item + D.training_data.item_df.index.tolist()
+        self._padded_item_list = [None] * auto_pad_item + D.item_df.index.tolist()
         self._tokenize = {k: j for j, k in enumerate(self._padded_item_list)}
         self.n_tokens = len(self._tokenize)
         self._truncated_input_steps = truncated_input_steps
@@ -135,8 +135,8 @@ class GraphConv:
         self.sample_with_posterior = sample_with_posterior
 
         self._model_kw = {'horizon': D.horizon}
-        if "embedding" in D.training_data.item_df:
-            item_embeddings = np.vstack(D.training_data.item_df["embedding"]).astype('float32')
+        if "embedding" in D.item_df:
+            item_embeddings = np.vstack(D.item_df["embedding"]).astype('float32')
             item_embeddings = np.pad(item_embeddings, ((1, 0), (0, 0)), constant_values=0)
             self._model_kw["item_embeddings"] = item_embeddings
         self._model_kw.update(kw)
