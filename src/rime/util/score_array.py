@@ -33,14 +33,16 @@ def matrix_reindex(csr, old_index, new_index, axis, fill_value=0):
     assert axis == 0, "axis must be 0 or 1"
     assert csr.shape[0] == len(old_index), "shape must match between csr and old_index"
 
-    if sps.issparse(csr):
+    if isinstance(csr, LazyScoreBase):
+        pass  # does not support extrapolation
+    elif sps.issparse(csr):
         csr = sps.vstack([csr, csr[:1] * 0 + fill_value], "csr")
         csr.eliminate_zeros()
     else:
         csr = np.concatenate([csr, csr[:1] * 0 + fill_value], axis=0)
 
     iloc = find_iloc(old_index, new_index, allow_missing=True)
-    return csr[iloc].copy()
+    return csr[iloc]
 
 
 def sps_to_torch(x, device):
@@ -49,6 +51,21 @@ def sps_to_torch(x, device):
     values = coo.data
     indices = np.vstack((coo.row, coo.col))
     return torch.sparse_coo_tensor(indices, values, coo.shape, device=device)
+
+
+def auto_device():
+    return 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
+def auto_tensor(x, device=None):
+    if device is None:
+        device = auto_device()
+    if hasattr(x, "as_tensor"):
+        return x.as_tensor(device)
+    elif sps.issparse(x):
+        return sps_to_torch(x, device).to_dense()
+    else:
+        return torch.as_tensor(x, device)
 
 
 class LazyScoreBase:

@@ -46,7 +46,8 @@ class Pop:
         item_scores = self.item_pseudo + self.item_scores.reindex(D.item_in_test.index, fill_value=0) \
             if self.item_rec else np.ones(len(D.item_in_test))
 
-        S = LazyDenseMatrix(user_scores[:, None]) * LazyDenseMatrix(item_scores[None, :])  # mtpp implies *
+        S = LazyDenseMatrix(user_scores.values[:, None]) * \
+            LazyDenseMatrix(item_scores.values[None, :])  # mtpp implies *
         if self.tie_break_noise > 0:
             S = S + RandScore.create(S.shape) * self.tie_break_noise
         return S

@@ -56,13 +56,20 @@ class Dataset:
             assert (self.prior_score.shape == self.target_csr.shape), \
                 "prior_score shape must match with test target_csr"
 
-        self.user_ppl_baseline = perplexity(self.user_in_test['_hist_len'])
-        self.item_ppl_baseline = perplexity(self.item_in_test['_hist_len'])
-
         if self.training_data is None:
             self.training_data = argparse.Namespace(
                 user_df=self.user_in_test.groupby(level=0, sort=False).first(),
                 item_df=self.item_in_test)
+
+    @property
+    def shape(self):
+        return self.target_csr.shape
+
+    def __len__(self):
+        return self.shape[0]
+
+    def __repr__(self):
+        return f"Dataset{self.shape}"
 
     @property
     def default_item_rec_top_k(self):
@@ -73,6 +80,24 @@ class Dataset:
     def default_user_rec_top_c(self):
         return self._user_rec_top_c if self._user_rec_top_c is not None \
             else int(np.ceil(len(self.user_in_test) / 100))
+
+    @property
+    def item_df(self):
+        """ could be different (often larger) than item_in_test """
+        return self.training_data.item_df if self.training_data is not None else self.item_in_test
+
+    @property
+    def user_df(self):
+        """ often different from user_in_test; do not use for OnlnMtch simulation """
+        return self.training_data.user_df if self.training_data is not None else self.user_in_test
+
+    @property
+    def user_ppl_baseline(self):
+        return perplexity(self.user_in_test['_hist_len'])
+
+    @property
+    def item_ppl_baseline(self):
+        return perplexity(self.item_in_test['_hist_len'])
 
     def get_stats(self):
         if "TEST_START_TIME" in self.user_in_test and "_hist_ts" in self.user_in_test:
