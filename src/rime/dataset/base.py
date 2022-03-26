@@ -7,7 +7,7 @@ from ..util import (perplexity, timed, groupby_unexplode, indices2csr,
 
 def _sanitize_inputs(event_df, user_df, item_df):
     assert user_df['TEST_START_TIME'].notnull().all(), "require explicit TEST_START_TIME"
-    if not user_df.set_index('TEST_START_TIME', append=True).index.is_unique:
+    if not _get_user_time_index(user_df).is_unique:
         warnings.warn("repeated (index, TEST_START_TIME) may cause issues in reindexing")
     assert item_df.index.is_unique, "require unique index for item_df"
 
@@ -28,6 +28,10 @@ def _sanitize_inputs(event_df, user_df, item_df):
 
     item_tokenize = {k: j for j, k in enumerate(item_df.index)}
     return event_df.copy(), item_tokenize
+
+
+def _get_user_time_index(user_df):
+    return user_df.set_index('TEST_START_TIME', append=True).index
 
 
 @dataclasses.dataclass
@@ -143,9 +147,9 @@ class Dataset:
                 old_index = self.user_in_test.index
                 user_in_test = self.user_in_test.reindex(index)
             else:
-                user_in_test = self.user_in_test.set_index('TEST_START_TIME', append=True)
-                old_index = user_in_test.index
-                user_in_test = user_in_test.reindex(index).reset_index(level=1)
+                old_index = _get_user_time_index(self.user_in_test)
+                user_in_test = self.user_in_test.set_index('TEST_START_TIME', append=True) \
+                                                .reindex(index).reset_index(level=1)
             item_in_test = self.item_in_test
 
         else:
@@ -208,7 +212,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
 
     with timed("creating user_explode and etc"):
         # SELECT * FROM user_df LEFT JOIN event_df on USER_ID  # preserve left order
-        user_time_index = user_df.set_index("TEST_START_TIME", append=True).index
+        user_time_index = _get_user_time_index(user_df)
         user_explode = user_df[user_df.index.isin(set(event_df['USER_ID']))] \
             .assign(_preserve_order=lambda x: x.index) \
             .join(event_df.set_index('USER_ID'), on='_preserve_order') \
