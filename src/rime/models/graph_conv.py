@@ -225,10 +225,11 @@ class GraphConv:
         else:
             model.prior_score = [None for p in prior_score]
 
+        valid_batch_size = self.batch_size * model.n_negatives * 2 // model.valid_n_negatives
         trainer.fit(
             model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
-            DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
+            DataLoader(valid_set, valid_batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
         for attr in ['G_list', 'user_proposal', 'item_proposal', 'prior_score', 'prior_score_T']:
             delattr(model, attr)

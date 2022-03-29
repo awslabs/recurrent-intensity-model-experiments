@@ -10,7 +10,7 @@ from .lightfm_bpr import LightFM_BPR
 class _BPR_Common(_LitValidated):
     """ assumes item/user_encoder, bias_vec """
     def __init__(self, user_rec, item_rec, n_negatives, lr, weight_decay,
-                 training_prior_fcn=lambda x: x):
+                 training_prior_fcn=lambda x: x, valid_n_negatives=None):
         super().__init__()
         self.user_rec = user_rec
         self.item_rec = item_rec
@@ -18,6 +18,9 @@ class _BPR_Common(_LitValidated):
         self.lr = lr
         self.weight_decay = weight_decay
         self.training_prior_fcn = training_prior_fcn
+        if valid_n_negatives is None:
+            valid_n_negatives = n_negatives * 10
+        self.valid_n_negatives = valid_n_negatives
 
     def forward(self, i, j, user_kw={}):
         user_embeddings = self.user_encoder(i, **user_kw)
@@ -32,28 +35,29 @@ class _BPR_Common(_LitValidated):
         i, j = batch.T
         pos_score = self.forward(i, j, **kw)
 
-        n_shape = (self.n_negatives, len(batch))
+        n_negatives = self.n_negatives if self.training else self.valid_n_negatives
+        n_shape = (n_negatives, len(batch))
         loglik = []
 
         if self.user_rec:
             user_proposal = torch.as_tensor(user_proposal).to(batch.device)
             if prior_score_T is not None:
                 ni = _mnl_w_prior(prior_score_T[j.tolist()], user_proposal,
-                                  self.n_negatives, self.training_prior_fcn)
+                                  n_negatives, self.training_prior_fcn)
             else:
                 ni = torch.multinomial(user_proposal, np.prod(n_shape), True).reshape(n_shape)
             ni_score = self.forward(ni, j, **kw)
-            loglik.append(F.logsigmoid(pos_score - ni_score))
+            loglik.append(F.logsigmoid(pos_score - ni_score).mean())
 
         if self.item_rec:
             item_proposal = torch.as_tensor(item_proposal).to(batch.device)
             if prior_score is not None:
                 nj = _mnl_w_prior(prior_score[i.tolist()], item_proposal,
-                                  self.n_negatives, self.training_prior_fcn)
+                                  n_negatives, self.training_prior_fcn)
             else:
                 nj = torch.multinomial(item_proposal, np.prod(n_shape), True).reshape(n_shape)
             nj_score = self.forward(i, nj, **kw)
-            loglik.append(F.logsigmoid(pos_score - nj_score))
+            loglik.append(F.logsigmoid(pos_score - nj_score).mean())
 
         return -torch.stack(loglik).mean()
 
@@ -143,10 +147,11 @@ class BPR(LightFM_BPR):
             max_epochs=self.max_epochs, gpus=int(torch.cuda.is_available()),
             log_every_n_steps=1, callbacks=[model._checkpoint, LearningRateMonitor()])
 
+        valid_batch_size = self.batch_size * model.n_negatives * 2 // model.valid_n_negatives
         trainer.fit(
             model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
-            DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
+            DataLoader(valid_set, valid_batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
         for attr in ['user_proposal', 'item_proposal']:
             delattr(model, attr)
