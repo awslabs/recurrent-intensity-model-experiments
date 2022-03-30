@@ -136,6 +136,9 @@ class LazyScoreBase:
     def sigmoid(self):
         return ElementWiseExpression(torch.sigmoid, [self])
 
+    def apply(self, op):
+        return ElementWiseExpression(op, [self])
+
 
 def auto_cast_lazy_score(other):
     if other is None:
@@ -233,16 +236,22 @@ class LazyExpressionBase:
         self.op = op
         self.children = [auto_cast_lazy_score(c) for c in children]
 
-    def traverse(self):
+    def traverse(self, op_func=lambda op: f"{op}<{op.training}>" if hasattr(op, "training") else op.__name__):
         builder = ""
         for i, c in enumerate(self.children):
             if hasattr(c, "traverse"):
-                builder = builder + f"({c.traverse()})"
+                builder = builder + f"({c.traverse(op_func)})"
             else:
                 builder = builder + f"{c}"
             if i == 0:
-                builder = builder + f" {self.op.__name__} "
+                builder = builder + f" {op_func(self.op)} "
         return builder
+
+    def train(self):
+        self.traverse(lambda op: setattr(op, "training", True) if hasattr(op, "training") else None)
+
+    def eval(self):
+        self.traverse(lambda op: setattr(op, "training", False) if hasattr(op, "training") else None)
 
     def __repr__(self):
         return self.traverse()

@@ -26,7 +26,8 @@ class _GraphConv(_BPR_Common):
                  n_negatives=10, lr=1, weight_decay=1e-5, training_prior_fcn=lambda x: x,
                  user_conv_model='GCN',  # plain_average
                  user_embeddings=None, item_embeddings=None, item_zero_bias=False,
-                 recency_boundary_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf")):
+                 recency_boundary_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
+                 user_drop=0, item_drop=0):
 
         super().__init__(user_rec, item_rec, n_negatives, lr, weight_decay,
                          training_prior_fcn)
@@ -56,6 +57,8 @@ class _GraphConv(_BPR_Common):
         self.register_buffer("recency_boundaries",
                              torch.as_tensor(recency_boundary_multipliers) * horizon)
         self.recency_encoder = torch.nn.Embedding(len(recency_boundary_multipliers) + 1, 1)
+        self.user_drop = torch.nn.Dropout(user_drop)
+        self.item_drop = torch.nn.Dropout(item_drop)
         self.init_weights()
 
     def init_weights(self):
@@ -117,6 +120,14 @@ class _GraphConv(_BPR_Common):
         loss = torch.stack(loss_list).mean()
         self.log("train_loss", loss, prog_bar=True)
         return loss
+
+    def forward(self, i, j, user_kw={}):
+        user_embeddings = self.user_drop(self.user_encoder(i, **user_kw))
+        item_embeddings = self.item_drop(self.item_encoder(j))
+
+        return (user_embeddings * item_embeddings).sum(-1) \
+            + self.user_drop(self.user_bias_vec(i, **user_kw)).squeeze(-1) \
+            + self.item_drop(self.item_bias_vec(j)).squeeze(-1)
 
 
 class GraphConv:
@@ -252,6 +263,10 @@ class GraphConv:
 
         item_reindex = lambda x, fill_value=0: matrix_reindex(
             x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)
-        return (LazyDenseMatrix(user_embeddings) @ item_reindex(self.item_embeddings).T
-                + user_biases[:, None] + item_reindex(self.item_biases, fill_value=-np.inf)[None, :]
+        item_embeddings = item_reindex(self.item_embeddings)
+        item_biases = item_reindex(self.item_biases, fill_value=-np.inf)
+        return (LazyDenseMatrix(user_embeddings).apply(self.model.user_drop) @
+                LazyDenseMatrix(item_embeddings).apply(self.model.item_drop).T
+                + LazyDenseMatrix(user_biases[:, None]).apply(self.model.user_drop)
+                + LazyDenseMatrix(item_biases[None, :]).apply(self.model.item_drop)
                 ).softplus()

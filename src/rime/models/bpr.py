@@ -33,7 +33,7 @@ class _BPR_Common(_LitValidated):
     def _bpr_training_step(self, batch, user_proposal, item_proposal,
                            prior_score=None, prior_score_T=None, **kw):
         i, j = batch.T
-        pos_score = self.forward(i, j, **kw)
+        pos_score = self.forward(i, j, **kw)  # bsz
 
         n_negatives = self.n_negatives if self.training else self.valid_n_negatives
         n_shape = (n_negatives, len(batch))
@@ -47,7 +47,7 @@ class _BPR_Common(_LitValidated):
             else:
                 ni = torch.multinomial(user_proposal, np.prod(n_shape), True).reshape(n_shape)
             ni_score = self.forward(ni, j, **kw)
-            loglik.append(F.logsigmoid(pos_score - ni_score).mean())
+            loglik.append(F.logsigmoid(pos_score - ni_score))  # nsamp * bsz
 
         if self.item_rec:
             item_proposal = torch.as_tensor(item_proposal).to(batch.device)
@@ -57,7 +57,7 @@ class _BPR_Common(_LitValidated):
             else:
                 nj = torch.multinomial(item_proposal, np.prod(n_shape), True).reshape(n_shape)
             nj_score = self.forward(i, nj, **kw)
-            loglik.append(F.logsigmoid(pos_score - nj_score).mean())
+            loglik.append(F.logsigmoid(pos_score - nj_score))  # nsamp * bsz
 
         return -torch.stack(loglik).mean()
 
