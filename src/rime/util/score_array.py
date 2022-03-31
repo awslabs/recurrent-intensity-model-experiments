@@ -96,8 +96,8 @@ class LazyScoreBase:
         """ slice by rows for pytorch dataloaders """
         raise NotImplementedError
 
-    @classmethod
-    def collate_fn(cls, D):
+    @staticmethod
+    def collate_fn(D):
         """ collate by rows for pytorch dataloaders """
         raise NotImplementedError
 
@@ -187,9 +187,9 @@ class LazySparseMatrix(LazyScoreBase):
         else:
             return self.__class__(self.c[key])
 
-    @classmethod
-    def collate_fn(cls, D):
-        return cls(sps.vstack([d.c for d in D]))
+    @staticmethod
+    def collate_fn(D):
+        return D[0].__class__(sps.vstack([d.c for d in D]))
 
 
 class _LazySparseDictFast(LazyScoreBase):
@@ -197,8 +197,8 @@ class _LazySparseDictFast(LazyScoreBase):
         self.c = c
         self.shape = (1, self.c['shape'])
 
-    @classmethod
-    def collate_fn(cls, D):
+    @staticmethod
+    def collate_fn(D):
         C = [d.c for d in D]
         csr = sps.csr_matrix((
             np.hstack([c['values'] for c in C]),  # data
@@ -231,9 +231,18 @@ class LazyDenseMatrix(LazyScoreBase):
         key = np.array(key, ndmin=1) % self.shape[0]
         return self.__class__(self.c[key])
 
-    @classmethod
-    def collate_fn(cls, D):
-        return cls(np.vstack([d.c for d in D]))
+    @staticmethod
+    def collate_fn(D):
+        return D[0].__class__(np.vstack([d.c for d in D]))
+
+
+def _get_op_name(op):
+    if hasattr(op, "__name__"):
+        return op.__name__
+    elif hasattr(op, "training"):
+        return f"{op}({op.training})"
+    else:
+        return repr(op)
 
 
 class LazyExpressionBase:
@@ -245,7 +254,7 @@ class LazyExpressionBase:
     def __post_init__(self):
         pass
 
-    def traverse(self, op_func=lambda op: f"{op}<{op.training}>" if hasattr(op, "training") else op.__name__):
+    def traverse(self, op_func=_get_op_name):
         builder = ""
         for i, c in enumerate(self.children):
             if hasattr(c, "traverse"):
@@ -285,12 +294,12 @@ class ElementWiseExpression(LazyExpressionBase, LazyScoreBase):
         children = [c[key] for c in self.children]
         return self.__class__(self.op, children)
 
-    @classmethod
-    def collate_fn(cls, batch):
+    @staticmethod
+    def collate_fn(batch):
         op, template = batch[0].op, batch[0].children
         data = zip(*[b.children for b in batch])
         children = [c.collate_fn(D) for c, D in zip(template, data)]
-        return cls(op, children)
+        return batch[0].__class__(op, children)
 
 
 class MatMulExpression(LazyExpressionBase, LazyScoreBase):
@@ -308,11 +317,10 @@ class MatMulExpression(LazyExpressionBase, LazyScoreBase):
     def __getitem__(self, key):
         return self.__class__(self.op, [self.left[key], self.right])
 
-    @classmethod
-    def collate_fn(cls, batch):
-        c = batch[0].left.__class__
-        left = c.collate_fn([b.left for b in batch])
-        return cls(batch[0].op, [left, batch[0].right])
+    @staticmethod
+    def collate_fn(batch):
+        left = batch[0].left.__class__.collate_fn([b.left for b in batch])
+        return batch[0].__class__(batch[0].op, [left, batch[0].right])
 
 
 class VAEExpression(LazyExpressionBase, LazyScoreBase):
@@ -338,8 +346,8 @@ class VAEExpression(LazyExpressionBase, LazyScoreBase):
         else:
             return MatMulExpression.__getitem__(self, key)
 
-    @classmethod
-    def collate_fn(cls, batch):
+    @staticmethod
+    def collate_fn(batch):
         if batch[0].axis == 1:
             return ElementWiseExpression.collate_fn(batch)
         else:
@@ -417,9 +425,10 @@ class RandScore(LazyScoreBase):
         key = np.array(key, ndmin=1) % self.shape[0]
         return self.__class__(self.row_seeds[key], self.col_seeds, self.distn)
 
-    @classmethod
-    def collate_fn(cls, batch):
-        return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds, batch[0].distn)
+    @staticmethod
+    def collate_fn(batch):
+        row_seeds = np.hstack([b.row_seeds for b in batch])
+        return batch[0].__class__(row_seeds, batch[0].col_seeds, batch[0].distn)
 
 
 def batch_op_iter(S, op, device=None):
