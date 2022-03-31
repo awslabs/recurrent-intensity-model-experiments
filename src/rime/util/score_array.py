@@ -83,7 +83,7 @@ class LazyScoreBase:
         return f"<{type(self).__name__} {self.shape}>"
 
     def numpy(self):
-        raise NotImplementedError
+        return self.as_tensor().numpy()
 
     def as_tensor(self, device=None):
         raise NotImplementedError
@@ -113,7 +113,7 @@ class LazyScoreBase:
         return get_batch_size(self.shape)
 
     def __matmul__(self, other):
-        return MatMulExpression(self, other)
+        return MatMulExpression(operator.matmul, [self, other])
 
     def __add__(self, other):
         return ElementWiseExpression(operator.add, [self, other])
@@ -138,6 +138,11 @@ class LazyScoreBase:
 
     def apply(self, op):
         return ElementWiseExpression(op, [self])
+
+    def vae_module(self, module):
+        op = _VAEOp(module.training, module.prior, module.beta)
+        rand_shape = (self.shape[0], self.shape[1] // 2)
+        return VAEExpression(op, [self, RandScore.create(rand_shape, "randn")])
 
 
 def auto_cast_lazy_score(other):
@@ -235,6 +240,10 @@ class LazyExpressionBase:
     def __init__(self, op, children):
         self.op = op
         self.children = [auto_cast_lazy_score(c) for c in children]
+        self.__post_init__()
+
+    def __post_init__(self):
+        pass
 
     def traverse(self, op_func=lambda op: f"{op}<{op.training}>" if hasattr(op, "training") else op.__name__):
         builder = ""
@@ -260,17 +269,10 @@ class LazyExpressionBase:
         children = [c.as_tensor(device) for c in self.children]
         return self.op(*children)
 
-    def numpy(self):
-        try:
-            return self.op(*[c.numpy() for c in self.children])
-        except Exception:  # torch-only operation
-            return self.op(*[c.as_tensor() for c in self.children]).numpy()
-
 
 class ElementWiseExpression(LazyExpressionBase, LazyScoreBase):
     """ Tree representation of an element-wise expression; auto-broadcast """
-    def __init__(self, op, children):
-        super().__init__(op, children)
+    def __post_init__(self):
         shape = np.transpose([c.shape for c in self.children])
         self.shape = (max(shape[0]), max(shape[1]))  # consider broadcast
 
@@ -292,26 +294,85 @@ class ElementWiseExpression(LazyExpressionBase, LazyScoreBase):
 
 
 class MatMulExpression(LazyExpressionBase, LazyScoreBase):
-    def __init__(self, left, right):
-        assert left.shape[1] == right.shape[0], \
-            f"matmul shape check fail: {left.shape} vs {right.shape}"
-        super().__init__(operator.matmul, [left, right])
-        self.left = self.children[0]
-        self.right = self.children[1]
+    def __post_init__(self):
+        self.left, self.right = self.children
         self.shape = (self.left.shape[0], self.right.shape[1])
+
+        assert self.left.shape[1] == self.right.shape[0], \
+            f"matmul shape check fail: {self.left.shape} vs {self.right.shape}"
 
     @property
     def T(self):
-        return self.__class__(self.right.T, self.left.T)
+        return self.__class__(self.op, [self.right.T, self.left.T])
 
     def __getitem__(self, key):
-        return self.__class__(self.left[key], self.right)
+        return self.__class__(self.op, [self.left[key], self.right])
 
     @classmethod
     def collate_fn(cls, batch):
         c = batch[0].left.__class__
         left = c.collate_fn([b.left for b in batch])
-        return cls(left, batch[0].right)
+        return cls(batch[0].op, [left, batch[0].right])
+
+
+class VAEExpression(LazyExpressionBase, LazyScoreBase):
+    """ op=_VAEOp, [weight (n, 2d), randn (n, d)], auto-broadcast on d-axis """
+    @property
+    def axis(self):
+        return int(isinstance(self.right, RandScore) and self.right.distn == "randn")
+
+    def __post_init__(self):
+        self.left, self.right = self.children
+        self.shape = (self.left.shape[0], self.right.shape[1])
+
+        assert _vae_shape_check(self.left.shape, self.right.shape, self.axis), \
+            f"vae(axis={self.axis}) shape check fail: {self.left.shape} vs {self.right.shape}"
+
+    @property
+    def T(self):
+        return self.__class__(self.op, [self.right.T, self.left.T])
+
+    def __getitem__(self, key):
+        if self.axis == 1:
+            return ElementWiseExpression.__getitem__(self, key)
+        else:
+            return MatMulExpression.__getitem__(self, key)
+
+    @classmethod
+    def collate_fn(cls, batch):
+        if batch[0].axis == 1:
+            return ElementWiseExpression.collate_fn(batch)
+        else:
+            return MatMulExpression.collate_fn(batch)
+
+    def as_tensor(self, device):
+        if self.axis == 1:
+            weight = self.left.as_tensor(device)
+            randn = self.right.as_tensor(device)
+            return self.op(weight, randn).expand(self.shape)
+        else:
+            return self.T.as_tensor(device).T
+
+
+def _vae_shape_check(left_shape, right_shape, axis):
+    if axis == 1:
+        ndim = left_shape[1] // 2
+        return left_shape[0] == right_shape[0] and right_shape[1] % ndim == 0
+    else:
+        return _vae_shape_check(right_shape[::-1], left_shape[::-1], 1 - axis)
+
+
+class _VAEOp:
+    def __init__(self, training=True, prior=0, beta=1):
+        self.training = training
+        self.beta = beta
+        self.prior_std = np.exp(prior / 2)
+        self.__name__ = f"vae({training}*{beta})"
+
+    def __call__(self, weight, randn):
+        mean, logvar = torch.split(weight, weight.shape[-1] // 2, -1)
+        noise = randn * (logvar / 2).exp() * self.training * self.beta
+        return (mean + noise) * self.prior_std
 
 
 @dataclasses.dataclass(repr=False)
@@ -319,6 +380,7 @@ class RandScore(LazyScoreBase):
     """ add random noise to break ties """
     row_seeds: list  # np.array for fast indexing
     col_seeds: list  # np.array for fast indexing
+    distn: str = "rand"
     _DEFAULT_MAX_SEED: ClassVar[int] = 10000
 
     @property
@@ -326,37 +388,38 @@ class RandScore(LazyScoreBase):
         return (len(self.row_seeds), len(self.col_seeds))
 
     @classmethod
-    def create(cls, shape):
+    def create(cls, shape, distn="rand"):
         return cls(np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[0]),
-                   np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[1]))
+                   np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[1]),
+                   distn)
 
     def numpy(self):
         return np.vstack([
-            np.random.RandomState(int(s)).rand(len(self.col_seeds))
+            getattr(np.random.RandomState(int(s)), self.distn)(len(self.col_seeds))
             for s in self.row_seeds])
 
     def as_tensor(self, device=None):
         rows = []
         for s in self.row_seeds:
             generator = torch.Generator(device).manual_seed(int(s))
-            new = torch.rand(len(self.col_seeds), device=device, generator=generator)
+            new = getattr(torch, self.distn)(len(self.col_seeds), device=device, generator=generator)
             rows.append(new)
         return torch.vstack(rows)
 
     @property
     def T(self):
         warnings.warn("transpose changes rand seed; only for evaluate_user_rec")
-        return self.__class__(self.col_seeds, self.row_seeds)
+        return self.__class__(self.col_seeds, self.row_seeds, self.distn)
 
     def __getitem__(self, key):
-        if np.isscalar(key):
-            key = [key]
-        row_seeds = self.row_seeds[key]
-        return self.__class__(row_seeds, self.col_seeds)
+        if isinstance(key, slice):
+            key = range(key.stop)[key]
+        key = np.array(key, ndmin=1) % self.shape[0]
+        return self.__class__(self.row_seeds[key], self.col_seeds, self.distn)
 
     @classmethod
     def collate_fn(cls, batch):
-        return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds)
+        return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds, batch[0].distn)
 
 
 def batch_op_iter(S, op, device=None):
