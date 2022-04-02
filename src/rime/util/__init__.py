@@ -176,15 +176,14 @@ def groupby_unexplode(series, index=None, return_type='series'):
     >>> groupby_unexplode(pd.Series([1,2,3,4,5], index=[1,1,2,3,3]), index=[0,1,-1,2,3,4]).to_dict()
     {0: [], 1: [1, 2], -1: [], 2: [3], 3: [4, 5], 4: []}
     """
-    if len(series) == 0:
-        return pd.Series(index=index)
-
     if index is None:
         splits = np.where(
             np.array(series.index.values[1:]) !=  # 1, 2, 3, 3
             np.array(series.index.values[:-1])    # 1, 1, 2, 3
         )[0] + 1  # [2, 3]
         index = series.index.values[np.hstack([[0], splits])]  # 1, 2, 3
+    elif len(series) == 0:
+        splits = [0 for _ in range(len(index) - 1)]
     else:  # something like searchsorted, but unordered
         splits = []
         tape = enumerate(series.index)
@@ -208,7 +207,7 @@ def groupby_unexplode(series, index=None, return_type='series'):
 def indices2csr(indices, shape1, data=None):
     indptr = np.cumsum([0] + [len(x) for x in indices])
     if data is None:
-        data = np.ones(indptr[-1])
+        data = [np.ones(indptr[-1])]
     return sps.csr_matrix((
         np.hstack(data), np.hstack(indices), indptr
     ), shape=(len(indices), shape1))

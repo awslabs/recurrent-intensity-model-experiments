@@ -11,15 +11,14 @@ def _sanitize_inputs(event_df, user_df, item_df):
         warnings.warn("repeated (index, TEST_START_TIME) may cause issues in reindexing")
     assert item_df.index.is_unique, "require unique index for item_df"
 
-    user_is_known = event_df['USER_ID'].isin(user_df.index)
-    if not user_is_known.all():
-        warnings.warn(f"dropping unknown USER_ID, accouting for {(~user_is_known).mean():%}")
-        event_df = event_df[user_is_known]
+    event_old = event_df
+    event_df = event_df[event_df['USER_ID'].isin(user_df.index) &
+                        event_df['ITEM_ID'].isin(item_df.index)].copy()
+    if len(event_df) < len(event_old):
+        warnings.warn(f"dropping unknown USER_ID or ITEM_ID, #events {len(event_old)} -> {len(event_df)}")
 
-    item_is_known = event_df['ITEM_ID'].isin(item_df.index)
-    if not item_is_known.all():
-        warnings.warn(f"dropping unknown ITEM_ID, accouting for {(~item_is_known).mean():%}")
-        event_df = event_df[item_is_known]
+    if "VALUE" not in event_df:
+        event_df["VALUE"] = 1  # implicit feedback
 
     with timed("checking for repeated user-item events"):
         nunique = len(set(event_df.set_index(['USER_ID', 'ITEM_ID']).index))
@@ -27,7 +26,7 @@ def _sanitize_inputs(event_df, user_df, item_df):
             warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
 
     item_tokenize = {k: j for j, k in enumerate(item_df.index)}
-    return event_df.copy(), item_tokenize
+    return event_df, item_tokenize
 
 
 def _get_user_time_index(user_df):
@@ -229,6 +228,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
         user_df = user_df.assign(
             _hist_items=[x.tolist() for x in np.split(hist_explode['ITEM_ID'].values, _hist_splits)],
             _hist_ts=[x.tolist() for x in np.split(hist_explode['TIMESTAMP'].values, _hist_splits)],
+            _hist_values=[x.tolist() for x in np.split(hist_explode['VALUE'].values, _hist_splits)],
         ).assign(_hist_len=lambda x: x['_hist_items'].apply(len))
         training_user_df = user_df.groupby(level=0, sort=False).first()
 
@@ -240,7 +240,8 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     with timed("generating targets"):
         target_csr = indices2csr(
             groupby_unexplode(target_explode['ITEM_ID'].apply(item_tokenize.get), user_time_index),
-            shape1=len(item_df))
+            shape1=len(item_df),
+            data=groupby_unexplode(target_explode['VALUE'], user_time_index))
 
     if exclude_train:
         print("optionally excluding training events in predictions and targets")
