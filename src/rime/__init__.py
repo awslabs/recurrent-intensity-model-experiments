@@ -5,14 +5,14 @@ except ImportError:
     pass
 
 import torch, dataclasses, warnings, json
-import pandas as pd
+import pandas as pd, numpy as np
 from typing import Dict, List
 from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson,
                          LightFM_BPR, ALS, LogisticMF, BPR, GraphConv, LDA)
 from rime.models.zero_shot import BayesLM, ItemKNN
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
-from rime.dataset import Dataset
+from rime.dataset import Dataset, create_dataset
 from rime.util import _argsort, cached_property, RandScore, plot_rec_results, plot_mtch_results
 
 from pkg_resources import get_distribution, DistributionNotFound
@@ -126,8 +126,8 @@ class Experiment:
         if results is None:
             results = ExperimentResult(
                 dual, online,
-                _k1=self.D.default_item_rec_top_k,
-                _c1=self.D.default_user_rec_top_c,
+                _k1=getattr(D, '_k1', int(np.ceil(self.D.shape[1] * 0.01))),
+                _c1=getattr(D, '_c1', int(np.ceil(self.D.shape[0] * 0.01))),
                 _kmax=len(self.D.item_in_test),
                 _cmax=len(self.D.user_in_test),
                 item_ppl_baseline=self.D.item_ppl_baseline,

@@ -18,9 +18,9 @@ def get_batch_size(shape, frac=float(os.environ.get("BATCH_SIZE_FRAC", 0.1))):
 
 
 def find_iloc(old_index, new_index, allow_missing=False):
-    iloc = pd.Series(
-        np.arange(len(old_index)), index=old_index
-    ).reindex(new_index, fill_value=-1).values
+    if not isinstance(old_index, pd.Index):
+        old_index = pd.Index(old_index)
+    iloc = old_index.get_indexer(new_index)
     if not allow_missing and -1 in iloc:
         raise IndexError("missing indices detected in a disallowed case")
     return iloc
