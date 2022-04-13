@@ -26,7 +26,8 @@ class _GraphConv(_BPR_Common):
                  n_negatives=10, lr=1, weight_decay=1e-5, training_prior_fcn=lambda x: x,
                  user_conv_model='GCN',  # plain_average
                  user_embeddings=None, item_embeddings=None, item_zero_bias=False,
-                 recency_boundary_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf")):
+                 recency_boundary_multipliers=[0.1, 0.3, 1, 3, 10], horizon=float("inf"),
+                 user_drop=0, item_drop=0):
 
         super().__init__(user_rec, item_rec, n_negatives, lr, weight_decay,
                          training_prior_fcn)
@@ -56,6 +57,8 @@ class _GraphConv(_BPR_Common):
         self.register_buffer("recency_boundaries",
                              torch.as_tensor(recency_boundary_multipliers) * horizon)
         self.recency_encoder = torch.nn.Embedding(len(recency_boundary_multipliers) + 1, 1)
+        self.user_drop = torch.nn.Dropout(user_drop)
+        self.item_drop = torch.nn.Dropout(item_drop)
         self.init_weights()
 
     def init_weights(self):
@@ -118,12 +121,20 @@ class _GraphConv(_BPR_Common):
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
+    def forward(self, i, j, user_kw={}):
+        user_embeddings = self.user_drop(self.user_encoder(i, **user_kw))
+        item_embeddings = self.item_drop(self.item_encoder(j))
+
+        return (user_embeddings * item_embeddings).sum(-1) \
+            + self.user_drop(self.user_bias_vec(i, **user_kw)).squeeze(-1) \
+            + self.item_drop(self.item_bias_vec(j)).squeeze(-1)
+
 
 class GraphConv:
     def __init__(self, D, batch_size=10000, max_epochs=50,
                  sample_with_prior=True, sample_with_posterior=0.5,
                  truncated_input_steps=256, auto_pad_item=True, **kw):
-        self._padded_item_list = [None] * auto_pad_item + D.training_data.item_df.index.tolist()
+        self._padded_item_list = [None] * auto_pad_item + D.item_df.index.tolist()
         self._tokenize = {k: j for j, k in enumerate(self._padded_item_list)}
         self.n_tokens = len(self._tokenize)
         self._truncated_input_steps = truncated_input_steps
@@ -135,8 +146,8 @@ class GraphConv:
         self.sample_with_posterior = sample_with_posterior
 
         self._model_kw = {'horizon': D.horizon}
-        if "embedding" in D.training_data.item_df:
-            item_embeddings = np.vstack(D.training_data.item_df["embedding"]).astype('float32')
+        if "embedding" in D.item_df:
+            item_embeddings = np.vstack(D.item_df["embedding"]).astype('float32')
             item_embeddings = np.pad(item_embeddings, ((1, 0), (0, 0)), constant_values=0)
             self._model_kw["item_embeddings"] = item_embeddings
         self._model_kw.update(kw)
@@ -225,10 +236,11 @@ class GraphConv:
         else:
             model.prior_score = [None for p in prior_score]
 
+        valid_batch_size = self.batch_size * model.n_negatives * 2 // model.valid_n_negatives
         trainer.fit(
             model,
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
-            DataLoader(valid_set, self.batch_size, num_workers=(N > 1e4) * 4))
+            DataLoader(valid_set, valid_batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
         for attr in ['G_list', 'user_proposal', 'item_proposal', 'prior_score', 'prior_score_T']:
             delattr(model, attr)
@@ -251,6 +263,10 @@ class GraphConv:
 
         item_reindex = lambda x, fill_value=0: matrix_reindex(
             x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)
-        return (LazyDenseMatrix(user_embeddings) @ item_reindex(self.item_embeddings).T
-                + user_biases[:, None] + item_reindex(self.item_biases, fill_value=-np.inf)[None, :]
+        item_embeddings = item_reindex(self.item_embeddings)
+        item_biases = item_reindex(self.item_biases, fill_value=-np.inf)
+        return (LazyDenseMatrix(user_embeddings).apply(self.model.user_drop) @
+                LazyDenseMatrix(item_embeddings).apply(self.model.item_drop).T
+                + LazyDenseMatrix(user_biases[:, None]).apply(self.model.user_drop)
+                + LazyDenseMatrix(item_biases[None, :]).apply(self.model.item_drop)
                 ).softplus()

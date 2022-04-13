@@ -33,14 +33,16 @@ def matrix_reindex(csr, old_index, new_index, axis, fill_value=0):
     assert axis == 0, "axis must be 0 or 1"
     assert csr.shape[0] == len(old_index), "shape must match between csr and old_index"
 
-    if sps.issparse(csr):
+    if isinstance(csr, LazyScoreBase):
+        pass  # does not support extrapolation
+    elif sps.issparse(csr):
         csr = sps.vstack([csr, csr[:1] * 0 + fill_value], "csr")
         csr.eliminate_zeros()
     else:
         csr = np.concatenate([csr, csr[:1] * 0 + fill_value], axis=0)
 
     iloc = find_iloc(old_index, new_index, allow_missing=True)
-    return csr[iloc].copy()
+    return csr[iloc]
 
 
 def sps_to_torch(x, device):
@@ -49,6 +51,21 @@ def sps_to_torch(x, device):
     values = coo.data
     indices = np.vstack((coo.row, coo.col))
     return torch.sparse_coo_tensor(indices, values, coo.shape, device=device)
+
+
+def auto_device():
+    return 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
+def auto_tensor(x, device=None):
+    if device is None:
+        device = auto_device()
+    if hasattr(x, "as_tensor"):
+        return x.as_tensor(device)
+    elif sps.issparse(x):
+        return sps_to_torch(x, device).to_dense()
+    else:
+        return torch.as_tensor(x, device)
 
 
 class LazyScoreBase:
@@ -66,7 +83,7 @@ class LazyScoreBase:
         return f"<{type(self).__name__} {self.shape}>"
 
     def numpy(self):
-        raise NotImplementedError
+        return self.as_tensor().numpy()
 
     def as_tensor(self, device=None):
         raise NotImplementedError
@@ -79,8 +96,8 @@ class LazyScoreBase:
         """ slice by rows for pytorch dataloaders """
         raise NotImplementedError
 
-    @classmethod
-    def collate_fn(cls, D):
+    @staticmethod
+    def collate_fn(D):
         """ collate by rows for pytorch dataloaders """
         raise NotImplementedError
 
@@ -96,7 +113,7 @@ class LazyScoreBase:
         return get_batch_size(self.shape)
 
     def __matmul__(self, other):
-        return MatMulExpression(self, other)
+        return MatMulExpression(operator.matmul, [self, other])
 
     def __add__(self, other):
         return ElementWiseExpression(operator.add, [self, other])
@@ -118,6 +135,14 @@ class LazyScoreBase:
 
     def sigmoid(self):
         return ElementWiseExpression(torch.sigmoid, [self])
+
+    def apply(self, op):
+        return ElementWiseExpression(op, [self])
+
+    def vae_module(self, module):
+        op = _VAEOp(module.training, module.prior, module.beta)
+        rand_shape = (self.shape[0], self.shape[1] // 2)
+        return VAEExpression(op, [self, RandScore.create(rand_shape, "randn")])
 
 
 def auto_cast_lazy_score(other):
@@ -162,9 +187,9 @@ class LazySparseMatrix(LazyScoreBase):
         else:
             return self.__class__(self.c[key])
 
-    @classmethod
-    def collate_fn(cls, D):
-        return cls(sps.vstack([d.c for d in D]))
+    @staticmethod
+    def collate_fn(D):
+        return D[0].__class__(sps.vstack([d.c for d in D]))
 
 
 class _LazySparseDictFast(LazyScoreBase):
@@ -172,8 +197,8 @@ class _LazySparseDictFast(LazyScoreBase):
         self.c = c
         self.shape = (1, self.c['shape'])
 
-    @classmethod
-    def collate_fn(cls, D):
+    @staticmethod
+    def collate_fn(D):
         C = [d.c for d in D]
         csr = sps.csr_matrix((
             np.hstack([c['values'] for c in C]),  # data
@@ -206,26 +231,45 @@ class LazyDenseMatrix(LazyScoreBase):
         key = np.array(key, ndmin=1) % self.shape[0]
         return self.__class__(self.c[key])
 
-    @classmethod
-    def collate_fn(cls, D):
-        return cls(np.vstack([d.c for d in D]))
+    @staticmethod
+    def collate_fn(D):
+        return D[0].__class__(np.vstack([d.c for d in D]))
+
+
+def _get_op_name(op):
+    if hasattr(op, "__name__"):
+        return op.__name__
+    elif hasattr(op, "training"):
+        return f"{op}({op.training})"
+    else:
+        return repr(op)
 
 
 class LazyExpressionBase:
     def __init__(self, op, children):
         self.op = op
         self.children = [auto_cast_lazy_score(c) for c in children]
+        self.__post_init__()
 
-    def traverse(self):
+    def __post_init__(self):
+        pass
+
+    def traverse(self, op_func=_get_op_name):
         builder = ""
         for i, c in enumerate(self.children):
             if hasattr(c, "traverse"):
-                builder = builder + f"({c.traverse()})"
+                builder = builder + f"({c.traverse(op_func)})"
             else:
                 builder = builder + f"{c}"
             if i == 0:
-                builder = builder + f" {self.op.__name__} "
+                builder = builder + f" {op_func(self.op)} "
         return builder
+
+    def train(self):
+        self.traverse(lambda op: setattr(op, "training", True) if hasattr(op, "training") else None)
+
+    def eval(self):
+        self.traverse(lambda op: setattr(op, "training", False) if hasattr(op, "training") else None)
 
     def __repr__(self):
         return self.traverse()
@@ -234,17 +278,10 @@ class LazyExpressionBase:
         children = [c.as_tensor(device) for c in self.children]
         return self.op(*children)
 
-    def numpy(self):
-        try:
-            return self.op(*[c.numpy() for c in self.children])
-        except Exception:  # torch-only operation
-            return self.op(*[c.as_tensor() for c in self.children]).numpy()
-
 
 class ElementWiseExpression(LazyExpressionBase, LazyScoreBase):
     """ Tree representation of an element-wise expression; auto-broadcast """
-    def __init__(self, op, children):
-        super().__init__(op, children)
+    def __post_init__(self):
         shape = np.transpose([c.shape for c in self.children])
         self.shape = (max(shape[0]), max(shape[1]))  # consider broadcast
 
@@ -257,35 +294,93 @@ class ElementWiseExpression(LazyExpressionBase, LazyScoreBase):
         children = [c[key] for c in self.children]
         return self.__class__(self.op, children)
 
-    @classmethod
-    def collate_fn(cls, batch):
+    @staticmethod
+    def collate_fn(batch):
         op, template = batch[0].op, batch[0].children
         data = zip(*[b.children for b in batch])
         children = [c.collate_fn(D) for c, D in zip(template, data)]
-        return cls(op, children)
+        return batch[0].__class__(op, children)
 
 
 class MatMulExpression(LazyExpressionBase, LazyScoreBase):
-    def __init__(self, left, right):
-        assert left.shape[1] == right.shape[0], \
-            f"matmul shape check fail: {left.shape} vs {right.shape}"
-        super().__init__(operator.matmul, [left, right])
-        self.left = self.children[0]
-        self.right = self.children[1]
+    def __post_init__(self):
+        self.left, self.right = self.children
         self.shape = (self.left.shape[0], self.right.shape[1])
+
+        assert self.left.shape[1] == self.right.shape[0], \
+            f"matmul shape check fail: {self.left.shape} vs {self.right.shape}"
 
     @property
     def T(self):
-        return self.__class__(self.right.T, self.left.T)
+        return self.__class__(self.op, [self.right.T, self.left.T])
 
     def __getitem__(self, key):
-        return self.__class__(self.left[key], self.right)
+        return self.__class__(self.op, [self.left[key], self.right])
 
-    @classmethod
-    def collate_fn(cls, batch):
-        c = batch[0].left.__class__
-        left = c.collate_fn([b.left for b in batch])
-        return cls(left, batch[0].right)
+    @staticmethod
+    def collate_fn(batch):
+        left = batch[0].left.__class__.collate_fn([b.left for b in batch])
+        return batch[0].__class__(batch[0].op, [left, batch[0].right])
+
+
+class VAEExpression(LazyExpressionBase, LazyScoreBase):
+    """ op=_VAEOp, [weight (n, 2d), randn (n, d)], auto-broadcast on d-axis """
+    @property
+    def axis(self):
+        return int(isinstance(self.right, RandScore) and self.right.distn == "randn")
+
+    def __post_init__(self):
+        self.left, self.right = self.children
+        self.shape = (self.left.shape[0], self.right.shape[1])
+
+        assert _vae_shape_check(self.left.shape, self.right.shape, self.axis), \
+            f"vae(axis={self.axis}) shape check fail: {self.left.shape} vs {self.right.shape}"
+
+    @property
+    def T(self):
+        return self.__class__(self.op, [self.right.T, self.left.T])
+
+    def __getitem__(self, key):
+        if self.axis == 1:
+            return ElementWiseExpression.__getitem__(self, key)
+        else:
+            return MatMulExpression.__getitem__(self, key)
+
+    @staticmethod
+    def collate_fn(batch):
+        if batch[0].axis == 1:
+            return ElementWiseExpression.collate_fn(batch)
+        else:
+            return MatMulExpression.collate_fn(batch)
+
+    def as_tensor(self, device):
+        if self.axis == 1:
+            weight = self.left.as_tensor(device)
+            randn = self.right.as_tensor(device)
+            return self.op(weight, randn).expand(self.shape)
+        else:
+            return self.T.as_tensor(device).T
+
+
+def _vae_shape_check(left_shape, right_shape, axis):
+    if axis == 1:
+        ndim = left_shape[1] // 2
+        return left_shape[0] == right_shape[0] and right_shape[1] % ndim == 0
+    else:
+        return _vae_shape_check(right_shape[::-1], left_shape[::-1], 1 - axis)
+
+
+class _VAEOp:
+    def __init__(self, training=True, prior=0, beta=1):
+        self.training = training
+        self.beta = beta
+        self.prior_std = np.exp(prior / 2)
+        self.__name__ = f"vae({training}*{beta})"
+
+    def __call__(self, weight, randn):
+        mean, logvar = torch.split(weight, weight.shape[-1] // 2, -1)
+        noise = randn * (logvar / 2).exp() * self.training * self.beta
+        return (mean + noise) * self.prior_std
 
 
 @dataclasses.dataclass(repr=False)
@@ -293,6 +388,7 @@ class RandScore(LazyScoreBase):
     """ add random noise to break ties """
     row_seeds: list  # np.array for fast indexing
     col_seeds: list  # np.array for fast indexing
+    distn: str = "rand"
     _DEFAULT_MAX_SEED: ClassVar[int] = 10000
 
     @property
@@ -300,37 +396,39 @@ class RandScore(LazyScoreBase):
         return (len(self.row_seeds), len(self.col_seeds))
 
     @classmethod
-    def create(cls, shape):
+    def create(cls, shape, distn="rand"):
         return cls(np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[0]),
-                   np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[1]))
+                   np.random.choice(cls._DEFAULT_MAX_SEED) + np.arange(shape[1]),
+                   distn)
 
     def numpy(self):
         return np.vstack([
-            np.random.RandomState(int(s)).rand(len(self.col_seeds))
+            getattr(np.random.RandomState(int(s)), self.distn)(len(self.col_seeds))
             for s in self.row_seeds])
 
     def as_tensor(self, device=None):
         rows = []
         for s in self.row_seeds:
             generator = torch.Generator(device).manual_seed(int(s))
-            new = torch.rand(len(self.col_seeds), device=device, generator=generator)
+            new = getattr(torch, self.distn)(len(self.col_seeds), device=device, generator=generator)
             rows.append(new)
         return torch.vstack(rows)
 
     @property
     def T(self):
         warnings.warn("transpose changes rand seed; only for evaluate_user_rec")
-        return self.__class__(self.col_seeds, self.row_seeds)
+        return self.__class__(self.col_seeds, self.row_seeds, self.distn)
 
     def __getitem__(self, key):
-        if np.isscalar(key):
-            key = [key]
-        row_seeds = self.row_seeds[key]
-        return self.__class__(row_seeds, self.col_seeds)
+        if isinstance(key, slice):
+            key = range(key.stop)[key]
+        key = np.array(key, ndmin=1) % self.shape[0]
+        return self.__class__(self.row_seeds[key], self.col_seeds, self.distn)
 
-    @classmethod
-    def collate_fn(cls, batch):
-        return cls(np.hstack([b.row_seeds for b in batch]), batch[0].col_seeds)
+    @staticmethod
+    def collate_fn(batch):
+        row_seeds = np.hstack([b.row_seeds for b in batch])
+        return batch[0].__class__(row_seeds, batch[0].col_seeds, batch[0].distn)
 
 
 def batch_op_iter(S, op, device=None):

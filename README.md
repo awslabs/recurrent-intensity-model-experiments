@@ -91,8 +91,8 @@ For the `rime.Experiment` class to run, we need at least one dataset `D` for tes
 
 Let `x` be a user-time state and `y` be a unique item. Traditional top-k item-recommendation aims to predict `p(y|x)` for the next item given the current user-state. On the other hand, we introduce symmetry via user-recommendation that allows for the comparisons across `x`. To this end, we novelly redefine the problem as the prediction of user-item engagement *intensities* in a unit time window in the immediate future, `λ(x,y)`, and utilize a marked temporal point process (MTPP) decomposition as `λ(x,y) = λ(x) p(y|x)`. Here is the code to do that:
 ```
-rnn = rime.models.rnn.RNN(**self.model_hyps["RNN"]).fit(D.training_data)
-hawkes = rime.models.hawkes.Hawkes(D.horizon).fit(D.training_data)
+rnn = rime.models.rnn.RNN(**self.model_hyps["RNN"]).fit(D.auto_regressive)
+hawkes = rime.models.hawkes.Hawkes(D.horizon).fit(D.auto_regressive)
 S = rnn.transform(D) * hawkes.transform(D)
 ```
 S is a low-rank dataframe-like object with shape `(len(D.user_in_test), len(D.item_in_test))`.
