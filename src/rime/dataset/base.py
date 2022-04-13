@@ -94,6 +94,7 @@ class Dataset(DatasetBase):
            (self.target_csr is not None) and \
            (not self.exclude_train or self.prior_score is not None):
             return  # skip init during reindexing
+
         super().__post_init__()
 
         if self.test_requests is None:
@@ -148,13 +149,19 @@ class Dataset(DatasetBase):
     def _multi_join(self):
         return stable_inner_join(self.test_requests, self.event_df.set_index('USER_ID'))
 
-    @functools.cached_property
-    def auto_regressive(self):
-        return DatasetBase(self.user_df, self.item_df)
-
     @property
     def shape(self):
         return self.target_csr.shape
+
+    def __len__(self):
+        return self.shape[0]
+
+    def __repr__(self):
+        return f"Dataset{self.shape}"
+
+    @functools.cached_property
+    def auto_regressive(self):
+        return DatasetBase(self.user_df, self.item_df)
 
     @property
     def user_ppl_baseline(self):
@@ -253,9 +260,7 @@ def create_temporal_splits(event_df, user_df, item_df, TEST_START_TIME,
     testing_data = create_dataset(event_df,
                                   user_df.assign(TEST_START_TIME=TEST_START_TIME),
                                   item_df, horizon, **kw)
-
     testing_data.print_stats()
-
     validating_datasets = [create_dataset(
         event_df,
         user_df.assign(TEST_START_TIME=TEST_START_TIME - validating_horizon * (k + 1)),
