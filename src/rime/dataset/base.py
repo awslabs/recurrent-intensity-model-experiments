@@ -74,7 +74,7 @@ class DatasetBase:
 class Dataset(DatasetBase):
     """ Dataset with holdout targets; allows multiple requests by the same user """
 
-    test_requests: pd.DataFrame = None  # user requests indexed by USER_ID, TEST_START_TIME combinations
+    test_requests: pd.DataFrame = None  # user requests indexed by USER_ID, TEST_START_TIME, etc. combinations
     item_in_test: pd.DataFrame = None  # candidate items as a subset of item_df
     horizon: float = float("inf")      # construct target_csr; ignored if target_csr is provided
     target_csr: sps.spmatrix = None
@@ -84,7 +84,10 @@ class Dataset(DatasetBase):
     @property
     def user_in_test(self):
         """ alias with simple index """
-        return self.test_requests.reset_index(level=1)
+        user_in_test = self.test_requests.reset_index(level=1)
+        while user_in_test.index.nlevels > 1:
+            user_in_test = user_in_test.droplevel(-1)
+        return user_in_test
 
     def __post_init__(self):
         """ sanitize events and aggregate histories if applicable """
@@ -102,8 +105,8 @@ class Dataset(DatasetBase):
         if self.item_in_test is None:
             self.item_in_test = self.item_df
 
-        assert self.test_requests.index.nlevels >= 2, "test_requests should be indexed by USER_ID, TEST_START_TIME"
-        assert self.test_requests.index.is_unique, "test_requests should contain unique USER_ID, TEST_START_TIME"
+        assert self.test_requests.index.nlevels >= 2, "test_requests should be indexed by USER_ID, TEST_START_TIME, etc."
+        assert self.test_requests.index.is_unique, "test_requests should contain unique index"
         assert self.item_in_test.index.is_unique, "item_in_test should contain unique ITEM_ID"
         assert self.horizon >= 0, "horizon should be nonnegative"
 
@@ -211,7 +214,12 @@ class Dataset(DatasetBase):
     def reindex(self, index, axis):
         if axis == 0:
             old_index = self.test_requests.index
-            test_requests = self.test_requests.iloc[self.test_requests.index.get_indexer(index)]
+            while old_index.nlevels > index.nlevels:
+                old_index = old_index.droplevel(-1)
+            while index.nlevels > old_index.nlevels:
+                index = index.droplevel(-1)
+
+            test_requests = self.test_requests.iloc[old_index.get_indexer(index)]
             item_in_test = self.item_in_test
 
         else:
@@ -250,7 +258,8 @@ class Dataset(DatasetBase):
 def create_dataset(event_df, user_df, item_df, horizon=float("inf"), min_user_len=1, min_item_len=1, **kw):
     """ create unbiased Dataset with potentially repeated user_df  """
     all_users = user_df.groupby(level=0, sort=False).first()
-    test_requests = user_df.set_index("TEST_START_TIME", append=True)
+    _auto_request_id = pd.RangeIndex(len(user_df), name='_auto_request_id')
+    test_requests = user_df.set_index(["TEST_START_TIME", _auto_request_id], append=True)
     D = Dataset(all_users, item_df, event_df, test_requests, horizon=horizon, **kw)
     return D.reindex_unbiased(min_user_len, min_item_len)
 
