@@ -7,6 +7,7 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
                        seed=0, second_half_only=True,
                        title_path=None,
                        num_V_extra=1,
+                       max_num_items=None,
                        **kw):
 
     event_df = pd.read_csv(
@@ -18,6 +19,8 @@ def prepare_ml_1m_data(data_path="data/ml-1m/ratings.dat",
             event_df.groupby("USER_ID")["TIMESTAMP"].rank(method="first", pct=True) >= 0.5]
 
     user_df, item_df = extract_user_item(event_df)
+    if max_num_items is not None:
+        item_df = item_df[item_df['_siz'].rank(method='first', ascending=False) <= max_num_items]
 
     if title_path is None:
         title_path = os.path.join(os.path.dirname(data_path), 'movies.dat')

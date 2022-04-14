@@ -249,17 +249,17 @@ class GraphConv:
 
     @property
     def item_embeddings(self):
-        return self.model.item_encoder(torch.arange(self.n_tokens)).detach().numpy()
+        return self.model.item_encoder(torch.arange(self.n_tokens)).detach().cpu().numpy()
 
     @property
     def item_biases(self):
-        return self.model.item_bias_vec(torch.arange(self.n_tokens)).detach().numpy().ravel()
+        return self.model.item_bias_vec(torch.arange(self.n_tokens)).detach().cpu().numpy().ravel()
 
     def transform(self, D):
         G = self._extract_features(D)
         i = torch.arange(G.num_nodes('user'))
-        user_embeddings = self.model.user_encoder(i, G).detach().numpy()
-        user_biases = self.model.user_bias_vec(i, G).detach().numpy().ravel()
+        user_embeddings = self.model.user_encoder(i, G).detach().cpu().numpy()
+        user_biases = self.model.user_bias_vec(i, G).detach().cpu().numpy().ravel()
 
         item_reindex = lambda x, fill_value=0: matrix_reindex(
             x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)
