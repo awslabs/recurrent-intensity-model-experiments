@@ -80,6 +80,7 @@ class Dataset(DatasetBase):
     target_csr: sps.spmatrix = None
     exclude_train: bool = True         # yield negative priors and exclude some targets; ignored if prior_score is given
     prior_score: sps.spmatrix = None
+    _skip_init: dataclasses.InitVar[bool] = False  # skip init during reindex
 
     @property
     def user_in_test(self):
@@ -89,14 +90,10 @@ class Dataset(DatasetBase):
             user_in_test = user_in_test.droplevel(-1)
         return user_in_test
 
-    def __post_init__(self):
+    def __post_init__(self, _skip_init):
         """ sanitize events and aggregate histories if applicable """
-        if ("_hist_len" in self.user_df and "_hist_len" in self.item_df) and \
-           (self.test_requests is not None and "_hist_len" in self.test_requests) and \
-           (self.item_in_test is not None and "_hist_len" in self.item_in_test) and \
-           (self.target_csr is not None) and \
-           (not self.exclude_train or self.prior_score is not None):
-            return  # skip init during reindexing
+        if _skip_init:
+            return
 
         super().__post_init__()
 
@@ -241,11 +238,11 @@ class Dataset(DatasetBase):
 
         return Dataset(self.user_df, self.item_df, self.event_df,
                        test_requests, item_in_test, self.horizon,
-                       target_csr, self.exclude_train, prior_score)
+                       target_csr, self.exclude_train, prior_score, _skip_init=True)
 
-    def reindex_unbiased(self, min_user_len=1, min_item_len=1):
+    def reindex_unbiased(self, min_user_len=1, min_item_len=1, allow_inf_test_start_time=False):
         keep_row = (self.test_requests['_hist_len'] >= min_user_len).values & \
-                   (self.test_requests.index.get_level_values(1) < float('inf'))
+                   ((self.test_requests.index.get_level_values(1) < float('inf')) | allow_inf_test_start_time)
         keep_col = (self.item_in_test['_hist_len'] >= min_item_len).values
         return self.reindex(self.test_requests.index[keep_row], 0) \
                    .reindex(self.item_in_test.index[keep_col], 1)
@@ -255,13 +252,15 @@ class Dataset(DatasetBase):
         return self.reindex(df.sample(**kw).index, axis)
 
 
-def create_dataset(event_df, user_df, item_df, horizon=float("inf"), min_user_len=1, min_item_len=1, **kw):
+def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
+                   min_user_len=1, min_item_len=1, allow_inf_test_start_time=False, **kw):
     """ create unbiased Dataset with potentially repeated user_df  """
     all_users = user_df.groupby(level=0, sort=False).first()
-    _auto_request_id = pd.RangeIndex(len(user_df), name='_auto_request_id')
-    test_requests = user_df.set_index(["TEST_START_TIME", _auto_request_id], append=True)
+    _request_id = '_request_id' if '_request_id' in user_df else \
+                  pd.RangeIndex(len(user_df), name='_request_id')
+    test_requests = user_df.set_index(["TEST_START_TIME", _request_id], append=True)
     D = Dataset(all_users, item_df, event_df, test_requests, horizon=horizon, **kw)
-    return D.reindex_unbiased(min_user_len, min_item_len)
+    return D.reindex_unbiased(min_user_len, min_item_len, allow_inf_test_start_time)
 
 
 def create_temporal_splits(event_df, user_df, item_df, TEST_START_TIME,
