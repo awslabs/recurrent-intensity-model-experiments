@@ -194,11 +194,9 @@ class GraphConv:
 
         V = V.reindex(self._padded_item_list, axis=1)
         target_coo = V.target_csr.tocoo()
-        data_unit = target_coo.data[target_coo.data > 0].min()
         dataset = np.array([
-            (i, j, k) for i, j, d in zip(target_coo.row, target_coo.col, target_coo.data)
-            for _ in range(int(d // data_unit))
-        ], dtype=int)
+            (i, j, w, k) for i, j, w in zip(target_coo.row, target_coo.col, target_coo.data)
+        ])
         G = self._extract_features(V)
         return dataset, G, user_proposal, item_proposal, getattr(V, "prior_score", None)
 

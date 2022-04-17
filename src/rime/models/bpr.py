@@ -32,7 +32,9 @@ class _BPR_Common(_LitValidated):
 
     def _bpr_training_step(self, batch, user_proposal, item_proposal,
                            prior_score=None, prior_score_T=None, **kw):
-        i, j = batch.T
+        i, j, w = batch.T
+        i = i.to(int)
+        j = j.to(int)
         pos_score = self.forward(i, j, **kw)  # bsz
 
         n_negatives = self.n_negatives if self.training else self.valid_n_negatives
@@ -59,7 +61,7 @@ class _BPR_Common(_LitValidated):
             nj_score = self.forward(i, nj, **kw)
             loglik.append(F.logsigmoid(pos_score - nj_score))  # nsamp * bsz
 
-        return -torch.stack(loglik).mean()
+        return (-torch.stack(loglik) * w).sum() / (len(loglik) * n_negatives * w.sum())
 
     def configure_optimizers(self):
         print({k: v.shape for k, v in self.named_parameters()})
@@ -128,8 +130,12 @@ class BPR(LightFM_BPR):
 
     @empty_cache_on_exit
     def fit(self, D):
-        i, j = extract_past_ij(D.user_df, D.item_df.index)
-        dataset = np.transpose([i, j]).astype(int)
+        user_tokenize = {x: i for i, x in enumerate(D.user_df.index)}
+        item_tokenize = {x: j for j, x in enumerate(D.item_df.index)}
+        i = D._training_events.index.apply(user_tokenize.get)
+        j = D._training_events['ITEM_ID'].apply(item_tokenize.get)
+        w = D._training_events['VALUE'].values
+        dataset = np.transpose([i, j, w])
 
         N = len(dataset)
         train_set, valid_set = default_random_split(dataset)
