@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import scipy.sparse as sps
-import warnings, dataclasses, argparse, functools
+import warnings, dataclasses, argparse, functools, os
 from ..util import (perplexity, timed, groupby_unexplode, indices2csr,
                     matrix_reindex, fill_factory_inplace, LazyScoreBase)
 
@@ -15,16 +15,18 @@ def _sanitize_events(event_df, user_df, item_df):
     if "VALUE" not in event_df:
         event_df["VALUE"] = 1  # implicit feedback
 
-    with timed("checking for repeated user-item events"):
-        nunique = len(set(event_df.set_index(['USER_ID', 'ITEM_ID']).index))
-        if nunique < len(event_df):
-            warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
+    if int(os.environ.get("RIME_WARN_REPEATS", "1")):
+        with timed("checking for repeated user-item events"):
+            nunique = len(set(event_df.set_index(['USER_ID', 'ITEM_ID']).index))
+            if nunique < len(event_df):
+                warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
 
     return event_df
 
 
-def stable_inner_join(left, right):
-    left = left[left.index.get_level_values(0).isin(set(right.index))]
+def stable_join(left, right, inner=True):
+    if inner:
+        left = left[left.index.get_level_values(0).isin(set(right.index))]
     return left.assign(left_index=left.index.get_level_values(0)) \
                .join(right, on="left_index").drop("left_index", axis=1)
 
@@ -67,7 +69,7 @@ class DatasetBase:
     @functools.cached_property
     @timed("inferring training events")
     def _training_events(self):
-        return stable_inner_join(self.user_df, self.event_df.set_index('USER_ID')).query("TIMESTAMP < TEST_START_TIME")
+        return stable_join(self.user_df, self.event_df.set_index('USER_ID')).query("TIMESTAMP < TEST_START_TIME")
 
 
 @dataclasses.dataclass
@@ -85,7 +87,7 @@ class Dataset(DatasetBase):
     @property
     def user_in_test(self):
         """ alias with simple index """
-        user_in_test = self.test_requests.reset_index(level=1)
+        user_in_test = self.test_requests.assign(TEST_START_TIME=lambda x: x.index.get_level_values(1))
         while user_in_test.index.nlevels > 1:
             user_in_test = user_in_test.droplevel(-1)
         return user_in_test
@@ -108,8 +110,9 @@ class Dataset(DatasetBase):
         assert self.horizon >= 0, "horizon should be nonnegative"
 
         if "_hist_len" not in self.test_requests:
-            multi_join_history = self._multi_join[self._multi_join['TIMESTAMP'] < self._multi_join.index.get_level_values(1)]
-            self.test_requests = aggregate_user_history(self.test_requests, multi_join_history)
+            _test_histories = self._test_joined[
+                self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1)]
+            self.test_requests = aggregate_user_history(self.test_requests, _test_histories)
 
         if "_hist_len" not in self.item_in_test:
             self.item_in_test = self.item_in_test.assign(
@@ -119,22 +122,24 @@ class Dataset(DatasetBase):
 
         if self.target_csr is None:
             with timed("creating target_csr"):
-                multi_join_target = self._multi_join[
-                    (self._multi_join['TIMESTAMP'] >= self._multi_join.index.get_level_values(1)) &
-                    (self._multi_join['TIMESTAMP'] < self._multi_join.index.get_level_values(1) + self.horizon) &
-                    self._multi_join['ITEM_ID'].isin(self.item_in_test.index)]
+                _test_targets = self._test_joined[
+                    (self._test_joined['TIMESTAMP'] >= self._test_joined.index.get_level_values(1)) &
+                    (self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1) + self.horizon) &
+                    self._test_joined['ITEM_ID'].isin(self.item_in_test.index)]
                 self.target_csr = indices2csr(
-                    groupby_unexplode(multi_join_target['ITEM_ID'].apply(test_item_tokenize.get), self.test_requests.index),
+                    groupby_unexplode(_test_targets['ITEM_ID'].apply(test_item_tokenize.get),
+                                      self.test_requests.index),
                     shape1=len(self.item_in_test),
-                    data=groupby_unexplode(multi_join_target['VALUE'], self.test_requests.index))
+                    data=groupby_unexplode(_test_targets['VALUE'], self.test_requests.index))
 
         if self.prior_score is None and self.exclude_train:
             with timed("creating prior_score"):
-                multi_join_history = self._multi_join[  # different from previous multi_join_history
-                    (self._multi_join['TIMESTAMP'] < self._multi_join.index.get_level_values(1)) &
-                    self._multi_join['ITEM_ID'].isin(self.item_in_test.index)]
+                _test_histories = self._test_joined[  # different from previous _test_histories
+                    (self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1)) &
+                    self._test_joined['ITEM_ID'].isin(self.item_in_test.index)]
                 exclude_csr = indices2csr(
-                    groupby_unexplode(multi_join_history['ITEM_ID'].apply(test_item_tokenize.get), self.test_requests.index),
+                    groupby_unexplode(_test_histories['ITEM_ID'].apply(test_item_tokenize.get),
+                                      self.test_requests.index),
                     shape1=len(self.item_in_test))
                 self.prior_score = exclude_csr * -1e10    # clip -inf to avoid nan
 
@@ -146,8 +151,8 @@ class Dataset(DatasetBase):
 
     @functools.cached_property
     @timed("joining testing events by multi-indexed requests")
-    def _multi_join(self):
-        return stable_inner_join(self.test_requests, self.event_df.set_index('USER_ID'))
+    def _test_joined(self):
+        return stable_join(self.test_requests, self.event_df.set_index('USER_ID'))
 
     @property
     def shape(self):
@@ -259,7 +264,7 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
     _request_id = '_request_id' if '_request_id' in user_df else \
                   pd.RangeIndex(len(user_df), name='_request_id')
     test_requests = user_df.set_index(["TEST_START_TIME", _request_id], append=True)
-    D = Dataset(all_users, item_df, event_df, test_requests, horizon=horizon, **kw)
+    D = Dataset(all_users, item_df, event_df, test_requests=test_requests, horizon=horizon, **kw)
     return D.reindex_unbiased(min_user_len, min_item_len, allow_inf_test_start_time)
 
 
@@ -290,7 +295,7 @@ def create_user_splits(event_df, user_df, item_df, test_start_rel, horizon, num_
     V = create_dataset(
         event_df,
         user_df.assign(TEST_START_TIME=lambda x: np.where(
-            x['_in_GroupA'], test_start_abs, float("-inf"))),
+            x['_in_GroupA'], test_start_abs, 0.0)),
         item_df, horizon, **kw)
     if num_V_extra:
         V0 = create_dataset(

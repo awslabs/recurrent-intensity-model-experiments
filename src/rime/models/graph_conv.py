@@ -256,6 +256,7 @@ class GraphConv:
     def transform(self, D):
         G = self._extract_features(D)
         i = torch.arange(G.num_nodes('user'))
+        self.model.to("cpu")
         user_embeddings = self.model.user_encoder(i, G).detach().cpu().numpy()
         user_biases = self.model.user_bias_vec(i, G).detach().cpu().numpy().ravel()
 
