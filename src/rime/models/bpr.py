@@ -132,7 +132,7 @@ class BPR(LightFM_BPR):
     def fit(self, D):
         user_tokenize = {x: i for i, x in enumerate(D.user_df.index)}
         item_tokenize = {x: j for j, x in enumerate(D.item_df.index)}
-        i = D._training_events.index.apply(user_tokenize.get)
+        i = D._training_events['USER_ID'].apply(user_tokenize.get)
         j = D._training_events['ITEM_ID'].apply(item_tokenize.get)
         w = D._training_events['VALUE'].values
         dataset = np.transpose([i, j, w])

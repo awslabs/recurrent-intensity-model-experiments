@@ -12,7 +12,7 @@ from rime.models import (Rand, Pop, EMA, RNN, Transformer, Hawkes, HawkesPoisson
 from rime.models.zero_shot import BayesLM, ItemKNN
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
-from rime.dataset import Dataset, create_dataset
+from rime.dataset import Dataset, create_dataset_unbiased
 from rime.util import _argsort, cached_property, RandScore, plot_rec_results, plot_mtch_results
 
 from pkg_resources import get_distribution, DistributionNotFound

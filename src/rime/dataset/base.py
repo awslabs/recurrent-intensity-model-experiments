@@ -69,7 +69,11 @@ class DatasetBase:
     @functools.cached_property
     @timed("inferring training events")
     def _training_events(self):
-        return stable_join(self.user_df, self.event_df.set_index('USER_ID')).query("TIMESTAMP < TEST_START_TIME")
+        """ indexed by USER_ID and columned by ITEM_ID, TIMESTAMP, VALUE """
+        return stable_join(self.user_df, self.event_df.set_index('USER_ID')) \
+                .query("TIMESTAMP < TEST_START_TIME") \
+                .assign(USER_ID=lambda x: x.index.get_level_values(0))[[
+                    'USER_ID', 'ITEM_ID', 'TIMESTAMP', 'VALUE']]
 
 
 @dataclasses.dataclass
@@ -166,7 +170,7 @@ class Dataset(DatasetBase):
 
     @functools.cached_property
     def auto_regressive(self):
-        return DatasetBase(self.user_df, self.item_df)
+        return DatasetBase(self.user_df, self.item_df, self._training_events)
 
     @property
     def user_ppl_baseline(self):
@@ -257,8 +261,10 @@ class Dataset(DatasetBase):
         return self.reindex(df.sample(**kw).index, axis)
 
 
-def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
-                   min_user_len=1, min_item_len=1, allow_inf_test_start_time=False, **kw):
+def create_dataset_unbiased(
+    event_df, user_df, item_df, horizon=float("inf"),
+    min_user_len=1, min_item_len=1, allow_inf_test_start_time=False, **kw
+):
     """ create unbiased Dataset with potentially repeated user_df  """
     all_users = user_df.groupby(level=0, sort=False).first()
     _request_id = '_request_id' if '_request_id' in user_df else \
@@ -270,11 +276,11 @@ def create_dataset(event_df, user_df, item_df, horizon=float("inf"),
 
 def create_temporal_splits(event_df, user_df, item_df, TEST_START_TIME,
                            horizon, validating_horizon, num_V_extra=0, **kw):
-    testing_data = create_dataset(event_df,
-                                  user_df.assign(TEST_START_TIME=TEST_START_TIME),
-                                  item_df, horizon, **kw)
+    testing_data = create_dataset_unbiased(
+        event_df, user_df.assign(TEST_START_TIME=TEST_START_TIME),
+        item_df, horizon, **kw)
     testing_data.print_stats()
-    validating_datasets = [create_dataset(
+    validating_datasets = [create_dataset_unbiased(
         event_df,
         user_df.assign(TEST_START_TIME=TEST_START_TIME - validating_horizon * (k + 1)),
         item_df, validating_horizon, **kw)
@@ -286,19 +292,19 @@ def create_temporal_splits(event_df, user_df, item_df, TEST_START_TIME,
 def create_user_splits(event_df, user_df, item_df, test_start_rel, horizon, num_V_extra=0, **kw):
     assert '_in_GroupA' in user_df, "requires _in_GroupA"
     test_start_abs = user_df.get('_Tmin', 0) + test_start_rel
-    D = create_dataset(
+    D = create_dataset_unbiased(
         event_df,
         user_df.assign(TEST_START_TIME=lambda x: np.where(
             x['_in_GroupA'], float("inf"), test_start_abs)),
         item_df, horizon, **kw)
     D.print_stats()
-    V = create_dataset(
+    V = create_dataset_unbiased(
         event_df,
         user_df.assign(TEST_START_TIME=lambda x: np.where(
             x['_in_GroupA'], test_start_abs, 0.0)),
         item_df, horizon, **kw)
     if num_V_extra:
-        V0 = create_dataset(
+        V0 = create_dataset_unbiased(
             event_df,
             user_df.assign(TEST_START_TIME=test_start_abs - horizon / 2),
             item_df, horizon / 2, **kw)

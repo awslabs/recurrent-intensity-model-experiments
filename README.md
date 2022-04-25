@@ -70,9 +70,9 @@ Repository to reproduce the experiments in these papers:
 
 **Step 0. Data Preparation**
 
-The simplest way to prepare data is via `create_dataset` function:
+The simplest way to prepare data is via `create_dataset_unbiased` function:
 ```
-rime.dataset.base.create_dataset(
+rime.dataset.base.create_dataset_unbiased(
     event_df: pd.DataFrame(columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP']),
     user_df: pd.DataFrame(columns=['TEST_START_TIME'], index=USER_ID),
     item_df: pd.DataFrame(index=ITEM_ID),
@@ -80,7 +80,7 @@ rime.dataset.base.create_dataset(
 ```
 Inputs to this function include event_df for both training and holdout data, user_df for all users, and item_df for all items. The holdout test window is constructed per user to be between `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon`, where `TEST_START_TIME` is a required column in user_df. The user_df may contain repeated user rows with different `TEST_START_TIME`, in which case they will be treated as different `test_requests`. Also in the case of repeated user rows, the first occurance of the same user in the original unsorted order is used to decide for their auto-regressive training data. The function returns a `rime.dataset.base.Dataset` object, where additional feature aggregation is automatically conducted for convenience.
 
-As discussed in the paper, `create_dataset` has a default option to filter `min_user_len=min_item_len>=1` for unbiased evaluation. These thresholds can be set to zeros if cold-start is considered. We also filter by `TEST_START_TIME<inf`, without which the test window would not exist. See `rime.dataset.__init__.prepare_minimal_dataset` for some examples including these special cases.
+As discussed in the paper, `create_dataset_unbiased` has a default option to filter `min_user_len=min_item_len>=1` for unbiased evaluation. These thresholds can be set to zeros if cold-start is considered. We also filter by `TEST_START_TIME<inf`, without which the test window would not exist. See `rime.dataset.__init__.prepare_minimal_dataset` for some examples including these special cases.
 
 For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `Dual-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
 
