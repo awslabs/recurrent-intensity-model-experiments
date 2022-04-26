@@ -18,9 +18,9 @@ def get_batch_size(shape, frac=float(os.environ.get("BATCH_SIZE_FRAC", 0.1))):
 
 
 def find_iloc(old_index, new_index, allow_missing=False):
-    iloc = pd.Series(
-        np.arange(len(old_index)), index=old_index
-    ).reindex(new_index, fill_value=-1).values
+    if not isinstance(old_index, pd.Index):
+        old_index = pd.Index(old_index)
+    iloc = old_index.get_indexer(new_index)
     if not allow_missing and -1 in iloc:
         raise IndexError("missing indices detected in a disallowed case")
     return iloc
@@ -446,3 +446,32 @@ def score_op(S, op, device=None, reduce_fn=None):
         reduce_fn = {"max": max, "min": min, "sum": operator.add}[op]
     iterable = batch_op_iter(S, op, device)
     return functools.reduce(reduce_fn, iterable)
+
+
+@dataclasses.dataclass
+class LazyScoreModel:
+    user_index: pd.Index
+    item_index: pd.Index
+    lazy_score: LazyScoreBase = None
+    tie_breaker: float = 0
+
+    def __post_init__(self):
+        shape = ((len(self.user_index), len(self.item_index)))
+        if self.lazy_score is None:
+            self.lazy_score = auto_cast_lazy_score(sps.csr_matrix(shape))
+        assert self.lazy_score.shape == shape, f"shape inconsistent: {shape}, {self.lazy_score.shape}"
+
+    def transform(self, D):
+        old_index = self.user_index
+        new_index = D.test_requests.index
+        while old_index.nlevels > new_index.nlevels:
+            old_index = old_index.droplevel(-1)
+        while new_index.nlevels > old_index.nlevels:
+            new_index = new_index.droplevel(-1)
+
+        row_ind = old_index.get_indexer(new_index)
+        col_ind = self.item_index.get_indexer(D.item_in_test.index)
+        S = self.lazy_score.T[col_ind].T[row_ind]
+        if self.tie_breaker > 0:
+            S = S + RandScore.create(S.shape) * self.tie_breaker
+        return S

@@ -194,11 +194,9 @@ class GraphConv:
 
         V = V.reindex(self._padded_item_list, axis=1)
         target_coo = V.target_csr.tocoo()
-        data_unit = target_coo.data[target_coo.data > 0].min()
         dataset = np.array([
-            (i, j, k) for i, j, d in zip(target_coo.row, target_coo.col, target_coo.data)
-            for _ in range(int(d // data_unit))
-        ], dtype=int)
+            (i, j, w, k) for i, j, w in zip(target_coo.row, target_coo.col, target_coo.data)
+        ])
         G = self._extract_features(V)
         return dataset, G, user_proposal, item_proposal, getattr(V, "prior_score", None)
 
@@ -249,17 +247,18 @@ class GraphConv:
 
     @property
     def item_embeddings(self):
-        return self.model.item_encoder(torch.arange(self.n_tokens)).detach().numpy()
+        return self.model.item_encoder(torch.arange(self.n_tokens)).detach().cpu().numpy()
 
     @property
     def item_biases(self):
-        return self.model.item_bias_vec(torch.arange(self.n_tokens)).detach().numpy().ravel()
+        return self.model.item_bias_vec(torch.arange(self.n_tokens)).detach().cpu().numpy().ravel()
 
     def transform(self, D):
         G = self._extract_features(D)
         i = torch.arange(G.num_nodes('user'))
-        user_embeddings = self.model.user_encoder(i, G).detach().numpy()
-        user_biases = self.model.user_bias_vec(i, G).detach().numpy().ravel()
+        self.model.to("cpu")
+        user_embeddings = self.model.user_encoder(i, G).detach().cpu().numpy()
+        user_biases = self.model.user_bias_vec(i, G).detach().cpu().numpy().ravel()
 
         item_reindex = lambda x, fill_value=0: matrix_reindex(
             x, self._padded_item_list, D.item_in_test.index, axis=0, fill_value=fill_value)

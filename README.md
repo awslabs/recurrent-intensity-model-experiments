@@ -70,20 +70,17 @@ Repository to reproduce the experiments in these papers:
 
 **Step 0. Data Preparation**
 
-The simplest way to prepare data is via `create_dataset` function:
+The simplest way to prepare data is via `create_dataset_unbiased` function:
 ```
-rime.dataset.base.create_dataset(
+rime.dataset.base.create_dataset_unbiased(
     event_df: pd.DataFrame(columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP']),
     user_df: pd.DataFrame(columns=['TEST_START_TIME'], index=USER_ID),
     item_df: pd.DataFrame(index=ITEM_ID),
     horizon: float >= 0 in the same unit as the TIMESTAMP column)
 ```
-The `create_dataset` function will then regard events with `TIMESTAMP < TEST_START_TIME` as user histories and events within `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon` as prediction targets. We collect user histories in dataframe order without artificial sorting by time. The collected user histories (`user_df._hist_items` and `user_df._hist_ts`) will be used for both auto-regressive training and user-side feature creation in prediction tasks. The function returns a `rime.dataset.base.Dataset` object.
+Inputs to this function include event_df for both training and holdout data, user_df for all users, and item_df for all items. The holdout test window is constructed per user to be between `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon`, where `TEST_START_TIME` is a required column in user_df. The user_df may contain repeated user rows with different `TEST_START_TIME`, in which case they will be treated as different `test_requests`. Also in the case of repeated user rows, the first occurance of the same user in the original unsorted order is used to decide for their auto-regressive training data. The function returns a `rime.dataset.base.Dataset` object, where additional feature aggregation is automatically conducted for convenience.
 
-To preserve temporal causality, we additionally filter users/items with at least 1 event as test candidates. The min-thresholds are adjustable and we record the filtered data as `user_in_test` and `item_in_test` attributes in the `Dataset` object. The filter does not apply for training, which is recorded separately as `user_df` and `item_df`.
-We also filter by `user_in_test[TEST_START_TIME] < +inf`, which is an obvious necessity for test targets to exist and we abuse the +inf test-start time to indicate training-only users.
-Another advanced case is having multiple test-start times for the same `USER_ID`, which we naturally handle by creating multiple rows in `user_in_test` with the corresponding histories. However, this case may also cause undesirable repetitions in the `user_df` attribute for training purposes. We thus deduplicate `user_df` by keeping the first entry per user in dataframe order. Similarly, we consider only the first row of each user in `user_df` towards the number of historical visits in `item_df._hist_len`.
-For additional details, including a template for the created `Dataset` class as well as the use of `exclude_train` priors for cleaner model evaluations, please visit the example in `rime.dataset.prepare_minimal_dataset`.
+As discussed in the paper, `create_dataset_unbiased` has a default option to filter `min_user_len=min_item_len>=1` for unbiased evaluation. These thresholds can be set to zeros if cold-start is considered. We also filter by `TEST_START_TIME<inf`, without which the test window would not exist. See `rime.dataset.__init__.prepare_minimal_dataset` for some examples including these special cases.
 
 For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `Dual-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
 

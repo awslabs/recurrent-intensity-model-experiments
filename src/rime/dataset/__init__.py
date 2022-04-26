@@ -1,8 +1,7 @@
 import pandas as pd, numpy as np
 import argparse
 from ..util import extract_user_item
-from .base import (create_dataset, Dataset, create_temporal_splits, create_user_splits,
-                   _get_user_time_index)
+from .base import create_dataset_unbiased, Dataset, create_temporal_splits, create_user_splits
 from .prepare_netflix_data import prepare_netflix_data
 from .prepare_ml_1m_data import prepare_ml_1m_data
 from .prepare_yoochoose_data import prepare_yoochoose_data
@@ -26,7 +25,8 @@ def prepare_minimal_dataset():
 
     item_df = pd.DataFrame(index=["i1", "i2", "i3", "i4"])
 
-    D = create_dataset(event_df, user_df, item_df, 100, exclude_train=True, _item_rec_top_k=2)
+    D = create_dataset_unbiased(event_df, user_df, item_df, 100, exclude_train=True)
+    D._k1 = 2
 
     test_user_ids = D.user_in_test.set_index('TEST_START_TIME', append=True).index.tolist()
     test_item_ids = D.item_in_test.index.tolist()
@@ -75,6 +75,6 @@ def prepare_simple_pattern():
     })
     user_df, item_df = extract_user_item(event_df)
     user_df['TEST_START_TIME'] = 12
-    D = create_dataset(event_df, user_df, item_df, 1)
+    D = create_dataset_unbiased(event_df, user_df, item_df, 1)
     D.print_stats()
     return (D, None)

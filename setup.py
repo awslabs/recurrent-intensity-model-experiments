@@ -26,6 +26,4 @@ setup(
         "pandas>=1.1.5",
         "matplotlib>=3.3.4",
     ],
-    use_scm_version=True,
-    setup_requires=['setuptools_scm'],
 )

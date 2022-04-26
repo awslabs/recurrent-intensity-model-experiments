@@ -27,12 +27,12 @@ class Rand:
 
 class Pop:
     def __init__(self, user_rec=True, item_rec=True,
-                 item_pseudo=0.01, user_pseudo=0.01, tie_break_noise=0.01):
+                 item_pseudo=0.01, user_pseudo=0.01, tie_breaker=0.01):
         self.user_rec = user_rec
         self.item_rec = item_rec
         self.item_pseudo = item_pseudo
         self.user_pseudo = user_pseudo
-        self.tie_break_noise = tie_break_noise
+        self.tie_breaker = tie_breaker
 
     def fit(self, D):
         self.item_scores = D.item_df['_hist_len']
@@ -49,8 +49,8 @@ class Pop:
 
         S = LazyDenseMatrix(user_scores[:, None]) * \
             LazyDenseMatrix(item_scores[None, :])  # mtpp implies *
-        if self.tie_break_noise > 0:
-            S = S + RandScore.create(S.shape) * self.tie_break_noise
+        if self.tie_breaker > 0:
+            S = S + RandScore.create(S.shape) * self.tie_breaker
         return S
 
 
