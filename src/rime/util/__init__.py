@@ -3,7 +3,7 @@ import functools, collections, time, contextlib, torch, gc, warnings
 from torch.utils.data import DataLoader, random_split
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from backports.cached_property import cached_property
+from functools import cached_property
 from .score_array import *  # noqa: F401, F403
 from .plotting import plot_rec_results, plot_mtch_results
 
@@ -315,3 +315,9 @@ def default_random_split(dataset):
         warnings.warn(f"short dataset len={len(dataset)}; "
                       "setting valid_set identical to train_set")
         return dataset, dataset
+
+
+@dataclasses.dataclass
+class MissingModel:
+    name: str
+    err: Exception

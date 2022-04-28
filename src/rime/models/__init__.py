@@ -7,15 +7,21 @@ from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
 from .bpr import BPR
-from .graph_conv import GraphConv
-from .lda import LDA
+from rime.util import LazyDenseMatrix, RandScore, MissingModel
+
+try:
+    from .graph_conv import GraphConv
+except ImportError as e:
+    GraphConv = MissingModel("GraphConv", e)
+try:
+    from .lda import LDA
+except ImportError as e:
+    LDA = MissingModel("LDA", e)
 try:
     from .implicit import ALS, LogisticMF
-except ImportError:
-    ALS = LogisticMF = None
-    warnings.warn("Implicit package not properly installed.")
-
-from rime.util import LazyDenseMatrix, RandScore
+except ImportError as e:
+    ALS = MissingModel("ALS", e)
+    LogisticMF = MissingModel("LogisticMF", e)
 
 
 class Rand:
