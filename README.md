@@ -31,7 +31,7 @@ Repository to reproduce the experiments in these papers:
 
 1. Download and install via `pip install -e .`
     - If you see "RuntimeError: Unable to find target ...", try `pip install --no-cache-dir --ignore-installed -U numba`
-    - Some baseline models may require manual installation. They are optional. See `install_full.ipynb` for more details.
+    - Some baseline models may require manual installation. They are optional. See [install_full.ipynb](install_full.ipynb) for more details.
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run recommendation experiment as
     ```
