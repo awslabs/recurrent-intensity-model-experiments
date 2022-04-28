@@ -13,7 +13,7 @@ from rime.models.zero_shot import BayesLM, ItemKNN
 from rime.metrics import (evaluate_item_rec, evaluate_user_rec, evaluate_mtch)
 from rime import dataset
 from rime.dataset import Dataset, create_dataset_unbiased
-from rime.util import _argsort, cached_property, RandScore, plot_rec_results, plot_mtch_results
+from rime.util import _argsort, cached_property, RandScore, plot_rec_results, plot_mtch_results, MissingModel
 
 from pkg_resources import get_distribution, DistributionNotFound
 try:
@@ -237,6 +237,13 @@ class Experiment:
             "ItemKNN-0": lambda D: self._item_knn_0.transform(D),
             "ItemKNN-1": lambda D: self._item_knn_1.transform(D),
         }
+
+        for model in [LDA, ALS, LogisticMF, GraphConv, ItemKNN, BayesLM]:
+            if isinstance(model, MissingModel):
+                keys = [k for k in registered.keys() if k.startswith(model.name)]
+                for k in keys:
+                    warnings.warn(f"skipping {k} due to {model.err}")
+                    registered.pop(k, None)
 
         # disable models due to missing inputs
 

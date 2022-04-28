@@ -29,13 +29,8 @@ Repository to reproduce the experiments in these papers:
 
 ## Getting Started
 
-0. Manually install these packages as they may require a manual selection of cuda version
-    - pytorch is pre-installed with aws deep-learning machine images (AMI)
-    - `pip install dgl-cu111` # or matching cuda version with torch
-    - `conda install -c conda-forge implicit implicit-proc=*=gpu -y`
-    - If more dependencies are needed, try this: `conda env update --file environment.yml`
-    - We use it to set up github build actions, with an obvious downside of not using any gpus.
 1. Download and install via `pip install -e .`
+    - Some baseline models may require manual installation. They are optional. See `install_full.ipynb` for more details.
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run recommendation experiment as
     ```

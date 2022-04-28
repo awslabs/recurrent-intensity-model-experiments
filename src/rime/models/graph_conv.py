@@ -5,10 +5,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, empty_cache_on_exit, LazyDenseMatrix, matrix_reindex,
                     default_random_split, auto_cast_lazy_score)
 from .bpr import _BPR_Common
-try:
-    import dgl, dgl.function as fn
-except ImportError:
-    warnings.warn("GraphConv requires dgl package")
+import dgl, dgl.function as fn
 
 
 def _plain_average(G, item_embeddings):
