@@ -31,7 +31,21 @@ Repository to reproduce the experiments in these papers:
 
 1. Download and install via `pip install -e .`
     - If you see "RuntimeError: Unable to find target ...", try `pip install --no-cache-dir --ignore-installed -U numba`
-    - Some baseline models may require manual installation. They are optional. See [install_full.ipynb](install_full.ipynb) for more details.
+    - Some baseline models may require manual installation. They are optional.
+    - <details>
+        <summary>To install everything:</summary>
+
+        ```
+        !pip install -e .
+        !pip install --no-cache-dir --ignore-installed -U numba  # optional fix for numba error
+        !pip install dgl-cu111  # replace with the correct cuda version
+        !conda install -c conda-forge implicit implicit-proc=*=gpu -y
+        # restart kernel after installation
+        %run test/test_rime.py
+        test_minimal_dataset()
+        ```
+    </details>
+
 2. Add data to the [data](data) folder. Some downloading and preparing scripts may be found in [data/util.py](data/util.py).
 3. Run recommendation experiment as
     ```
@@ -72,13 +86,50 @@ rime.dataset.base.create_dataset_unbiased(
     event_df: pd.DataFrame(columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP']),
     user_df: pd.DataFrame(columns=['TEST_START_TIME'], index=USER_ID),
     item_df: pd.DataFrame(index=ITEM_ID),
-    horizon: float >= 0 in the same unit as the TIMESTAMP column)
+    horizon = float('inf'))  # test period relative to TEST_START_TIME
 ```
+
+<details>
+    <summary>General definitions</summary>
+
 This function (and the resulting `Dataset` class) allow for multiple data splitting methods, including by user, by absolute time, and by relative percentage per user event stream. Our trick is to ask for a table of all events in `event_df` and a table of all users in `user_df` with one `TEST_START_TIME` per row. The function will then extract training events based on `TIMESTAMP < TEST_START_TIME` and testing events between `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon`, respectively for each user. To improve clarity, we also require all items to be registered in `item_df`. Finally, in `user_df` table, we have special logics if we see multiple rows with the same `USER_ID` index but different `TEST_START_TIME` per user. We consider this as a desire to evaluate the models for rolling next-item predictions, regular-interval updates, etc., as the input suggests.
 
 Besides the basic splitting logic, `create_dataset_unbiased` includes a few default options. We default to filtering user-and-item test candidates by `min_user_len>=1`, `min_item_len>=1`, and `TEST_START_TIME<inf`. This is to avoid evaluation biases against cold-start users and items and the thresholds may be adjusted if bias is not a concern. We also set `exclude_train=True` to automatically exclude the training events from appearing as testing targets. In the same context, we generate a sparse `prior_score` matrix that can be added to the model prediction outputs to discourage the models from repetitive predictions as well. See `rime.dataset.__init__.prepare_minimal_dataset` for some examples including these special cases.
 
 For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `Dual-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
+
+</details>
+
+<details>
+    <summary>Examples</summary>
+
+In the following examples, we will use the same `event_df` and `item_df`. Also, please notice that the argument order is different between `Dataset` and `create_dataset_unbiased`.
+
+```
+event_df = pd.DataFrame([('u1', 'a', 3), ('u1', 'b', 4), ('u2', 'c', 5), ('u2', 'd', 6)],
+                        columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP'])
+item_df = pd.DataFrame(index=['a', 'b', 'c', 'd'])
+```
+
+1. Temporal seq2seq split for `{u1: [a, b]->[], u2: [c]->[d]}`
+    ```
+    user_df = pd.Series({'u1': 6, 'u2': 6}).to_frame("TEST_START_TIME")
+    D = rime.dataset.Dataset(user_df, item_df, event_df)
+    ```
+
+2. User-based split, training on `{u1: [a, b], u2: [c]}` and testing on `{u2: [c] -> [d]}`
+    ```
+    user_df = pd.Series({'u1': float('inf'), 'u2': 6}).to_frame("TEST_START_TIME")
+    D = rime.dataset.create_dataset_unbiased(event_df, user_df, item_df, min_item_len=0)
+    ```
+
+3. Rolling prediction, training on `{u1: [a, b]}` and testing on `{(u2, 5): [] -> [c], (u2, 6) [c] -> [d]}`
+    ```
+    user_df = pd.Series({'u1': float('inf'), 'u2': float('-inf')}).to_frame("TEST_START_TIME")
+    test_requests = pd.DataFrame(index=pd.MultiIndex.from_tuples([('u2', 5), ('u2', 6)]))
+    D = rime.dataset.Dataset(user_df, item_df, event_df, test_requests=test_requests, horizon=1)
+    ```
+</details>
 
 **Step 1. Predictions**
 
