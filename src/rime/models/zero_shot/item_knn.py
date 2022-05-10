@@ -87,9 +87,9 @@ class ItemKNN:
 
         user_embeddings = np.vstack([w @ x for w, x in zip(
             np.split(weights, splits), np.split(np.vstack(explode_embeddings), splits)
-        )]) / self.temperature
+        )]) / self.temperature  # not very useful due to linearity in softplus
 
         item_reindex = lambda x, fill_value=0: matrix_reindex(
             x, self.item_index, D.item_in_test.index, axis=0, fill_value=fill_value)
         return (LazyDenseMatrix(user_embeddings) @ item_reindex(self.item_embeddings).T
-                + item_reindex(self.item_biases, fill_value=-np.inf)).exp()  # bugfix; watch out for inf
+                + item_reindex(self.item_biases, fill_value=-np.inf)).softplus()
