@@ -59,7 +59,7 @@ Repository to reproduce the experiments in these papers:
 
     <img src="figure/rec-ml-1m-prec.png" alt="rec-ml-1m-prec" width="40%"/>
 
-    Notice the optional config that excludes training user-item pairs from reappearing in predictions (and targets) by automatically generating a prior_score attribute in dataset class. This helps non-temporal matrix-factorization models.
+    Notice the optional config that excludes training user-item pairs from reappearing in predictions by automatically generating a prior_score attribute in dataset class. This helps non-temporal matrix-factorization models.
 
 4. Run matching experiment with Dual-Online allocation and plot diversity-relevance trade-off
    ```
@@ -94,7 +94,7 @@ rime.dataset.base.create_dataset_unbiased(
 
 This function (and the resulting `Dataset` class) allow for multiple data splitting methods, including by user, by absolute time, and by relative percentage per user event stream. Our trick is to ask for a table of all events in `event_df` and a table of all users in `user_df` with one `TEST_START_TIME` per row. The function will then extract training events based on `TIMESTAMP < TEST_START_TIME` and testing events between `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon`, respectively for each user. To improve clarity, we also require all items to be registered in `item_df`. Finally, in `user_df` table, we have special logics if we see multiple rows with the same `USER_ID` index but different `TEST_START_TIME` per user. We consider this as a desire to evaluate the models for rolling next-item predictions, regular-interval updates, etc., as the input suggests.
 
-Besides the basic splitting logic, `create_dataset_unbiased` includes a few default options. We default to filtering user-and-item test candidates by `min_user_len>=1`, `min_item_len>=1`, and `TEST_START_TIME<inf`. This is to avoid evaluation biases against cold-start users and items and the thresholds may be adjusted if bias is not a concern. We also set `exclude_train=True` to automatically exclude the training events from appearing as testing targets. In the same context, we generate a sparse `prior_score` matrix that can be added to the model prediction outputs to discourage the models from repetitive predictions as well. See `rime.dataset.__init__.prepare_minimal_dataset` for some examples including these special cases.
+Besides the basic splitting logic, `create_dataset_unbiased` includes a few default options. We default to filtering user-and-item test candidates by `min_user_len>=1`, `min_item_len>=1`, and `TEST_START_TIME<inf`. This is to avoid evaluation biases against cold-start users and items and the thresholds may be adjusted if bias is not a concern. We also use `exclude_train=True` to generate a negative `prior_score` matrix that can be added to the model prediction scores to discourage repetitive predictions. See `rime.dataset.__init__.prepare_minimal_dataset` for some examples including these special cases.
 
 For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `Dual-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
 
