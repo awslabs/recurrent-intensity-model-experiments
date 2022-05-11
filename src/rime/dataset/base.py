@@ -84,7 +84,7 @@ class Dataset(DatasetBase):
     item_in_test: pd.DataFrame = None  # candidate items as a subset of item_df
     horizon: float = float("inf")      # construct target_csr; ignored if target_csr is provided
     target_csr: sps.spmatrix = None
-    exclude_train: bool = True         # yield negative priors on repeated items; ignored if prior_score is given
+    exclude_train: bool = True         # yield negative priors and exclude some targets; ignored if prior_score is given
     rerank_candidate_prior: float = 0  # priors on candidate items regardless of value; ignored if prior_score is given
     prior_score: sps.spmatrix = None
     _skip_init: dataclasses.InitVar[bool] = False  # skip init during reindex
@@ -150,6 +150,10 @@ class Dataset(DatasetBase):
                                           self.test_requests.index),
                         shape1=len(self.item_in_test))
                     self.prior_score = self.prior_score + exclude_csr * -1e10
+
+                    mask_csr = self.target_csr.astype(bool) > exclude_csr.astype(bool)
+                    self.target_csr = self.target_csr.multiply(mask_csr)
+                    self.target_csr.eliminate_zeros()
 
             if self.rerank_candidate_prior:
                 with timed("creating reranking candidate prior_score"):
