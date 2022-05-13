@@ -52,8 +52,11 @@ def _get_cuda_objs():
             # (hasattr(obj, 'data') and torch.is_tensor(obj.data))
         except Exception:
             flag = False
-        if flag and torch.device(obj.device) != torch.device("cpu"):
-            objs.append(obj)
+        try:
+            if flag and torch.device(obj.device) != torch.device("cpu"):
+                objs.append(obj)
+        except RuntimeError as e:
+            warnings.warn(str(e))
     return objs
 
 
