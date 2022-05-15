@@ -85,7 +85,7 @@ class Dataset(DatasetBase):
     horizon: float = float("inf")      # construct target_csr; ignored if target_csr is provided
     target_csr: sps.spmatrix = None
     exclude_train: bool = True         # yield negative priors and exclude some targets; ignored if prior_score is given
-    rerank_candidate_prior: float = 0  # priors on candidate items regardless of value; ignored if prior_score is given
+    sample_with_prior: float = 0       # add priors on target candidates to form a reranking task
     prior_score: sps.spmatrix = None
     _skip_init: dataclasses.InitVar[bool] = False  # skip init during reindex
 
@@ -137,7 +137,7 @@ class Dataset(DatasetBase):
                     shape1=len(self.item_in_test),
                     data=groupby_unexplode(_test_targets['VALUE'], self.test_requests.index))
 
-        if self.prior_score is None and (self.exclude_train or self.rerank_candidate_prior):
+        if self.prior_score is None and (self.exclude_train or self.sample_with_prior):
             self.prior_score = 0
 
             if self.exclude_train:
@@ -155,13 +155,13 @@ class Dataset(DatasetBase):
                     self.target_csr = self.target_csr.multiply(mask_csr)
                     self.target_csr.eliminate_zeros()
 
-            if self.rerank_candidate_prior:
+            if self.sample_with_prior:
                 with timed("creating reranking candidate prior_score"):
                     cand_csr = indices2csr(
                         groupby_unexplode(_test_targets['ITEM_ID'].apply(test_item_tokenize.get),
                                           self.test_requests.index),
                         shape1=len(self.item_in_test))
-                    self.prior_score = self.prior_score + cand_csr * self.rerank_candidate_prior
+                    self.prior_score = self.prior_score + cand_csr * self.sample_with_prior
 
         print("Dataset created!")
 
