@@ -64,7 +64,6 @@ class _BPR_Common(_LitValidated):
         return (-torch.stack(loglik) * w).sum() / (len(loglik) * n_negatives * w.sum())
 
     def configure_optimizers(self):
-        print({k: v.shape for k, v in self.named_parameters()})
         optimizer = torch.optim.Adagrad(
             self.parameters(), eps=1e-3, lr=self.lr, weight_decay=self.weight_decay)
         lr_scheduler = _ReduceLRLoadCkpt(
