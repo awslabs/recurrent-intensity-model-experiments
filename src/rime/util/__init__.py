@@ -284,7 +284,7 @@ class _LitValidated(LightningModule):
         return loss
 
     def validation_epoch_end(self, outputs):
-        val_epoch_loss = torch.stack(outputs).mean()
+        val_epoch_loss = torch.hstack(outputs).mean()
         self.log("val_epoch_loss", val_epoch_loss, prog_bar=True)
         self.val_epoch_loss = val_epoch_loss
 
