@@ -88,6 +88,7 @@ class Dataset(DatasetBase):
     sample_with_prior: float = 0       # add priors on target candidates to form a reranking task
     prior_score: sps.spmatrix = None
     _skip_init: dataclasses.InitVar[bool] = False  # skip init during reindex
+    test_update_history: bool = True   # update relative history vs. frozen training history (False)
 
     @property
     def user_in_test(self):
@@ -115,9 +116,13 @@ class Dataset(DatasetBase):
         assert self.horizon >= 0, "horizon should be nonnegative"
 
         if "_hist_len" not in self.test_requests:
-            _test_histories = self._test_joined[
-                self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1)]
-            self.test_requests = aggregate_user_history(self.test_requests, _test_histories)
+            if self.test_update_history:
+                _test_histories = self._test_joined[
+                    self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1)]
+                self.test_requests = aggregate_user_history(self.test_requests, _test_histories)
+            else:
+                self.test_requests = stable_join(self.test_requests,
+                                                 self.user_df[['_hist_items', '_hist_ts', '_hist_values', '_hist_len']])
 
         if "_hist_len" not in self.item_in_test:
             self.item_in_test = self.item_in_test.assign(
@@ -127,26 +132,21 @@ class Dataset(DatasetBase):
 
         if self.target_csr is None:
             with timed("creating target_csr"):
-                _test_targets = self._test_joined[
-                    (self._test_joined['TIMESTAMP'] >= self._test_joined.index.get_level_values(1)) &
-                    (self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1) + self.horizon) &
-                    self._test_joined['ITEM_ID'].isin(self.item_in_test.index)]
                 self.target_csr = indices2csr(
-                    groupby_unexplode(_test_targets['ITEM_ID'].apply(test_item_tokenize.get),
+                    groupby_unexplode(self._test_targets['ITEM_ID'].apply(test_item_tokenize.get),
                                       self.test_requests.index),
                     shape1=len(self.item_in_test),
-                    data=groupby_unexplode(_test_targets['VALUE'], self.test_requests.index))
+                    data=groupby_unexplode(self._test_targets['VALUE'], self.test_requests.index))
 
         if self.prior_score is None and (self.exclude_train or self.sample_with_prior):
             self.prior_score = 0
 
             if self.exclude_train:
                 with timed("creating prior_score"):
-                    _test_histories = self._test_joined[  # different from previous _test_histories
-                        (self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1)) &
-                        self._test_joined['ITEM_ID'].isin(self.item_in_test.index)]
+                    _test_history_explode = self.test_requests['_hist_items'].explode()
+                    _test_history_explode = _test_history_explode[_test_history_explode.isin(self.item_in_test.index)]
                     exclude_csr = indices2csr(
-                        groupby_unexplode(_test_histories['ITEM_ID'].apply(test_item_tokenize.get),
+                        groupby_unexplode(_test_history_explode.apply(test_item_tokenize.get),
                                           self.test_requests.index),
                         shape1=len(self.item_in_test))
                     self.prior_score = self.prior_score + exclude_csr * -1e10
@@ -158,7 +158,7 @@ class Dataset(DatasetBase):
             if self.sample_with_prior:
                 with timed("creating reranking candidate prior_score"):
                     cand_csr = indices2csr(
-                        groupby_unexplode(_test_targets['ITEM_ID'].apply(test_item_tokenize.get),
+                        groupby_unexplode(self._test_targets['ITEM_ID'].apply(test_item_tokenize.get),
                                           self.test_requests.index),
                         shape1=len(self.item_in_test))
                     self.prior_score = self.prior_score + cand_csr * self.sample_with_prior
@@ -169,6 +169,14 @@ class Dataset(DatasetBase):
     @timed("joining testing events by multi-indexed requests")
     def _test_joined(self):
         return stable_join(self.test_requests, self.event_df.set_index('USER_ID'))
+
+    @property
+    def _test_targets(self):
+        """ based on _test_joined, horizon, item_in_test """
+        return self._test_joined[
+            (self._test_joined['TIMESTAMP'] >= self._test_joined.index.get_level_values(1)) &
+            (self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1) + self.horizon) &
+            self._test_joined['ITEM_ID'].isin(self.item_in_test.index)]
 
     @property
     def shape(self):
