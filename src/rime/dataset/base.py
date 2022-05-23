@@ -1,6 +1,6 @@
 import pandas as pd, numpy as np
 import scipy.sparse as sps
-import warnings, dataclasses, argparse, functools, os
+import warnings, dataclasses, argparse, functools, os, typing
 from ..util import (perplexity, timed, groupby_unexplode, indices2csr,
                     matrix_reindex, fill_factory_inplace, LazyScoreBase)
 
@@ -84,7 +84,7 @@ class Dataset(DatasetBase):
     item_in_test: pd.DataFrame = None  # candidate items as a subset of item_df
     horizon: float = float("inf")      # construct target_csr; ignored if target_csr is provided
     target_csr: sps.spmatrix = None
-    exclude_train: bool = True         # yield negative priors and exclude some targets; ignored if prior_score is given
+    exclude_train: typing.Union[bool, list] = True  # add negative priors for repeated items or item columns
     sample_with_prior: float = 0       # add priors on target candidates to form a reranking task
     prior_score: sps.spmatrix = None
     _skip_init: dataclasses.InitVar[bool] = False  # skip init during reindex
@@ -117,12 +117,13 @@ class Dataset(DatasetBase):
 
         if "_hist_len" not in self.test_requests:
             if self.test_update_history:
-                _test_histories = self._test_joined[
-                    self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1)]
-                self.test_requests = aggregate_user_history(self.test_requests, _test_histories)
+                self.test_requests = aggregate_user_history(
+                    self.test_requests,
+                    self._test_joined[self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1)])
             else:
-                self.test_requests = stable_join(self.test_requests,
-                                                 self.user_df[['_hist_items', '_hist_ts', '_hist_values', '_hist_len']])
+                self.test_requests = stable_join(
+                    self.test_requests,
+                    self.user_df[['_hist_items', '_hist_ts', '_hist_values', '_hist_len']])
 
         if "_hist_len" not in self.item_in_test:
             self.item_in_test = self.item_in_test.assign(
@@ -137,23 +138,39 @@ class Dataset(DatasetBase):
                                       self.test_requests.index),
                     shape1=len(self.item_in_test),
                     data=groupby_unexplode(self._test_targets['VALUE'], self.test_requests.index))
+                self.target_csr.eliminate_zeros()
 
         if self.prior_score is None and (self.exclude_train or self.sample_with_prior):
             self.prior_score = 0
 
             if self.exclude_train:
+                # handles both outcomes of test_update_history
+                _test_histories = self.test_requests[self.test_requests['_hist_len'] > 0]['_hist_items'].explode()
                 with timed("creating prior_score"):
-                    _test_history_explode = self.test_requests['_hist_items'].explode()
-                    _test_history_explode = _test_history_explode[_test_history_explode.isin(self.item_in_test.index)]
                     exclude_csr = indices2csr(
-                        groupby_unexplode(_test_history_explode.apply(test_item_tokenize.get),
-                                          self.test_requests.index),
+                        groupby_unexplode(
+                            _test_histories[_test_histories.isin(self.item_in_test.index)].apply(test_item_tokenize.get),
+                            self.test_requests.index),
                         shape1=len(self.item_in_test))
                     self.prior_score = self.prior_score + exclude_csr * -1e10
 
-                    mask_csr = self.target_csr.astype(bool) > exclude_csr.astype(bool)
-                    self.target_csr = self.target_csr.multiply(mask_csr)
-                    self.target_csr.eliminate_zeros()
+                if isinstance(self.exclude_train, list):
+                    for _cat_name in self.exclude_train:
+                        with timed(f"creating prior_score for {_cat_name}"):
+                            _cat_codes = self.item_df[self.item_df[_cat_name].notnull()
+                                                      ][_cat_name].astype('category').cat.codes
+                            _test_requests_csr = indices2csr(
+                                groupby_unexplode(
+                                    _test_histories[_test_histories.isin(_cat_codes.index)].apply(_cat_codes.to_dict().get),
+                                    self.test_requests.index),
+                                shape1=_cat_codes.max() + 1)
+                            _item_in_test_csr = indices2csr(
+                                groupby_unexplode(
+                                    stable_join(self.item_in_test[[]], _cat_codes.to_frame("code"))['code'],
+                                    self.item_in_test.index),
+                                shape1=_cat_codes.max() + 1)
+                            exclude_csr = _test_requests_csr @ _item_in_test_csr.T
+                            self.prior_score = self.prior_score + exclude_csr * -1e10
 
             if self.sample_with_prior:
                 with timed("creating reranking candidate prior_score"):
@@ -163,7 +180,7 @@ class Dataset(DatasetBase):
                         shape1=len(self.item_in_test))
                     self.prior_score = self.prior_score + cand_csr * self.sample_with_prior
 
-        print("Dataset created!")
+        print(f"{repr(self)} created!")
 
     @functools.cached_property
     @timed("joining testing events by multi-indexed requests")
@@ -186,7 +203,8 @@ class Dataset(DatasetBase):
         return self.shape[0]
 
     def __repr__(self):
-        return f"Dataset{self.shape}"
+        prior_nnz = self.prior_score.nnz if self.prior_score is not None else None
+        return f"Dataset{self.shape} with {self.target_csr.nnz} target events and {prior_nnz} prior scores"
 
     @functools.cached_property
     def auto_regressive(self):
@@ -234,7 +252,9 @@ class Dataset(DatasetBase):
     def print_stats(self, verbose=True):
         print(pd.DataFrame(self.get_stats()).T.stack().apply('{:.2f}'.format))
         if verbose:
+            print("+++sample test_requests")
             print(self.test_requests.sample().iloc[0])
+            print("+++sample item_in_test")
             print(self.item_in_test.sample().iloc[0])
 
     def reindex(self, index, axis):

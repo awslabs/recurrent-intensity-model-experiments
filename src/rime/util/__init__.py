@@ -280,7 +280,7 @@ class _LitValidated(LightningModule):
         loss = self.training_step(batch, batch_idx)
         if isinstance(loss, collections.abc.Mapping) and 'loss' in loss:
             loss = loss['loss']
-        self.log("val_batch_loss", loss)
+        # self.log("val_batch_loss", loss)
         return loss
 
     def validation_epoch_end(self, outputs):

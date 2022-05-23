@@ -40,14 +40,15 @@ class _BPR_Common(_LitValidated):
         n_negatives = self.n_negatives if self.training else self.valid_n_negatives
         n_shape = (n_negatives, len(batch))
         loglik = []
+        replacement = getattr(self, "replacement", True)
 
         if self.user_rec:
             user_proposal = torch.as_tensor(user_proposal).to(batch.device)
             if prior_score_T is not None:
                 ni = _mnl_w_prior(prior_score_T[j.tolist()], user_proposal,
-                                  n_negatives, self.training_prior_fcn)
+                                  n_negatives, self.training_prior_fcn, replacement)
             else:
-                ni = torch.multinomial(user_proposal, np.prod(n_shape), True).reshape(n_shape)
+                ni = torch.multinomial(user_proposal, np.prod(n_shape), replacement).reshape(n_shape)
             ni_score = self.forward(ni, j, **kw)
             loglik.append(F.logsigmoid(pos_score - ni_score))  # nsamp * bsz
 
@@ -55,9 +56,9 @@ class _BPR_Common(_LitValidated):
             item_proposal = torch.as_tensor(item_proposal).to(batch.device)
             if prior_score is not None:
                 nj = _mnl_w_prior(prior_score[i.tolist()], item_proposal,
-                                  n_negatives, self.training_prior_fcn)
+                                  n_negatives, self.training_prior_fcn, replacement)
             else:
-                nj = torch.multinomial(item_proposal, np.prod(n_shape), True).reshape(n_shape)
+                nj = torch.multinomial(item_proposal, np.prod(n_shape), replacement).reshape(n_shape)
             nj_score = self.forward(i, nj, **kw)
             loglik.append(F.logsigmoid(pos_score - nj_score))  # nsamp * bsz
 
@@ -105,13 +106,13 @@ class _BPR(_BPR_Common):
 
 
 @torch.no_grad()
-def _mnl_w_prior(S: LazyScoreBase, proposal, n_negatives, training_prior_fcn):
+def _mnl_w_prior(S: LazyScoreBase, proposal, n_negatives, training_prior_fcn, replacement):
     out = []
     for i in range(0, len(S), S.batch_size):
         batch = S[i:min(len(S), i + S.batch_size)]
         batch = training_prior_fcn(batch.as_tensor(proposal.device))
         prob = (batch + proposal.log()).softmax(1)
-        batch_out = torch.multinomial(prob, n_negatives, True)  # batch_size, n_negatives
+        batch_out = torch.multinomial(prob, n_negatives, replacement)  # batch_size, n_negatives
         out.append(batch_out)
     return torch.vstack(out).T  # n_negatives, batch_size
 
