@@ -16,6 +16,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Setup tmate session
+      if: ${{ failure() }}
+      uses: mxschmitt/action-tmate@v3
     - name: Set up Python 3.8
       uses: actions/setup-python@v2
       with:
@@ -51,6 +54,9 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip freeze
         pip install .
+    - name: Pip freeze
+      run: |
+        pip freeze
     - name: Test with pytest
       run: |
         pytest
