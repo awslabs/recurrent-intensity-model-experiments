@@ -2,30 +2,23 @@
 
 ![pytest workflow](https://github.com/awslabs/recurrent-intensity-model-experiments/actions/workflows/python-app.yml/badge.svg)
 
-Repository to reproduce the experiments in these papers:
 
-[Bridging Recommendation and Marketing via Recurrent Intensity Modeling. ICLR 2022.](https://openreview.net/forum?id=TZeArecH2Nf)
-```
-@inproceedings{ma2022bridging,
-    title={Bridging Recommendation and Marketing via Recurrent Intensity Modeling},
-    author={Yifei Ma and Ge Liu and Anoop Deoras},
-    booktitle={International Conference on Learning Representations},
-    year={2022},
-    url={https://openreview.net/forum?id=TZeArecH2Nf}
-}
-```
+This package reproduces the experiments in the referenced papers at the bottom of the page.
+In the papers, we expand the idea of "implicit-feedback recommender systems" to "implicit-feedback marketing systems" and demonstrate some benefits in improving the circulation of new items - a classical problem called item cold-start.
 
-[Recurrent Intensity Modeling for User Recommendation and Online Matching](http://roseyu.com/time-series-workshop/submissions/2021/TSW-ICML2021_paper_47.pdf);
-[(Amazon Link)](https://www.amazon.science/publications/recurrent-intensity-modeling-for-user-recommendation-and-online-matching)
+Imagine an implicit-feedback recommender system to be solving the probabilistic distribution of `p(y|x)`,
+where `x` is the current state of a user based on all historical items that the user has consumed and
+`y` is the next item to recommend.
+Our first contribution is to address the reverse direction using marked temporal point processes, `λ(x|y)∝p(y|x)λ(x)`, where we predict the affinity of a user to an item at a given time with the novel *intensity* function `λ`.
 
-```
-@inproceedings{ma2021recurrent,
-    Author = {Ma, Yifei and Liu, Ge and Deoras, Anoop},
-    Booktitle = {ICML Time Series Workshop},
-    Title = {Recurrent Intensity Modeling for User Recommendation and Online Matching},
-    Year = {2021}
-}
-```
+Besides predicting the affinity or intensity scores, we further discuss how to integrate marketing ideas into organic recommendation to improve item cold-start performance.
+Our key challenge is that we can only recommend the promotional (cold-start) items when a user appears online in the RecSys, which is a random event in itself.
+To meet the challenge, we record the distribution of all user states as they appear online during a past time period and then solve for the "Dual" variables `v(y)` for each and every item `y`.
+Then, we show that we only need to rerank the recommendations by the modified scores, `λ(x,y)-v(y)` for the same user `x` in real time, to ensure that we can cumulatively deliver item `y` to a desired number of all user visits in a future time period.
+Our strategy is analogous to finding an empirical threshold `v(y)` and picking users only when their scores exceed the threshold.
+However, our analysis is more fundamental and we also consider the competing delivery guarantees for multiple items at the same time.
+The multiple-item scenario is applicable in the item cold-start problem, which we show in our experiments.
+
 
 ## Getting Started
 
@@ -80,55 +73,64 @@ Repository to reproduce the experiments in these papers:
 
 **Step 0. Data Preparation**
 
-The simplest way to prepare data is via `create_dataset_unbiased` function:
-```
-rime.dataset.base.create_dataset_unbiased(
-    event_df: pd.DataFrame(columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP']),
-    user_df: pd.DataFrame(columns=['TEST_START_TIME'], index=USER_ID),
-    item_df: pd.DataFrame(index=ITEM_ID),
-    horizon = float('inf'))  # test period relative to TEST_START_TIME
-```
+<img src="figure/dataset_class.png" alt="dataset_class" width="70%"/>
 
-<details>
-    <summary>General definitions</summary>
+We use a `Dataset` class to represent the train/test split for evaluation in both recommendation and marketing scenarios.
+In the simplest form, the test labels are represented as a sparse matrix `target_csr` between all users and items for a time period `[T, T + horizon)`, shown on the left side of the figure.
+The training data is automatically extracted from the corresponding user events prior to time `T`.
+The user histories also serve as user-side features in the testing phase.
 
-This function (and the resulting `Dataset` class) allow for multiple data splitting methods, including by user, by absolute time, and by relative percentage per user event stream. Our trick is to ask for a table of all events in `event_df` and a table of all users in `user_df` with one `TEST_START_TIME` per row. The function will then extract training events based on `TIMESTAMP < TEST_START_TIME` and testing events between `TEST_START_TIME <= TIMESTAMP < TEST_START_TIME + horizon`, respectively for each user. To improve clarity, we also require all items to be registered in `item_df`. Finally, in `user_df` table, we have special logics if we see multiple rows with the same `USER_ID` index but different `TEST_START_TIME` per user. We consider this as a desire to evaluate the models for rolling next-item predictions, regular-interval updates, etc., as the input suggests.
+On the right side of the figure, we introduce some useful extensions.
+Notably, we allow each user to contain multiple (or zero) `TEST_START_TIME`.
+To separate from the globally unique `user_df`, we call these different temporal states `test_requests` or `user_in_test`.
+We also have a `item_in_test` attribute, but it is for a different purpose which we will discuss in the next paragraph.
+For now, we only consider stateless items and accumulate all user interactions within their respective time periods.
 
-Besides the basic splitting logic, `create_dataset_unbiased` includes a few default options. We default to filtering user-and-item test candidates by `min_user_len>=1`, `min_item_len>=1`, and `TEST_START_TIME<inf`. This is to avoid evaluation biases against cold-start users and items and the thresholds may be adjusted if bias is not a concern. We also set `exclude_train=True` to automatically exclude the training events from appearing as testing targets. In the same context, we generate a sparse `prior_score` matrix that can be added to the model prediction outputs to discourage the models from repetitive predictions as well. See `rime.dataset.__init__.prepare_minimal_dataset` for some examples including these special cases.
+Finally, we introduce a `create_dataset_unbiased` function which further eliminates test users and items that have not been previously seen at training time. Unless specified explicitly, `user_in_test` is automatically extracted from all seen users with a finite test-start time. Likewise, `item_in_test` corresponds to the seen items from the histories of the all unique users.
 
 For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `Dual-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
 
-</details>
 
 <details>
-    <summary>Examples</summary>
+    <summary>Expand this tab for some examples</summary>
 
-In the following examples, we will use the same `event_df` and `item_df`. Also, please notice that the argument order is different between `Dataset` and `create_dataset_unbiased`.
+In the following examples, we will use the same `event_df` and `item_df`.
 
 ```
-event_df = pd.DataFrame([('u1', 'a', 3), ('u1', 'b', 4), ('u2', 'c', 5), ('u2', 'd', 6)],
+event_df = pd.DataFrame([('u1', 'a', 3),
+                         ('u1', 'b', 4),
+                         ('u2', 'c', 5),
+                         ('u2', 'd', 6)],
                         columns=['USER_ID', 'ITEM_ID', 'TIMESTAMP'])
 item_df = pd.DataFrame(index=['a', 'b', 'c', 'd'])
 ```
 
-1. Temporal seq2seq split for `{u1: [a, b]->[], u2: [c]->[d]}`
+1. Temporal seq2seq split
     ```
     user_df = pd.Series({'u1': 6, 'u2': 6}).to_frame("TEST_START_TIME")
     D = rime.dataset.Dataset(user_df, item_df, event_df)
+    # The result is a training set of {u1: [a, b], u2: [c]} and a testing set of {u1: [], u2: [d]}
     ```
 
-2. User-based split, training on `{u1: [a, b], u2: [c]}` and testing on `{u2: [c] -> [d]}`
+2. User-based split
     ```
     user_df = pd.Series({'u1': float('inf'), 'u2': 6}).to_frame("TEST_START_TIME")
     D = rime.dataset.create_dataset_unbiased(event_df, user_df, item_df, min_item_len=0)
+    # Notice that the argument order is different between Dataset and create_dataset_unbiased
+    # The result is a training set of {u1: [a, b], u2: [c]} and a testing set of {u2: [d]}
     ```
 
-3. Rolling prediction, training on `{u1: [a, b]}` and testing on `{(u2, 5): [] -> [c], (u2, 6) [c] -> [d]}`
+3. Rolling prediction
     ```
     user_df = pd.Series({'u1': float('inf'), 'u2': float('-inf')}).to_frame("TEST_START_TIME")
     test_requests = pd.DataFrame(index=pd.MultiIndex.from_tuples([('u2', 5), ('u2', 6)]))
     D = rime.dataset.Dataset(user_df, item_df, event_df, test_requests=test_requests, horizon=1)
+    # The result is a training set of {u1: [a, b]} and a testing set of
+    #    {(u2, 5): [] -> [c],
+    #     (u2, 6): [c] -> [d]}
     ```
+
+Finally, please notice that the argument order is different between `Dataset` and `create_dataset_unbiased`.
 </details>
 
 **Step 1. Predictions**
@@ -183,3 +185,28 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 
 This project is licensed under the Apache-2.0 License.
 
+## References
+
+
+[Bridging Recommendation and Marketing via Recurrent Intensity Modeling. ICLR 2022.](https://openreview.net/forum?id=TZeArecH2Nf)
+```
+@inproceedings{ma2022bridging,
+    title={Bridging Recommendation and Marketing via Recurrent Intensity Modeling},
+    author={Yifei Ma and Ge Liu and Anoop Deoras},
+    booktitle={International Conference on Learning Representations},
+    year={2022},
+    url={https://openreview.net/forum?id=TZeArecH2Nf}
+}
+```
+
+[Recurrent Intensity Modeling for User Recommendation and Online Matching](http://roseyu.com/time-series-workshop/submissions/2021/TSW-ICML2021_paper_47.pdf);
+[(Amazon Link)](https://www.amazon.science/publications/recurrent-intensity-modeling-for-user-recommendation-and-online-matching)
+
+```
+@inproceedings{ma2021recurrent,
+    Author = {Ma, Yifei and Liu, Ge and Deoras, Anoop},
+    Booktitle = {ICML Time Series Workshop},
+    Title = {Recurrent Intensity Modeling for User Recommendation and Online Matching},
+    Year = {2021}
+}
+```
