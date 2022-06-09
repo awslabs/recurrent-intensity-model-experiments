@@ -4,16 +4,20 @@
 
 
 This package reproduces the experiments in the referenced papers at the bottom of the page.
-Essentially, we show how to create an "implicit-feedback marketing system".
-This is analogous to an implicit-feedback recommender system which solves the probabilistic distribution of `p(y|x)`,
-where `x` is the current user state based on all historical items that the user has consumed and
-`y` is the next item to recommend.
-However, we aim to address the reverse direction using marked temporal point processes, `λ(x|y)∝p(y|x)λ(x)`, where we predict the affinity of a user to an item at a given time with the novel *intensity* score `λ`.
+In the papers, we expand the idea of "implicit-feedback recommender systems" to "implicit-feedback marketing systems" and demonstrate some benefits in improving the circulation of new items - a classical problem called item cold-start.
 
-Besides predicting the affinity or intensity scores, we further discuss how to plan the advertisements in the audience base, which is useful because we may have limited chance to show advertisements only when a user appears online, which is a random event in itself.
-To do so, we record the distribution of all user states as they appear online during a past time period and then solve for the "Dual" variables `v(y)` for each and every item `y`.
-Then, we show that we would only need to rerank the recommendations by the modified scores, `λ(x,y)-v(y)` for the same user `x` in real time, to ensure that we can cumulatively deliver item `y` by a desired number of times over the entire user distribution in a future time period.
-Our strategy is analogous to finding an empirical threshold `v(y)` and picking users only when their scores exceed the threshold, but our analysis is more fundamental and it also considers the competing delivery guarantees for multiple items at the same time.
+Imagine an implicit-feedback recommender system to be solving the probabilistic distribution of `p(y|x)`,
+where `x` is the current state of a user based on all historical items that the user has consumed and
+`y` is the next item to recommend.
+Our first contribution is to address the reverse direction using marked temporal point processes, `λ(x|y)∝p(y|x)λ(x)`, where we predict the affinity of a user to an item at a given time with the novel *intensity* function `λ`.
+
+Besides predicting the affinity or intensity scores, we further discuss how to integrate marketing ideas into organic recommendation to improve item cold-start performance.
+Our key challenge is that we can only recommend the promotional (cold-start) items when a user appears online in the RecSys, which is a random event in itself.
+To meet the challenge, we record the distribution of all user states as they appear online during a past time period and then solve for the "Dual" variables `v(y)` for each and every item `y`.
+Then, we show that we only need to rerank the recommendations by the modified scores, `λ(x,y)-v(y)` for the same user `x` in real time, to ensure that we can cumulatively deliver item `y` to a desired number of all user visits in a future time period.
+Our strategy is analogous to finding an empirical threshold `v(y)` and picking users only when their scores exceed the threshold.
+However, our analysis is more fundamental and we also consider the competing delivery guarantees for multiple items at the same time.
+The multiple-item scenario is applicable in the item cold-start problem, which we show in our experiments.
 
 
 ## Getting Started
@@ -79,11 +83,10 @@ The user histories also serve as user-side features in the testing phase.
 On the right side of the figure, we introduce some useful extensions.
 Notably, we allow each user to contain multiple (or zero) `TEST_START_TIME`.
 To separate from the globally unique `user_df`, we call these different temporal states `test_requests` or `user_in_test`.
-We also have a `item_in_test` attribute, but it is for a different purpose.
-Generally, we consider stateless items and accumulate all user interactions within the specified test periods.
-(If we have stateful items, we could give them different ids and apply `prior_score` to filter the eligible candidate users for each corresponding item state.)
+We also have a `item_in_test` attribute, but it is for a different purpose which we will discuss in the next paragraph.
+For now, we only consider stateless items and accumulate all user interactions within their respective time periods.
 
-Finally, we introduce a `create_dataset_unbiased` function which further eliminates test users and items that have not been previously seen at training time. Here, item pre-occurrence is based on the relative history before the first test-start time of every user. For the unbiased creation, we also include only users with finite test-start time.
+Finally, we introduce a `create_dataset_unbiased` function which further eliminates test users and items that have not been previously seen at training time. Unless specified explicitly, `user_in_test` is automatically extracted from all seen users with a finite test-start time. Likewise, `item_in_test` corresponds to the seen items from the histories of the all unique users.
 
 For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `Dual-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
 
