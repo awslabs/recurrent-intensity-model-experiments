@@ -77,8 +77,7 @@ The multiple-item scenario is applicable in the item cold-start problem, which w
 
 We use a `Dataset` class to represent the train/test split for evaluation in both recommendation and marketing scenarios.
 In the simplest form, the test labels are represented as a sparse matrix `target_csr` between all users and items for a time period `[T, T + horizon)`, shown on the left side of the figure.
-The training data is automatically extracted from the corresponding user events prior to time `T`.
-The user histories also serve as user-side features in the testing phase.
+The training data is automatically extracted from the corresponding user events prior to time `T` and the user histories also serve as user-side features in the testing phase.
 
 On the right side of the figure, we introduce some useful extensions.
 Notably, we allow each user to contain multiple (or zero) `TEST_START_TIME`.
@@ -86,7 +85,7 @@ To separate from the globally unique `user_df`, we call these different temporal
 We also have a `item_in_test` attribute, but it is for a different purpose which we will discuss in the next paragraph.
 For now, we only consider stateless items and accumulate all user interactions within their respective time periods.
 
-Finally, we introduce a `create_dataset_unbiased` function which further eliminates test users and items that have not been previously seen at training time. Unless specified explicitly, `user_in_test` is automatically extracted from all seen users with a finite test-start time. Likewise, `item_in_test` corresponds to the seen items from the histories of the all unique users.
+Optionally, we introduce a `create_dataset_unbiased` function which further eliminates test users and items that have not been previously seen at training time. Unless specified explicitly, `user_in_test` is automatically extracted from all seen users with test-start time < ∞. Likewise, `item_in_test` corresponds to the seen items from the histories of the all unique users.
 
 For the `rime.Experiment` class to run, we need at least one dataset `D` for testing and auto-regressive training. We may optionally provide validating datasets `V` and `*V_extra` based on earlier time splits or user splits. The first validating dataset is used in the calibration of `Dual-Online` in Step 3 with the `online=True` option. All validating datasets are used by time-bucketed models (`GraphConv` and `HawkesPoisson`). Some models may be disabled if relevant data is missing.
 
