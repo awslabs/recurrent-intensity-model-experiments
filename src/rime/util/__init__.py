@@ -100,7 +100,7 @@ def perplexity(x):
 
 
 @empty_cache_on_exit
-def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
+def _assign_topk(S, k, tie_breaker=1e-10, device="cpu", batch_size=None):
     """ Return a sparse matrix where each row contains k non-zero values.
 
     Used for both ItemRec (if S is user-by-item) and UserRec (if S is transposed).
@@ -109,8 +109,10 @@ def _assign_topk(S, k, tie_breaker=1e-10, device="cpu"):
     """
     indices = []
     if hasattr(S, "collate_fn"):
-        batches = map(lambda i: S[i:min(len(S), i + S.batch_size)],
-                      range(0, len(S), S.batch_size))
+        if batch_size is None and hasattr(S, 'batch_size'):
+            batch_size = S.batch_size
+        batches = map(lambda i: S[i:min(len(S), i + batch_size)],
+                      range(0, len(S), batch_size))
     else:
         batches = [S]
     for s in batches:
