@@ -1,4 +1,5 @@
-import torch, argparse, numpy as np, warnings, torch.nn.functional as F
+import torch, numpy as np, warnings, torch.nn.functional as F
+from attrdict import AttrDict
 from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
@@ -163,7 +164,7 @@ class BPR(LightFM_BPR):
             delattr(model, attr)
 
         self.D = D
-        self.bpr_model = argparse.Namespace(
+        self.bpr_model = AttrDict(
             user_embeddings=model.user_encoder.weight.detach().cpu().numpy(),
             item_embeddings=model.item_encoder.weight.detach().cpu().numpy(),
             user_biases=model.user_bias_vec.weight.squeeze(-1).detach().cpu().numpy(),

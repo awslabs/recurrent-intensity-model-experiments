@@ -24,5 +24,6 @@ setup(
         "scikit-learn>=0.24.2",
         "pandas>=1.1.5",
         "matplotlib>=3.3.4",
+        "attrdict>=2.0.1",
     ],
 )
