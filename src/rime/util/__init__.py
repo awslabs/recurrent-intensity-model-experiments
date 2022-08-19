@@ -277,18 +277,27 @@ def explode_user_titles(user_hist, item_titles, gamma=0.5, min_gamma=0.1, pad_ti
     return explode_titles.values, splits, weights
 
 
-class _LitValidated(LightningModule):
-    def validation_step(self, batch, batch_idx):
-        loss = self.training_step(batch, batch_idx)
-        if isinstance(loss, collections.abc.Mapping) and 'loss' in loss:
-            loss = loss['loss']
-        # self.log("val_batch_loss", loss)
+def _get_loss_value(loss):
+    if isinstance(loss, dict):
+        return loss['loss']
+    else:
         return loss
 
-    def validation_epoch_end(self, outputs):
-        val_epoch_loss = torch.hstack(outputs).mean()
-        self.log("val_epoch_loss", val_epoch_loss, prog_bar=True)
-        self.val_epoch_loss = val_epoch_loss
+
+class _LitValidated(LightningModule):
+    def training_step(self, batch, batch_idx):
+        if hasattr(self, 'training_and_validation_step'):
+            loss = self.training_and_validation_step(batch, batch_idx)
+            self.log('train_loss', _get_loss_value(loss), on_epoch=True, prog_bar=True)
+            return loss  # value or dictionary
+        else:
+            raise NotImplementedError("alternatively, define training_step in subclass")
+
+    def validation_step(self, batch, batch_idx):
+        training_and_validation_step = getattr(self, 'training_and_validation_step', self.training_step)
+        loss = training_and_validation_step(batch, batch_idx)
+        self.log('val_loss', _get_loss_value(loss), on_epoch=True, prog_bar=True)
+        return _get_loss_value(loss)
 
     @cached_property
     def _checkpoint(self):
@@ -300,6 +309,8 @@ class _LitValidated(LightningModule):
         if best_model_score is not None:
             print(f"{msg} checkpoint {best_model_path} with score {best_model_score}")
             self.load_state_dict(torch.load(best_model_path)['state_dict'])
+        else:
+            warnings.warn(f"{msg} no checkpoint found!")
 
 
 class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):
