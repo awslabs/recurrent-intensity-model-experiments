@@ -130,7 +130,7 @@ class _LitRNNModel(_LitValidated):
         lr_scheduler = _ReduceLRLoadCkpt(
             optimizer, model=self, factor=0.25, patience=4, verbose=True)
         return {"optimizer": optimizer, "lr_scheduler": {
-                "scheduler": lr_scheduler, "monitor": "val_loss_epoch"
+                "scheduler": lr_scheduler, "monitor": "val_loss"
                 }}
 
     def training_step(self, batch, batch_idx, hiddens=None):

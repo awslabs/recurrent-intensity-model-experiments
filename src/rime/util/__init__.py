@@ -288,7 +288,7 @@ class _LitValidated(LightningModule):
     def training_step(self, batch, batch_idx):
         if hasattr(self, 'training_and_validation_step'):
             loss = self.training_and_validation_step(batch, batch_idx)
-            self.log('train_loss', _get_loss_value(loss), on_step=True, on_epoch=True, prog_bar=True)
+            self.log('loss', _get_loss_value(loss), on_step=True, on_epoch=True, prog_bar=True)
             return loss  # value or dictionary
         else:
             raise NotImplementedError("alternatively, define training_step in subclass")
@@ -296,12 +296,12 @@ class _LitValidated(LightningModule):
     def validation_step(self, batch, batch_idx):
         training_and_validation_step = getattr(self, 'training_and_validation_step', self.training_step)
         loss = training_and_validation_step(batch, batch_idx)
-        self.log('val_loss', _get_loss_value(loss), on_step=True, on_epoch=True, prog_bar=True)
+        self.log('val_loss', _get_loss_value(loss), on_step=False, on_epoch=True, prog_bar=True)
         return _get_loss_value(loss)
 
     @cached_property
     def _checkpoint(self):
-        return ModelCheckpoint(monitor="val_loss_epoch", save_weights_only=True)
+        return ModelCheckpoint(monitor="val_loss", save_weights_only=True)
 
     def _load_best_checkpoint(self, msg="loading"):
         best_model_path = self._checkpoint.best_model_path
