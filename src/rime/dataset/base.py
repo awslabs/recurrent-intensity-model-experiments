@@ -19,7 +19,7 @@ def _sanitize_events(event_df, user_df, item_df):
         with timed("checking for repeated user-item events"):
             nunique = len(set(event_df.set_index(['USER_ID', 'ITEM_ID']).index))
             if nunique < len(event_df):
-                warnings.warn(f"user-item repeat rate {len(event_df) / nunique - 1:%}")
+                warnings.warn(f"user-item repeat rate {1 - nunique / len(event_df):%}")
 
     return event_df
 
