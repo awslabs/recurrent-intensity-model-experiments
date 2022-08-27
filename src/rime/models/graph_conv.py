@@ -6,6 +6,10 @@ from ..util import (_LitValidated, empty_cache_on_exit, LazyDenseMatrix, matrix_
                     default_random_split, auto_cast_lazy_score)
 from .bpr import _BPR_Common
 import dgl, dgl.function as fn
+try:
+    from dgl.dataloading import MultiLayerFullNeighborSampler  # 0.9.x
+except Exception:
+    from dgl.dataloading.neighbor import MultiLayerFullNeighborSampler  # 0.8.x
 
 
 def _plain_average(G, item_embeddings):
@@ -72,7 +76,7 @@ class _GraphConv(_BPR_Common):
     def _user_subgraph(self, i, G):
         I, i_reverse = torch.unique(i, return_inverse=True)
         if len(I) < 0.5 * G.num_nodes('user'):
-            sampler = dgl.dataloading.neighbor.MultiLayerFullNeighborSampler(1)
+            sampler = MultiLayerFullNeighborSampler(1)
             mfg = sampler.sample_blocks(G.to(I.device), {'user': I})[0]
             sub_G = dgl.edge_type_subgraph(dgl.block_to_graph(mfg), mfg.etypes)
             return i_reverse, sub_G, sub_G.srcdata['_ID']
