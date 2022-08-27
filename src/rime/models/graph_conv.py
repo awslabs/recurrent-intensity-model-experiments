@@ -75,7 +75,7 @@ class _GraphConv(_BPR_Common):
 
     def _user_subgraph(self, i, G):
         I, i_reverse = torch.unique(i, return_inverse=True)
-        if len(I) < 0.5 * G.num_nodes('user'):
+        if len(I) < 0.5 * G.num_nodes('user') and False:  # still not working in dgl 0.9.x
             sampler = MultiLayerFullNeighborSampler(1)
             mfg = sampler.sample_blocks(G.to(I.device), {'user': I})[0]
             sub_G = dgl.edge_type_subgraph(dgl.block_to_graph(mfg), mfg.etypes)
