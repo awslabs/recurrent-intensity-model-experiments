@@ -310,7 +310,7 @@ class _LitValidated(LightningModule):
             print(f"{msg} checkpoint {best_model_path} with score {best_model_score}")
             self.load_state_dict(torch.load(best_model_path)['state_dict'])
         else:
-            warnings.warn(f"{msg} no checkpoint found!")
+            warnings.warn(f"No checkpoints found!")
 
 
 class _ReduceLRLoadCkpt(torch.optim.lr_scheduler.ReduceLROnPlateau):

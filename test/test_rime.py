@@ -6,8 +6,9 @@ import scipy.sparse as sps
 def test_rime_importable():
     import rime  # noqa: F401
     for name in dir(rime.models):
-        if isinstance(getattr(rime.models, name), rime.util.MissingModel):
-            raise ValueError(f"model {name} is not importable because {name.err}")
+        obj = getattr(rime.models, name)
+        if isinstance(obj, rime.util.MissingModel):
+            raise ValueError(f"model {name} is not importable because {obj.err}")
 
 
 def do_synthetic_common(*args, prepare_data_name="prepare_synthetic_data", **kw):
