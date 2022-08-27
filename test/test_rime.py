@@ -5,6 +5,8 @@ import scipy.sparse as sps
 
 def test_rime_importable():
     import rime  # noqa: F401
+    for name in dir(rime.models):
+        assert not isinstance(getattr(rime.models, name), rime.util.MissingModel), f"model {name} is missing"
 
 
 def do_synthetic_common(*args, prepare_data_name="prepare_synthetic_data", **kw):
