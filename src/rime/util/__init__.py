@@ -337,3 +337,8 @@ def default_random_split(dataset):
 class MissingModel:
     name: str
     err: Exception
+    verbose: bool = True
+
+    def __post_init__(self):
+        if self.verbose:
+            warnings.warn(f"Model {str} is missing due to {err}")
