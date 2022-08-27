@@ -341,4 +341,4 @@ class MissingModel:
 
     def __post_init__(self):
         if self.verbose:
-            warnings.warn(f"Model {str} is missing due to {err}")
+            warnings.warn(f"Model {self.name} is missing due to {self.err}")
