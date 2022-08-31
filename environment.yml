@@ -1,6 +1,0 @@
-name: rime_env
-channels:
-  - conda-forge
-dependencies:
-  - implicit  # install implicit-proc=*=gpu from conda for gpu access
-  - python=3.8
