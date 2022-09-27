@@ -1,4 +1,15 @@
 from setuptools import find_packages, setup
+import subprocess, re
+
+
+def get_cuda_version():
+    try:
+        output = subprocess.check_output(['nvcc', '--version'])
+        match = re.search(r"Build cuda_(\d+).(\d+)", output)
+        return match.group(1), match.group(2)
+    except FileNotFoundError:
+        return None
+
 
 setup(
     name="recurrent-intensity-model-experiments",
@@ -16,8 +27,8 @@ setup(
         "lightfm>=1.16",
         "pyarrow>=0.13.0",
         "tick>=0.6",
+        "dgl" if get_cuda_version() is None else "dgl-cu{}{}".format(*get_cuda_version()),
         # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu -y
-        # "dgl",  # pip install dgl-cu111 # or matching cuda version with torch
         "transformers>=4.12.2",  # optional for zero_shot models
         "seaborn>=0.11.1",
         "scipy>=0.19",
@@ -26,5 +37,6 @@ setup(
         "matplotlib>=3.3.4",
         "attrdict>=2.0.1",
         "psutil",
+        "pytest",
     ],
 )
