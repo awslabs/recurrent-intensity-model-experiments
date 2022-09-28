@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, empty_cache_on_exit, LazyDenseMatrix, matrix_reindex,
-                    default_random_split, auto_cast_lazy_score)
+                    default_random_split, auto_cast_lazy_score, export_jsondump)
 from .bpr import _BPR_Common
 import dgl, dgl.function as fn
 try:
@@ -241,6 +241,7 @@ class GraphConv:
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
             DataLoader(valid_set, valid_batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
+        export_jsondump(trainer.logger.experiment)
         for attr in ['G_list', 'user_proposal', 'item_proposal', 'prior_score', 'prior_score_T']:
             delattr(model, attr)
         self.model = model

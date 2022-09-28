@@ -1,11 +1,12 @@
 import pandas as pd, numpy as np, scipy as sp
-import functools, collections, time, contextlib, torch, gc, warnings
+import functools, collections, time, contextlib, torch, gc, warnings, json
 from torch.utils.data import DataLoader, random_split
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from functools import cached_property
 from .score_array import *  # noqa: F401, F403
 from .plotting import plot_rec_results, plot_mtch_results
+from tensorboard.backend.event_processing import event_accumulator
 
 
 class timed(contextlib.ContextDecorator):
@@ -342,3 +343,39 @@ class MissingModel:
     def __post_init__(self):
         if self.verbose:
             warnings.warn(f"Model {self.name} is missing due to {self.err}")
+
+
+def export_jsondump(writer):
+    # minor modifications from https://discuss.pytorch.org/t/tensorboard-json-dump-of-all-scalars/69334
+    assert isinstance(writer, torch.utils.tensorboard.SummaryWriter)
+
+    tf_files = []  # -> list of paths from writer.log_dir to all files in that directory
+    for root, dirs, files in os.walk(writer.log_dir):
+        for file in files:
+            tf_files.append(os.path.join(root, file))  # go over every file recursively in the directory
+
+    for file_id, file in enumerate(tf_files):
+
+        path = os.path.join('/'.join(file.split('/')[:-1]))  # determine path to folder in which file lies
+        # seperate file created by add_scalar from add_scalars
+        name = os.path.join(file.split('/')[-2]) if file_id > 0 else os.path.join('log_events')
+
+        event_acc = event_accumulator.EventAccumulator(file)
+        event_acc.Reload()
+        data = {}
+
+        hparam_file = False  # I save hparam files as 'hparam/xyz_metric'
+        for tag in sorted(event_acc.Tags()["scalars"]):
+            if tag.split('/')[0] == 'hparam':
+                hparam_file = True  # check if its a hparam file
+            step, value = [], []
+
+            for scalar_event in event_acc.Scalars(tag):
+                step.append(scalar_event.step)
+                value.append(scalar_event.value)
+
+            data[tag] = (step, value)
+
+        if not hparam_file and bool(data):  # if its not a hparam file and there is something in the data -> dump it
+            with open(f'{path}/{name}.json', "w") as f:
+                json.dump(data, f)
