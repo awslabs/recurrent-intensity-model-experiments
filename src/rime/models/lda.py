@@ -3,7 +3,7 @@ from pytorch_lightning import LightningModule, Trainer
 from torch.utils.data import DataLoader
 from .third_party.lda.lda_model import LatentDirichletAllocation, DocData, WordData
 from ..util import (empty_cache_on_exit, find_iloc, LazyDenseMatrix, indices2csr,
-                    _LitValidated, default_random_split, get_batch_size)
+                    _LitValidated, default_random_split, get_batch_size, export_jsondump)
 
 
 class _LitLDA(_LitValidated):
@@ -94,6 +94,7 @@ class LDA:
         )
         lit._load_best_checkpoint("best")
         lit._update_model_from_buffer_change_device()
+        export_jsondump(trainer.logger.experiment)
 
         return self
 

@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, _ReduceLRLoadCkpt, empty_cache_on_exit, extract_past_ij,
-                    default_random_split, LazyScoreBase, auto_cast_lazy_score)
+                    default_random_split, LazyScoreBase, auto_cast_lazy_score, export_jsondump)
 from .lightfm_bpr import LightFM_BPR
 
 
@@ -160,6 +160,8 @@ class BPR(LightFM_BPR):
             DataLoader(train_set, self.batch_size, shuffle=True, num_workers=(N > 1e4) * 4),
             DataLoader(valid_set, valid_batch_size, num_workers=(N > 1e4) * 4))
         model._load_best_checkpoint("best")
+        export_jsondump(trainer.logger.experiment)
+
         for attr in ['user_proposal', 'item_proposal']:
             delattr(model, attr)
 

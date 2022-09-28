@@ -10,7 +10,7 @@ from .third_party.word_language_model import RNNModel
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from ..util import (_LitValidated, empty_cache_on_exit, _ReduceLRLoadCkpt,
-                    default_random_split, LazyDenseMatrix, matrix_reindex)
+                    default_random_split, LazyDenseMatrix, matrix_reindex, export_jsondump)
 
 
 class RNN:
@@ -87,6 +87,7 @@ class RNN:
             DataLoader(train_set, self.batch_size, collate_fn=collate_fn, shuffle=True),
             DataLoader(valid_set, self.batch_size, collate_fn=collate_fn),)
         self.model._load_best_checkpoint("best")
+        export_jsondump(self.trainer.logger.experiment)
 
         for name, param in self.model.named_parameters():
             print(name, param.data.shape)
