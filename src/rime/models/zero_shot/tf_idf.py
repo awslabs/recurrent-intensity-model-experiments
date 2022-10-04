@@ -11,15 +11,15 @@ class TF_IDF:
 
         self.item_id = item_df.index
         if 'embedding' in item_df:
-            self.tfidf_csr = np.vstack(item_df['embedding'].tolist())
-            zeros = np.zeros_like(self.tfidf_csr[:1])
-            self.tfidf_pad_zeros = np.vstack([self.tfidf_csr, zeros])
+            tfidf_emb = np.vstack(item_df['embedding'].tolist())
+            zeros = tfidf_emb[:1] * 0
+            self.tfidf_pad_zeros = np.vstack([tfidf_emb, zeros])
         else:
             self.tfidf_fit = TfidfVectorizer().fit(item_df['TITLE'].tolist())
-            self.tfidf_csr = self.tfidf_fit.transform(item_df['TITLE'].tolist())
-            zeros = self.tfidf_csr[:1] * 0
+            tfidf_emb = self.tfidf_fit.transform(item_df['TITLE'].tolist())
+            zeros = tfidf_emb[:1] * 0
             zeros.eliminate_zeros()
-            self.tfidf_pad_zeros = sps.vstack([self.tfidf_csr, zeros])
+            self.tfidf_pad_zeros = sps.vstack([tfidf_emb, zeros])
 
     def fit(self, *args, **kw):
         return self
@@ -31,5 +31,5 @@ class TF_IDF:
         user_emb = self.tfidf_pad_zeros[user_last_item_index]
 
         item_index = self.item_id.get_indexer(D.item_in_test.index)
-        item_emb = self.tfidf_csr[item_index]
+        item_emb = self.tfidf_pad_zeros[item_index]
         return auto_cast_lazy_score(user_emb) @ auto_cast_lazy_score(item_emb).T
