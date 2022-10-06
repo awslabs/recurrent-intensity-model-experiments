@@ -131,11 +131,9 @@ class BPR(LightFM_BPR):
 
     @empty_cache_on_exit
     def fit(self, D):
-        user_tokenize = {x: i for i, x in enumerate(D.user_df.index)}
-        item_tokenize = {x: j for j, x in enumerate(D.item_df.index)}
-        i = D._training_events['USER_ID'].apply(user_tokenize.get)
-        j = D._training_events['ITEM_ID'].apply(item_tokenize.get)
-        w = D._training_events['VALUE'].values
+        i = D.user_df.index.get_indexer(D._training_events['USER_ID'])
+        j = D.item_df.index.get_indexer(D._training_events['ITEM_ID'])
+        w = D._training_events['VALUE'].values.astype(float)
         dataset = np.transpose([i, j, w])
 
         N = len(dataset)
