@@ -178,7 +178,7 @@ class Dataset(DatasetBase):
                             self.prior_score = self.prior_score + exclude_csr * -1e10
 
             if self.add_prior_to_form_reranking_task:
-                with timed("creating reranking candidates by adding prior_score from target hint"):
+                with timed("creating reranking tasks by adding prior_score from target candidates"):
                     cand_csr = indices2csr(
                         groupby_unexplode(self._test_targets['ITEM_ID'].apply(test_item_tokenize.get),
                                           self.test_requests.index),
