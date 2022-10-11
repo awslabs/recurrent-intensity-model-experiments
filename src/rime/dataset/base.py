@@ -85,10 +85,11 @@ class Dataset(DatasetBase):
     horizon: float = float("inf")      # construct target_csr; ignored if target_csr is provided
     target_csr: sps.spmatrix = None
     exclude_train: typing.Union[bool, list] = True  # add negative priors for repeated items or item columns
-    sample_with_prior: float = 0       # add priors on target candidates to form a reranking task
+    add_prior_to_form_reranking_task: float = 0  # add priors on target candidates to form a reranking task
     prior_score: sps.spmatrix = None
     _skip_init: dataclasses.InitVar[bool] = False  # skip init during reindex
     test_update_history: bool = True   # update relative history vs. frozen training history (False)
+    sample_with_prior: float = None       # renaming to add_prior_to_form_reranking_task
 
     @property
     def user_in_test(self):
@@ -105,6 +106,10 @@ class Dataset(DatasetBase):
 
         super().__post_init__()
 
+        if self.sample_with_prior is not None:
+            warnings.warn("Consider renaming `sample_with_prior` to `add_prior_to_form_reranking_task` in future versions",
+                          PendingDeprecationWarning)
+            self.add_prior_to_form_reranking_task = self.sample_with_prior
         if self.test_requests is None:
             self.test_requests = self.user_df.set_index("TEST_START_TIME", append=True)
         if self.item_in_test is None:
@@ -140,7 +145,7 @@ class Dataset(DatasetBase):
                     data=groupby_unexplode(self._test_targets['VALUE'], self.test_requests.index))
                 self.target_csr.eliminate_zeros()
 
-        if self.prior_score is None and (self.exclude_train or self.sample_with_prior):
+        if self.prior_score is None and (self.exclude_train or self.add_prior_to_form_reranking_task):
             self.prior_score = 0
 
             if self.exclude_train:
@@ -172,13 +177,13 @@ class Dataset(DatasetBase):
                             exclude_csr = _test_requests_csr @ _item_in_test_csr.T
                             self.prior_score = self.prior_score + exclude_csr * -1e10
 
-            if self.sample_with_prior:
-                with timed("creating reranking candidate prior_score"):
+            if self.add_prior_to_form_reranking_task:
+                with timed("creating reranking tasks by adding prior_score from target candidates"):
                     cand_csr = indices2csr(
                         groupby_unexplode(self._test_targets['ITEM_ID'].apply(test_item_tokenize.get),
                                           self.test_requests.index),
                         shape1=len(self.item_in_test))
-                    self.prior_score = self.prior_score + cand_csr * self.sample_with_prior
+                    self.prior_score = self.prior_score + cand_csr * self.add_prior_to_form_reranking_task
 
         print(f"{repr(self)} created!")
 
@@ -190,6 +195,10 @@ class Dataset(DatasetBase):
     @property
     def _test_targets(self):
         """ based on _test_joined, horizon, item_in_test """
+        if self.horizon == 0:
+            return self._test_joined[
+                (self._test_joined['TIMESTAMP'] == self._test_joined.index.get_level_values(1)) &
+                self._test_joined['ITEM_ID'].isin(self.item_in_test.index)]
         return self._test_joined[
             (self._test_joined['TIMESTAMP'] >= self._test_joined.index.get_level_values(1)) &
             (self._test_joined['TIMESTAMP'] < self._test_joined.index.get_level_values(1) + self.horizon) &
@@ -287,7 +296,7 @@ class Dataset(DatasetBase):
 
         return Dataset(self.user_df, self.item_df, self.event_df,
                        test_requests, item_in_test, self.horizon,
-                       target_csr, self.exclude_train, prior_score, _skip_init=True)
+                       target_csr, self.exclude_train, prior_score=prior_score, _skip_init=True)
 
     def reindex_unbiased(self, min_user_len=1, min_item_len=1, allow_inf_test_start_time=False):
         keep_row = (self.test_requests['_hist_len'] >= min_user_len).values & \

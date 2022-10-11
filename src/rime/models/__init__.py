@@ -7,6 +7,7 @@ from .hawkes import Hawkes
 from .hawkes_poisson import HawkesPoisson
 from .lightfm_bpr import LightFM_BPR
 from .bpr import BPR
+from .zero_shot import TF_IDF, BayesLM, ItemKNN
 from rime.util import LazyDenseMatrix, RandScore, MissingModel
 
 try:

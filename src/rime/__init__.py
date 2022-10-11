@@ -87,6 +87,8 @@ class Experiment:
     """
     def __init__(
         self, D, V=None, *V_extra,
+        default_k_items_per_user=None,
+        default_c_users_per_item=None,
         mult=[],  # [0, 0.1, 0.2, 0.5, 1, 3, 10, 30, 100],
         models_to_run=None,
         model_hyps={},
@@ -123,11 +125,16 @@ class Experiment:
             self.update_cache(cache)
         self.mtch_kw = mtch_kw
 
+        _k1 = default_k_items_per_user if default_k_items_per_user is not None else \
+              D._k1 if hasattr(D, '_k1') else int(np.ceil(self.D.shape[1] * 0.01))  # 1% of all items
+        _c1 = default_c_users_per_item if default_c_users_per_item is not None else \
+              D._c1 if hasattr(D, '_c1') else int(np.ceil(self.D.shape[0] * 0.01))  # 1% of all users
+
         if results is None:
             results = ExperimentResult(
                 dual, online,
-                _k1=getattr(D, '_k1', int(np.ceil(self.D.shape[1] * 0.01))),
-                _c1=getattr(D, '_c1', int(np.ceil(self.D.shape[0] * 0.01))),
+                _k1=_k1,
+                _c1=_c1,
                 _kmax=len(self.D.item_in_test),
                 _cmax=len(self.D.user_in_test),
                 item_ppl_baseline=self.D.item_ppl_baseline,
@@ -151,12 +158,17 @@ class Experiment:
         else:
             valid_mat = None
 
-        self.item_rec[name] = evaluate_item_rec(
-            target_csr, score_mat, self._k1, device=self.device) \
-            if getattr(self, "_run_item_rec", True) else None
-        self.user_rec[name] = evaluate_user_rec(
-            target_csr, score_mat, self._c1, device=self.device) \
-            if getattr(self, "_run_user_rec", True) else None
+        if self._k1 > 0:
+            self.item_rec[name] = evaluate_item_rec(
+                target_csr, score_mat, self._k1, device=self.device)
+        else:
+            self.item_rec[name] = None
+
+        if self._c1 > 0:
+            self.user_rec[name] = evaluate_user_rec(
+                target_csr, score_mat, self._c1, device=self.device)
+        else:
+            self.user_rec[name] = None
 
         print(pd.DataFrame({
             'item_rec': self.item_rec[name],
@@ -248,7 +260,7 @@ class Experiment:
         # disable models due to missing inputs
 
         if not ('TEST_START_TIME' in self.D.user_in_test and '_hist_ts' in self.D.user_in_test
-                and self.D.horizon < float("inf")):
+                and 0 < self.D.horizon < float("inf")):
             warnings.warn("disabling temporal models due to missing TEST_START_TIME, _hist_ts or horizon")
             for model in ['EMA', 'Hawkes', 'HP', 'RNN-EMA', 'RNN-Hawkes', 'RNN-HP',
                            'Transformer-EMA', 'Transformer-Hawkes', 'Transformer-HP']:
