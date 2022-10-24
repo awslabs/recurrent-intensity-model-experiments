@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 from ..util import perplexity, _assign_topk, empty_cache_on_exit, score_op, LazyScoreBase
 from .greedy_mtch import assign_mtch
 from .dual import Dual
+from .linprog import LinProg
 
 
 def _multiply(x, y):
