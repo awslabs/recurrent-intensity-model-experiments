@@ -1,7 +1,6 @@
 import pandas as pd, numpy as np, scipy as sp
 import functools, collections, time, contextlib, torch, gc, warnings, json
 from torch.utils.data import DataLoader, random_split
-import torch.utils.tensorboard
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from functools import cached_property
@@ -348,10 +347,17 @@ class MissingModel:
 
 def export_jsondump(writer):
     # minor modifications from https://discuss.pytorch.org/t/tensorboard-json-dump-of-all-scalars/69334
-    assert isinstance(writer, torch.utils.tensorboard.SummaryWriter)
+
+    if hasattr(writer, "log_dir"):
+        log_dir = writer.log_dir
+    elif hasattr(writer, "_get_file_writer"):
+        log_dir = writer._get_file_writer().get_logdir()
+    else:
+        warnings.warn("export jsondump failure")
+        return
 
     tf_files = []  # -> list of paths from writer.log_dir to all files in that directory
-    for root, dirs, files in os.walk(writer.log_dir):
+    for root, dirs, files in os.walk(log_dir):
         for file in files:
             tf_files.append(os.path.join(root, file))  # go over every file recursively in the directory
 
