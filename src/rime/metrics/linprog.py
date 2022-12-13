@@ -114,5 +114,5 @@ class LinProg:
         print(f'solving linprog with shapes {obj_min.shape}, {A_eq.shape}, {b_eq.shape}')
         self.solution = scipy.optimize.linprog(
             obj_min, A_eq=A_eq, b_eq=b_eq, bounds=(0, 1),
-            options={'tol': 1e-7, 'disp': True, **self.solver_options})
+            options={'tol': 1e-7, 'disp': True, 'rr': True, **self.solver_options})
         return self

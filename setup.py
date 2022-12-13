@@ -21,6 +21,7 @@ setup(
     # with the exception that torch, dgl, and implicit should be manually installed beforehand.
     # To work in github, we need more packages via `conda env update --file environment.yml`
     install_requires=[
+        "tensorboard",
         "torch>=1.7.1",  # torch==1.7.1+cu101
         "pytorch-lightning>=1.3.8",
         "numba>=0.52.0",
