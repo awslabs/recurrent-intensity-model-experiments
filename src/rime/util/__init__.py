@@ -3,7 +3,10 @@ import functools, collections, time, contextlib, torch, gc, warnings, json
 from torch.utils.data import DataLoader, random_split
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from functools import cached_property
+try:
+    from functools import cached_property
+except ImportError:
+    from backports.cached_property import cached_property
 from .score_array import *  # noqa: F401, F403
 from .plotting import plot_rec_results, plot_mtch_results
 from tensorboard.backend.event_processing import event_accumulator
