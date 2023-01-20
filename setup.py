@@ -39,5 +39,6 @@ setup(
         "attrdict>=2.0.1",
         "psutil",
         "pytest",
+        "backports.cached_property",
     ],
 )

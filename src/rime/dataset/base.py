@@ -2,7 +2,7 @@ import pandas as pd, numpy as np
 import scipy.sparse as sps
 import warnings, dataclasses, functools, os, typing
 from ..util import (perplexity, timed, groupby_unexplode, indices2csr,
-                    matrix_reindex, fill_factory_inplace, LazyScoreBase)
+                    matrix_reindex, fill_factory_inplace, LazyScoreBase, cached_property)
 
 
 def _sanitize_events(event_df, user_df, item_df):
@@ -66,7 +66,7 @@ class DatasetBase:
             self.item_df = self.item_df.assign(
                 _hist_len=self._training_events.groupby('ITEM_ID').size().reindex(self.item_df.index, fill_value=0))
 
-    @functools.cached_property
+    @cached_property
     @timed("inferring training events")
     def _training_events(self):
         """ indexed by USER_ID and columned by ITEM_ID, TIMESTAMP, VALUE """
@@ -187,7 +187,7 @@ class Dataset(DatasetBase):
 
         print(f"{repr(self)} created!")
 
-    @functools.cached_property
+    @cached_property
     @timed("joining testing events by multi-indexed requests")
     def _test_joined(self):
         return stable_join(self.test_requests, self.event_df.set_index('USER_ID'))
@@ -215,7 +215,7 @@ class Dataset(DatasetBase):
         prior_nnz = self.prior_score.nnz if self.prior_score is not None else None
         return f"Dataset{self.shape} with {self.target_csr.nnz} target events and {prior_nnz} prior scores"
 
-    @functools.cached_property
+    @cached_property
     def auto_regressive(self):
         return DatasetBase(self.user_df, self.item_df, self._training_events)
 
