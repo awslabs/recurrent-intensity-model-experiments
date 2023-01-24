@@ -22,14 +22,14 @@ The multiple-item scenario is applicable in the item cold-start problem, which w
 
 ## Getting Started
 
-1. Download and install via `pip install -e .`
+1. Download and install via `pip install -e .[full]`
     - If you see "RuntimeError: Unable to find target ...", try `pip install --no-cache-dir --ignore-installed -U numba`
     - Some baseline models may require manual installation. They are optional.
     - <details>
         <summary>To install everything:</summary>
 
         ```
-        !pip install -e .
+        !pip install -e .[full]
         !pip install --no-cache-dir --ignore-installed -U numba  # optional fix for numba error
         !pip install dgl-cu111  # replace with the correct cuda version
         !conda install -c conda-forge implicit implicit-proc=*=gpu -y
