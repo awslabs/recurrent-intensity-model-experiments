@@ -38,7 +38,7 @@ setup(
         "backports.cached_property",
     ],
 
-    extras_requires={
+    extras_require={
         'full': [
             "lightfm>=1.16",
             "tick>=0.6",
