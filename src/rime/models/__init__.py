@@ -3,12 +3,29 @@ import warnings
 
 from .rnn import RNN
 from .transformer import Transformer
-from .hawkes import Hawkes
-from .hawkes_poisson import HawkesPoisson
-from .lightfm_bpr import LightFM_BPR
-from .bpr import BPR
-from .zero_shot import TF_IDF, BayesLM, ItemKNN
 from rime.util import LazyDenseMatrix, RandScore, MissingModel
+
+try:
+    from .hawkes import Hawkes
+except ImportError as e:
+    Hawkes = MissingModel("Hawkes", e)
+
+try:
+    from .hawkes_poisson import HawkesPoisson
+except ImportError as e:
+    HawkesPoisson = MissingModel("HawkesPoisson", e)
+
+try:
+    from .lightfm_bpr import LightFM_BPR
+except ImportError as e:
+    LightFM_BPR = MissingModel("LightFM_BPR", e)
+
+try:
+    from .bpr import BPR
+except ImportError as e:
+    BPR = MissingModel("BPR", e)
+
+from .zero_shot import TF_IDF, BayesLM, ItemKNN
 
 try:
     from .graph_conv import GraphConv

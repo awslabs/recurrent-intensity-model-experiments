@@ -24,12 +24,8 @@ setup(
         "tensorboard",
         "torch>=1.7.1",  # torch==1.7.1+cu101
         "pytorch-lightning>=1.3.8",
-        "numba>=0.52.0",
-        "lightfm>=1.16",
+        "numba>=0.52.0",  # !pip install --no-cache-dir --ignore-installed -U numba  # optional fix for numba error
         "pyarrow>=0.13.0",
-        "tick>=0.6",
-        "dgl" if get_cuda_version() is None else "dgl-cu{}{}".format(*get_cuda_version()),
-        # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu -y
         "transformers>=4.12.2",  # optional for zero_shot models
         "seaborn>=0.11.1",
         "scipy>=0.19",
@@ -41,4 +37,13 @@ setup(
         "pytest",
         "backports.cached_property",
     ],
+
+    extras_require={
+        'full': [
+            "lightfm>=1.16",
+            "tick>=0.6",
+            "dgl" if get_cuda_version() is None else "dgl-cu{}{}".format(*get_cuda_version()),
+            # "implicit>=0.4.4", # conda install -c conda-forge implicit implicit-proc=*=gpu -y
+        ]
+    }
 )

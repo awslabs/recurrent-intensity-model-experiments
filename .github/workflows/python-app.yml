@@ -32,7 +32,7 @@ jobs:
         pip install implicit  # conda install implicit-proc=*=gpu  # for gpu access
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip freeze
-        pip install -e .
+        pip install -e .[full]
     - name: Pip freeze
       run: |
         pip freeze
